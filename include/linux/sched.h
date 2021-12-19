@@ -551,10 +551,21 @@ struct sched_statistics {
 #endif
 };
 
+struct bs_node {
+	struct bs_node* 		next;
+	struct bs_node* 		prev;
+	u64       waiting_since;
+	u64       burst_time;
+	u64       greed_score;
+	bool      preempt_postponed;
+	bool			yield_flag;
+};
+
 struct sched_entity {
 	/* For load-balancing: */
 	struct load_weight		load;
 	struct rb_node			run_node;
+	struct bs_node		bs_node;
 	struct list_head		group_node;
 	unsigned int			on_rq;
 
