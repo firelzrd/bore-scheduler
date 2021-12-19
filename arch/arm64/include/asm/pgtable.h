@@ -1002,7 +1002,7 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 static inline bool arch_has_hw_pte_young(bool local)
 {
 	if (local) {
-		WARN_ON(preemptible());
+		WARN_ON(is_migratable());
 		return cpu_has_hw_af();
 	}
 
