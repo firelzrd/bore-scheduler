@@ -6682,6 +6682,13 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	 */
 	lockdep_assert_held(&p->pi_lock);
 
+	if (sched_energy_enabled()) {
+		new_cpu = find_energy_efficient_cpu(p, prev_cpu);
+		if (new_cpu >= 0)
+			return new_cpu;
+		new_cpu = prev_cpu;
+	}
+
 	rcu_read_lock();
 	for_each_domain(cpu, tmp) {
 		/*
