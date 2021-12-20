@@ -526,12 +526,28 @@ struct sched_statistics {
 #endif
 } ____cacheline_aligned;
 
+#ifdef CONFIG_BS_SCHED
+struct bs_node {
+	struct bs_node*                 next;
+	struct bs_node*                 prev;
+	u64       waiting_since;
+	u64       burst_time;
+	u64       greed_score;
+	bool      preempt_postponed;
+	bool      yield_flag;
+};
+#endif
+
 struct sched_entity {
 	/* For load-balancing: */
 	struct load_weight		load;
 	struct rb_node			run_node;
 	struct list_head		group_node;
 	unsigned int			on_rq;
+
+#ifdef CONFIG_BS_SCHED
+	struct bs_node                  bs_node;
+#endif
 
 	u64				exec_start;
 	u64				sum_exec_runtime;

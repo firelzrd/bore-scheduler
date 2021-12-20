@@ -587,6 +587,7 @@ endmenu
 
 config DEBUG_KERNEL
 	bool "Kernel debugging"
+	depends on !BS_SCHED
 	help
 	  Say Y here if you are developing drivers or trying to debug and
 	  identify kernel problems.

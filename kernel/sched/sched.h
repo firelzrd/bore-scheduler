@@ -554,9 +554,13 @@ struct cfs_rq {
 	 * It is set to NULL otherwise (i.e when none are currently running).
 	 */
 	struct sched_entity	*curr;
+#ifdef CONFIG_BS_SCHED
+	struct bs_node		*head;
+#else
 	struct sched_entity	*next;
 	struct sched_entity	*last;
 	struct sched_entity	*skip;
+#endif /** CONFIG_BS_SCHED */
 
 #ifdef	CONFIG_SCHED_DEBUG
 	unsigned int		nr_spread_over;
@@ -2289,6 +2293,9 @@ extern void schedule_idle(void);
 
 extern void sysrq_sched_debug_show(void);
 extern void sched_init_granularity(void);
+#ifdef CONFIG_BS_SCHED
+extern void sched_init_bs_sched(void);
+#endif
 extern void update_max_interval(void);
 
 extern void init_sched_dl_class(void);

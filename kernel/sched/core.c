@@ -9274,6 +9274,11 @@ void __init sched_init(void)
 
 	wait_bit_init();
 
+#ifdef CONFIG_BS_SCHED
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 16 by Masahito Suzuki, based on Baby scheduler by Hamad Al Marri.");
+	sched_init_bs_sched();
+#endif
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	ptr += 2 * nr_cpu_ids * sizeof(void **);
 #endif
