@@ -1,26 +1,31 @@
-diff -uprN a/include/linux/sched/sysctl.h b/include/linux/sched/sysctl.h
---- a/include/linux/sched/sysctl.h	2021-12-08 23:56:19.000000000 +0900
-+++ b/include/linux/sched/sysctl.h	2021-12-14 20:15:39.079579331 +0900
-@@ -28,6 +28,16 @@ enum { sysctl_hung_task_timeout_secs = 0
- 
- extern unsigned int sysctl_sched_child_runs_first;
- 
-+#ifdef CONFIG_BS_SCHED
-+extern unsigned int sysctl_sched_tick_preempt_threshold_ns;
-+extern unsigned int sysctl_sched_wakeup_preempt_threshold_ns;
-+extern unsigned int sysctl_sched_greedy_task_aggressiveness;
-+
-+int sched_proc_update_handler(struct ctl_table *table, int write,
-+		void __user *buffer, size_t *length,
-+		loff_t *ppos);
-+#endif
-+
- enum sched_tunable_scaling {
- 	SCHED_TUNABLESCALING_NONE,
- 	SCHED_TUNABLESCALING_LOG,
-diff -uprN a/include/linux/sched.h b/include/linux/sched.h
---- a/include/linux/sched.h	2021-12-08 23:56:19.000000000 +0900
-+++ b/include/linux/sched.h	2021-12-14 18:15:45.642100943 +0900
+From 11ee3663806972a10481bdc6ff7f49dedacd2843 Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Sun, 19 Dec 2021 23:55:31 +0900
+Subject: [PATCH] bore16-baby
+
+---
+ include/linux/sched.h        |   16 +
+ include/linux/sched/sysctl.h |    9 +
+ init/Kconfig                 |   14 +
+ kernel/Kconfig.preempt       |    1 +
+ kernel/sched/Makefile        |    2 +-
+ kernel/sched/bs.c            |  813 ++++++++++++++
+ kernel/sched/bs.h            |  154 +++
+ kernel/sched/core.c          |    5 +
+ kernel/sched/fair_numa.h     | 1968 ++++++++++++++++++++++++++++++++++
+ kernel/sched/sched.h         |    7 +
+ kernel/sysctl.c              |   21 +
+ kernel/time/Kconfig          |    6 +-
+ lib/Kconfig.debug            |    1 +
+ 13 files changed, 3015 insertions(+), 2 deletions(-)
+ create mode 100644 kernel/sched/bs.c
+ create mode 100644 kernel/sched/bs.h
+ create mode 100644 kernel/sched/fair_numa.h
+
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 57cd78ced..32a45f777 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
 @@ -551,6 +551,18 @@ struct sched_statistics {
  #endif
  };
@@ -51,9 +56,30 @@ diff -uprN a/include/linux/sched.h b/include/linux/sched.h
  	u64				exec_start;
  	u64				sum_exec_runtime;
  	u64				vruntime;
-diff -uprN a/init/Kconfig b/init/Kconfig
---- a/init/Kconfig	2021-12-08 23:56:19.000000000 +0900
-+++ b/init/Kconfig	2021-12-14 17:52:32.460385907 +0900
+diff --git a/include/linux/sched/sysctl.h b/include/linux/sched/sysctl.h
+index 304f43117..ea0be364b 100644
+--- a/include/linux/sched/sysctl.h
++++ b/include/linux/sched/sysctl.h
+@@ -28,6 +28,15 @@ enum { sysctl_hung_task_timeout_secs = 0 };
+ 
+ extern unsigned int sysctl_sched_child_runs_first;
+ 
++#ifdef CONFIG_BS_SCHED
++extern unsigned int sysctl_sched_timeslice_factor;
++extern unsigned int sysctl_sched_min_timeslice_factor;
++
++int sched_proc_update_handler(struct ctl_table *table, int write,
++		void __user *buffer, size_t *length,
++		loff_t *ppos);
++#endif
++
+ enum sched_tunable_scaling {
+ 	SCHED_TUNABLESCALING_NONE,
+ 	SCHED_TUNABLESCALING_LOG,
+diff --git a/init/Kconfig b/init/Kconfig
+index f30d7a853..0f93b429d 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
 @@ -105,6 +105,15 @@ config THREAD_INFO_IN_TASK
  	  One subtle change that will be needed is to use try_get_task_stack()
  	  and put_task_stack() in save_thread_stack_tsk() and get_wchan().
@@ -103,9 +129,10 @@ diff -uprN a/init/Kconfig b/init/Kconfig
  	select DEBUG_KERNEL
  	help
  	  This option allows certain base kernel options and settings
-diff -uprN a/kernel/Kconfig.preempt b/kernel/Kconfig.preempt
---- a/kernel/Kconfig.preempt	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/Kconfig.preempt	2021-12-14 17:52:32.460385907 +0900
+diff --git a/kernel/Kconfig.preempt b/kernel/Kconfig.preempt
+index 5876e30c5..890aee9ab 100644
+--- a/kernel/Kconfig.preempt
++++ b/kernel/Kconfig.preempt
 @@ -103,6 +103,7 @@ config PREEMPT_DYNAMIC
  config SCHED_CORE
  	bool "Core Scheduling for SMT"
@@ -114,10 +141,11 @@ diff -uprN a/kernel/Kconfig.preempt b/kernel/Kconfig.preempt
  	help
  	  This option permits Core Scheduling, a means of coordinated task
  	  selection across SMT siblings. When enabled -- see
-diff -uprN a/kernel/sched/Makefile b/kernel/sched/Makefile
---- a/kernel/sched/Makefile	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/sched/Makefile	2021-12-14 17:52:32.460385907 +0900
-@@ -23,7 +23,7 @@ CFLAGS_core.o := $(PROFILING) -fno-omit-
+diff --git a/kernel/sched/Makefile b/kernel/sched/Makefile
+index 978fcfca5..464b134de 100644
+--- a/kernel/sched/Makefile
++++ b/kernel/sched/Makefile
+@@ -23,7 +23,7 @@ CFLAGS_core.o := $(PROFILING) -fno-omit-frame-pointer
  endif
  
  obj-y += core.o loadavg.o clock.o cputime.o
@@ -126,10 +154,12 @@ diff -uprN a/kernel/sched/Makefile b/kernel/sched/Makefile
  obj-y += wait.o wait_bit.o swait.o completion.o
  
  obj-$(CONFIG_SMP) += cpupri.o cpudeadline.o topology.o stop_task.o pelt.o
-diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
---- a/kernel/sched/bs.c	1970-01-01 09:00:00.000000000 +0900
-+++ b/kernel/sched/bs.c	2021-12-14 20:34:00.838194269 +0900
-@@ -0,0 +1,810 @@
+diff --git a/kernel/sched/bs.c b/kernel/sched/bs.c
+new file mode 100644
+index 000000000..151452761
+--- /dev/null
++++ b/kernel/sched/bs.c
+@@ -0,0 +1,813 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Burst-Oriented Response Enhancer (BORE) CPU Scheduler
@@ -144,18 +174,17 @@ diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
 +#define BS_SCHED_MIN_SCORE 0
 +#define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
 +
-+unsigned int __read_mostly sysctl_sched_tick_preempt_threshold_ns    =  100000;
-+unsigned int __read_mostly sysctl_sched_wakeup_preempt_threshold_ns  =   10000;
-+unsigned int __read_mostly sysctl_sched_greedy_task_aggressiveness   =       5;
++unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000;
++unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000;
++unsigned int __read_mostly sched_tick_timeslice_factor;
 +
 +void bs_sched_update_internals(void)
 +{
++	sched_tick_timeslice_factor = max(sysctl_sched_timeslice_factor,
++	                                  sysctl_sched_min_timeslice_factor);
 +}
 +
-+void __init sched_init_bs_sched(void)
-+{
-+	bs_sched_update_internals();
-+}
++void __init sched_init_bs_sched(void) {bs_sched_update_internals();}
 +
 +int sched_proc_update_handler(struct ctl_table *table, int write,
 +		void __user *buffer, size_t *lenp,
@@ -201,23 +230,26 @@ diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
 +{
 +	struct sched_entity *se = se_of(bsn);
 +	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-+	u64 wait_factor, burst_score, greed_score, power, resist;
++	u64 time_factor, burst_score, greed_score, power, resist;
 +	
 +	if(se == cfs_rq->curr) {
 +		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
-+		wait_factor = wakeup ? sysctl_sched_wakeup_preempt_threshold_ns
-+		                     : sysctl_sched_tick_preempt_threshold_ns;
++		if(wakeup)
++			time_factor = max(
++				sysctl_sched_timeslice_factor / (cfs_rq->nr_running - 1 || 1),
++				sysctl_sched_min_timeslice_factor);
++		else
++			time_factor = sched_tick_timeslice_factor;
 +	} else {
-+		wait_factor = now - bsn->waiting_since;
-+		if(unlikely(wait_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
++		time_factor = now - bsn->waiting_since;
++		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
 +	}
-+	power = wait_factor * scale_load_down(se->load.weight) << 7;
++	power = time_factor * scale_load_down(se->load.weight) << 7;
 +	
 +	greed_score = bsn->greed_score;
-+	burst_score = bsn->burst_time +
-+		// if the task has given up cputime at least once before, then add greed_score,
-+		// if the task has never given up cputime, then add bust_time on the resist.
-+		((greed_score || bsn->burst_time) >> sysctl_sched_greedy_task_aggressiveness);
++	// if the task has given up cputime at least once before, then add greed_score,
++	// if the task has never given up cputime, then add bust_time on the resist.
++	burst_score = bsn->burst_time + (greed_score || bsn->burst_time);
 +	resist = min(burst_score, BS_SCHED_MAX_TIME) + 1;
 +
 +	return power / resist + 1;
@@ -354,7 +386,6 @@ diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
 +	struct task_struct *curr = rq->curr;
 +	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 +
-+	curr->se.bs_node.yield_flag = true;
 +	reduce_burst_time(&curr->se.bs_node);
 +	
 +	/*
@@ -363,6 +394,8 @@ diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
 +	if (unlikely(rq->nr_running == 1))
 +		return;
 +
++	curr->se.bs_node.yield_flag = true;
++	
 +	if (curr->policy != SCHED_BATCH) {
 +		update_rq_clock(rq);
 +		/*
@@ -940,9 +973,11 @@ diff -uprN a/kernel/sched/bs.c b/kernel/sched/bs.c
 +
 +	.update_curr		= update_curr_fair,
 +};
-diff -uprN a/kernel/sched/bs.h b/kernel/sched/bs.h
---- a/kernel/sched/bs.h	1970-01-01 09:00:00.000000000 +0900
-+++ b/kernel/sched/bs.h	2021-12-14 17:52:32.496384627 +0900
+diff --git a/kernel/sched/bs.h b/kernel/sched/bs.h
+new file mode 100644
+index 000000000..8e519e12a
+--- /dev/null
++++ b/kernel/sched/bs.h
 @@ -0,0 +1,154 @@
 +
 +/*
@@ -1098,24 +1133,27 @@ diff -uprN a/kernel/sched/bs.h b/kernel/sched/bs.h
 +{
 +	return 0;
 +}
-diff -uprN a/kernel/sched/core.c b/kernel/sched/core.c
---- a/kernel/sched/core.c	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/sched/core.c	2021-12-14 17:52:32.496384627 +0900
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 7015a1b7a..54e43281b 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
 @@ -9299,6 +9299,11 @@ void __init sched_init(void)
  
  	wait_bit_init();
  
 +#ifdef CONFIG_BS_SCHED
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 13 by Masahito Suzuki, based on Baby scheduler by Hamad Al Marri.");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 16 by Masahito Suzuki, based on Baby scheduler by Hamad Al Marri.");
 +	sched_init_bs_sched();
 +#endif
 +
  #ifdef CONFIG_FAIR_GROUP_SCHED
  	ptr += 2 * nr_cpu_ids * sizeof(void **);
  #endif
-diff -uprN a/kernel/sched/fair_numa.h b/kernel/sched/fair_numa.h
---- a/kernel/sched/fair_numa.h	1970-01-01 09:00:00.000000000 +0900
-+++ b/kernel/sched/fair_numa.h	2021-12-14 17:52:32.500384485 +0900
+diff --git a/kernel/sched/fair_numa.h b/kernel/sched/fair_numa.h
+new file mode 100644
+index 000000000..a564478ec
+--- /dev/null
++++ b/kernel/sched/fair_numa.h
 @@ -0,0 +1,1968 @@
 +
 +#ifdef CONFIG_NUMA_BALANCING
@@ -3085,9 +3123,10 @@ diff -uprN a/kernel/sched/fair_numa.h b/kernel/sched/fair_numa.h
 +static void task_tick_numa(struct rq *rq, struct task_struct *curr) {}
 +#endif /** CONFIG_NUMA_BALANCING */
 +
-diff -uprN a/kernel/sched/sched.h b/kernel/sched/sched.h
---- a/kernel/sched/sched.h	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/sched/sched.h	2021-12-14 17:52:32.502384414 +0900
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 4f4328269..453a262d3 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
 @@ -551,9 +551,13 @@ struct cfs_rq {
  	 * It is set to NULL otherwise (i.e when none are currently running).
  	 */
@@ -3112,9 +3151,10 @@ diff -uprN a/kernel/sched/sched.h b/kernel/sched/sched.h
  extern void update_max_interval(void);
  
  extern void init_sched_dl_class(void);
-diff -uprN a/kernel/sysctl.c b/kernel/sysctl.c
---- a/kernel/sysctl.c	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/sysctl.c	2021-12-14 20:15:32.533473964 +0900
+diff --git a/kernel/sysctl.c b/kernel/sysctl.c
+index fb4bc63f6..fee989b0b 100644
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
 @@ -119,6 +119,7 @@ static int __maybe_unused four = 4;
  static unsigned long zero_ul;
  static unsigned long one_ul = 1;
@@ -3123,45 +3163,37 @@ diff -uprN a/kernel/sysctl.c b/kernel/sysctl.c
  static int one_hundred = 100;
  static int two_hundred = 200;
  static int one_thousand = 1000;
-@@ -1800,6 +1801,35 @@ static struct ctl_table kern_table[] = {
+@@ -1800,6 +1801,26 @@ static struct ctl_table kern_table[] = {
  		.mode		= 0644,
  		.proc_handler	= proc_dointvec,
  	},
 +#ifdef CONFIG_BS_SCHED
 +	{
-+		.procname	= "sched_tick_preempt_threshold_ns",
-+		.data		= &sysctl_sched_tick_preempt_threshold_ns,
++		.procname	= "sched_timeslice_factor",
++		.data		= &sysctl_sched_timeslice_factor,
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
-+		.proc_handler	= &proc_dointvec_minmax,
++		.proc_handler	= &sched_proc_update_handler,
 +		.extra1		= SYSCTL_ZERO,
 +		.extra2		= SYSCTL_INT_MAX,
 +	},
 +	{
-+		.procname	= "sched_wakeup_preempt_threshold_ns",
-+		.data		= &sysctl_sched_wakeup_preempt_threshold_ns,
++		.procname	= "sched_min_timeslice_factor",
++		.data		= &sysctl_sched_min_timeslice_factor,
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
-+		.proc_handler	= &proc_dointvec_minmax,
++		.proc_handler	= &sched_proc_update_handler,
 +		.extra1		= SYSCTL_ZERO,
 +		.extra2		= SYSCTL_INT_MAX,
-+	},
-+	{
-+		.procname	= "sched_greedy_task_aggressiveness",
-+		.data		= &sysctl_sched_greedy_task_aggressiveness,
-+		.maxlen		= sizeof(unsigned int),
-+		.mode		= 0644,
-+		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
-+		.extra2		= &nine,
 +	},
 +#endif
  #ifdef CONFIG_SCHEDSTATS
  	{
  		.procname	= "sched_schedstats",
-diff -uprN a/kernel/time/Kconfig b/kernel/time/Kconfig
---- a/kernel/time/Kconfig	2021-12-08 23:56:19.000000000 +0900
-+++ b/kernel/time/Kconfig	2021-12-14 17:52:32.502384414 +0900
+diff --git a/kernel/time/Kconfig b/kernel/time/Kconfig
+index 04bfd62f5..fac3f528b 100644
+--- a/kernel/time/Kconfig
++++ b/kernel/time/Kconfig
 @@ -88,7 +88,7 @@ config NO_HZ_COMMON
  
  choice
@@ -3196,9 +3228,10 @@ diff -uprN a/kernel/time/Kconfig b/kernel/time/Kconfig
  	help
  	  This is the old config entry that enables dynticks idle.
  	  We keep it around for a little while to enforce backward
-diff -uprN a/lib/Kconfig.debug b/lib/Kconfig.debug
---- a/lib/Kconfig.debug	2021-12-08 23:56:19.000000000 +0900
-+++ b/lib/Kconfig.debug	2021-12-14 17:52:32.504384343 +0900
+diff --git a/lib/Kconfig.debug b/lib/Kconfig.debug
+index 9a715220c..f1b3917d0 100644
+--- a/lib/Kconfig.debug
++++ b/lib/Kconfig.debug
 @@ -585,6 +585,7 @@ endmenu
  
  config DEBUG_KERNEL
@@ -3207,3 +3240,6 @@ diff -uprN a/lib/Kconfig.debug b/lib/Kconfig.debug
  	help
  	  Say Y here if you are developing drivers or trying to debug and
  	  identify kernel problems.
+-- 
+2.30.2
+
