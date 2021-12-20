@@ -8121,7 +8121,6 @@ static void do_sched_yield(void)
 	struct rq *rq;
 
 	struct task_struct *curr = current;
-	struct bs_node *cn = &curr->se.bs_node;
 
 	rq = this_rq_lock_irq(&rf);
 

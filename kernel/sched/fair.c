@@ -6608,8 +6608,9 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 	now = sched_clock();
 	// if the task is waking up too soon, then give it some penalty
-	se->bs_node.throttle_score = (se->bs_node.throttle_score +
-		max((s64)sysctl_sched_wakeup_throttle_ns - (now - se->exec_start), 0)) >> 1;
+	se->bs_node.throttle_score =
+		(se->bs_node.throttle_score + sysctl_sched_wakeup_throttle_ns -
+			min(now - se->exec_start, (u64)sysctl_sched_wakeup_throttle_ns)) >> 1;
 
 	update_curr(cfs_rq_of(se));
 	if (!entity_before(now, &se->bs_node, &pse->bs_node, true))
