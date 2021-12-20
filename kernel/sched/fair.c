@@ -35,6 +35,7 @@
 
 unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000;
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000;
+unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns        = 100000;
 
 void bs_sched_update_internals(void)
 {
@@ -549,7 +550,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 {
 	struct sched_entity *se = se_of(bsn);
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u64 time_factor, burst_score, greed_score, power, resist;
+	u64 time_factor, power, resist;
 	
 	if(se == cfs_rq->curr) {
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
@@ -565,12 +566,11 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 	}
 	power = time_factor * scale_load_down(se->load.weight) << 7;
 	
-	greed_score = bsn->greed_score;
 	// if the task has given up cputime at least once before, then add greed_score,
 	// if the task has never given up cputime, then add bust_time on the resist.
-	burst_score = bsn->burst_time + (greed_score || bsn->burst_time);
-
-	resist = min(burst_score, BS_SCHED_MAX_TIME) + 1;
+	resist = min(
+		bsn->burst_time + (bsn->greed_score || bsn->burst_time) + (bsn->throttle_score << 1),
+		BS_SCHED_MAX_TIME) + 1;
 
 	return power / resist + 1;
 }
@@ -590,11 +590,10 @@ entity_before(u64 now, struct bs_node *a, struct bs_node *b, bool wakeup)
 static inline void reduce_burst_time(struct bs_node *bsn)
 {
 	u64 burst_score = min(bsn->burst_time, BS_SCHED_MAX_TIME);
-	u64 greed_score = bsn->greed_score;
 	bsn->burst_time = 0;
-	if(greed_score)
+	if(bsn->greed_score)
 		// the task has given up cputime at least once before
-		bsn->greed_score = (greed_score + burst_score) >> 1 || 1;
+		bsn->greed_score = (bsn->greed_score + burst_score) >> 1 || 1;
 	else
 		// the first time the task is giving up cputime
 		bsn->greed_score = burst_score;
@@ -6550,6 +6549,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	struct task_struct *curr = rq->curr;
 	struct sched_entity *se = &curr->se, *pse = &p->se;
 	int cse_is_idle, pse_is_idle;
+	u64 now;
 
 	if (unlikely(se == pse))
 		return;
@@ -6603,9 +6603,16 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (cse_is_idle != pse_is_idle)
 		return;
 
+	now = sched_clock();
+	// if the task is waking up too soon, then give it some penalty
+	se->bs_node.throttle_score = (se->bs_node.throttle_score +
+		max((s64)sysctl_sched_wakeup_throttle_ns - (now - se->exec_start), 0)) >> 1;
+
 	update_curr(cfs_rq_of(se));
-	if (!entity_before(sched_clock(), &se->bs_node, &pse->bs_node, true))
+	if (!entity_before(now, &se->bs_node, &pse->bs_node, true))
 		goto preempt;
+
+	pse->bs_node.preempt_postponed = true;
 
 	return;
 
