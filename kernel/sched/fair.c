@@ -35,7 +35,7 @@
 
 unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000;
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000;
-unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns        = 100000;
+unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns        =  10000;
 
 void bs_sched_update_internals(void)
 {
@@ -569,7 +569,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 	// if the task has given up cputime at least once before, then add greed_score,
 	// if the task has never given up cputime, then add bust_time on the resist.
 	resist = min(
-		bsn->burst_time + (bsn->greed_score || bsn->burst_time) + (bsn->throttle_score << 1),
+		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
 		BS_SCHED_MAX_TIME) + 1;
 
 	return power / resist + 1;
@@ -590,13 +590,23 @@ entity_before(u64 now, struct bs_node *a, struct bs_node *b, bool wakeup)
 static inline void reduce_burst_time(struct bs_node *bsn)
 {
 	u64 burst_score = min(bsn->burst_time, BS_SCHED_MAX_TIME);
-	bsn->burst_time = 0;
+	u64 diff_last, new_burst_time;
+	u64 now = sched_clock();
+
+	diff_last = now - bsn->reduced_at;
+	if(diff_last < sysctl_sched_wakeup_throttle_ns)
+		new_burst_time = burst_score + sysctl_sched_wakeup_throttle_ns - diff_last;
+		//new_burst_time = burst_score - 
+		//	((burst_score * ((diff_last << 24) / sysctl_sched_wakeup_throttle_ns)) >> 24);
+	bsn->burst_time = new_burst_time;
+	bsn->reduced_at = now;
+
 	if(bsn->greed_score)
 		// the task has given up cputime at least once before
-		bsn->greed_score = (bsn->greed_score + burst_score) >> 1 || 1;
+		bsn->greed_score = (bsn->greed_score + new_burst_time) >> 1 || 1;
 	else
 		// the first time the task is giving up cputime
-		bsn->greed_score = burst_score;
+		bsn->greed_score = new_burst_time;
 }
 
 /*
@@ -6607,10 +6617,6 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 		return;
 
 	now = sched_clock();
-	// if the task is waking up too soon, then give it some penalty
-	se->bs_node.throttle_score =
-		(se->bs_node.throttle_score + sysctl_sched_wakeup_throttle_ns -
-			min(now - se->exec_start, (u64)sysctl_sched_wakeup_throttle_ns)) >> 1;
 
 	update_curr(cfs_rq_of(se));
 	if (!entity_before(now, &se->bs_node, &pse->bs_node, true))

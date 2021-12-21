@@ -4193,7 +4193,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.vruntime			= 0;
 
 	p->se.bs_node.greed_score = 0;
-	p->se.bs_node.throttle_score = 0;
+	p->se.bs_node.reduced_at = 0;
 	p->se.bs_node.burst_time = 0;
 
 	INIT_LIST_HEAD(&p->se.group_node);
