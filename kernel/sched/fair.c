@@ -604,8 +604,6 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 	diff_last = now - bsn->reduced_at;
 	if(diff_last < sysctl_sched_wakeup_throttle_ns)
 		new_burst_time = burst_score + sysctl_sched_wakeup_throttle_ns - diff_last;
-		//new_burst_time = burst_score - 
-		//	((burst_score * ((diff_last << 24) / sysctl_sched_wakeup_throttle_ns)) >> 24);
 	bsn->burst_time = new_burst_time;
 	bsn->reduced_at = now;
 
