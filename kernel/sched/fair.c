@@ -35,7 +35,6 @@
 
 unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000;
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000;
-unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns        =  10000;
 
 void bs_sched_update_internals(void)
 {
@@ -602,8 +601,8 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 	u64 now = sched_clock();
 
 	diff_last = now - bsn->reduced_at;
-	if(diff_last < sysctl_sched_wakeup_throttle_ns)
-		new_burst_time = burst_score + sysctl_sched_wakeup_throttle_ns - diff_last;
+	if(diff_last < sysctl_sched_timeslice_factor)
+		new_burst_time = burst_score + sysctl_sched_timeslice_factor - diff_last;
 	bsn->burst_time = new_burst_time;
 	bsn->reduced_at = now;
 
