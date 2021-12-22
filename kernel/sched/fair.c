@@ -549,8 +549,9 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 {
 	struct sched_entity *se = se_of(bsn);
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u64 time_factor, power, resist;
+	u64 time_factor, weight, power, resist;
 	
+	weight = scale_load_down(se->load.weight);
 	if(se == cfs_rq->curr) {
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
 		if(wakeup)
@@ -559,11 +560,12 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 				sysctl_sched_min_timeslice_factor);
 		else
 			time_factor = sysctl_sched_timeslice_factor;
+		power = time_factor * (weight * weight >> 9);
 	} else {
 		time_factor = now - bsn->waiting_since;
 		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
+		power = time_factor * (weight << 1);
 	}
-	power = time_factor * scale_load_down(se->load.weight) << 7;
 	
 	// if the task has given up cputime at least once before, then add greed_score,
 	// if the task has never given up cputime, then add bust_time on the resist.
