@@ -33,8 +33,10 @@
 #define BS_SCHED_MIN_SCORE 0
 #define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
 
-unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000;
-unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000;
+unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
+unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  10000; // timeslice factor won't be lower than 10,000
+unsigned int __read_mostly sysctl_sched_wakeup_flood_threshold_ns = 200000; // wakeups more frequent than 200,000ns will be punished
+unsigned int __read_mostly sysctl_sched_burst_precision_reducer   =     10; // resist increases with every 2^10(=1024)ns of burst
 
 void bs_sched_update_internals(void)
 {
@@ -569,7 +571,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 	// if the task has never given up cputime, then add bust_time on the resist.
 	resist = (min(
 		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
-		BS_SCHED_MAX_TIME) >> 15) + 1;
+		BS_SCHED_MAX_TIME) >> sysctl_sched_burst_precision_reducer) + 1;
 
 	return power / resist + 1;
 }
@@ -593,8 +595,8 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 	u64 now = sched_clock();
 
 	diff_last = now - bsn->reduced_at;
-	if(diff_last < sysctl_sched_timeslice_factor)
-		new_burst_time = burst_score + sysctl_sched_timeslice_factor - diff_last;
+	if(diff_last < sysctl_sched_wakeup_flood_threshold_ns)
+		new_burst_time = burst_score + sysctl_sched_wakeup_flood_threshold_ns - diff_last;
 	bsn->burst_time = new_burst_time;
 	bsn->reduced_at = now;
 
