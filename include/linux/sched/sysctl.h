@@ -28,6 +28,14 @@ enum { sysctl_hung_task_timeout_secs = 0 };
 
 extern unsigned int sysctl_sched_child_runs_first;
 
+extern unsigned int sysctl_sched_timeslice_factor;
+extern unsigned int sysctl_sched_min_timeslice_factor;
+extern unsigned int sysctl_sched_wakeup_flood_threshold_ns;
+extern unsigned int sysctl_sched_burst_precision_reducer;
+
+int sched_proc_update_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *length, loff_t *ppos);
+
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,
 	SCHED_TUNABLESCALING_LOG,
