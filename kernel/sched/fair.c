@@ -900,6 +900,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	if (unlikely((s64)delta_exec <= 0))
 		return;
 
+	curr->exec_start = now;
+	curr->bs_node.waiting_since = now;
+	curr->bs_node.burst_time += delta_exec;
+
 	if (schedstat_enabled()) {
 		struct sched_statistics *stats;
 
@@ -910,10 +914,6 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
-
-	curr->exec_start = now;
-	curr->bs_node.waiting_since = now;
-	curr->bs_node.burst_time += delta_exec;
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
