@@ -881,15 +881,15 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	if (unlikely((s64)delta_exec <= 0))
 		return;
 
+	curr->exec_start = now;
+	curr->bs_node.waiting_since = now;
+	curr->bs_node.burst_time += delta_exec;
+
 	schedstat_set(curr->statistics.exec_max,
 		      max(delta_exec, curr->statistics.exec_max));
 
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
-
-	curr->exec_start = now;
-	curr->bs_node.waiting_since = now;
-	curr->bs_node.burst_time += delta_exec;
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
