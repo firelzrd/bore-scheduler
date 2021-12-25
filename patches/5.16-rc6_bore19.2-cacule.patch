@@ -1,21 +1,7 @@
-From f0f35fda1bca218202a28f85155745b4ca8fc864 Mon Sep 17 00:00:00 2001
+From 923d49a73cf7997c42ea41aed523269e7cd12038 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sun, 26 Dec 2021 00:19:12 +0900
-Subject: [PATCH] fix: reduce_burst_time was wrongly calclulating burst_time
- and greed_score burst precision is now fixed again nice prio is now
- exponential again, with reworked precision raise default min timeslice factor
- finer default burst precision wakeup flood threshold is now independent
- sysctl from timeslice factor burst precision is now controllable in sysctl
- version number 18->19 code sanitization adjust precision for better overall
- performance: max_time-4/power+6/resist-15 currently running entity's
- timeslice is now calculated based on (load.weight)^2 instead of
- (load.weight), making saner nice priority in effect experimental sysctl
- "sched_wakeup_throttle_ns" removed, integrated into shed_timeslice_factor
- commented code cleanup rework frequent sleep/iowait/yield punishment fix:
- find_energy_efficient_cpu was wrongly removed fix: compile error fix:
- compile-time warning: unused variable 'cn' version number 16->17 too frequent
- wakeup preemptions are now punished fix: preempt_postponed flag never used
- since #14 code cleanup bore16-cacule
+Date: Sun, 26 Dec 2021 01:09:00 +0900
+Subject: [PATCH] 19.2
 
 ---
  include/linux/sched.h        |  12 +
@@ -179,7 +165,7 @@ index 7dcbaa31c..d2c5f6837 100644
  			cfs_rq->nr_spread_over);
  	SEQ_printf(m, "  .%-30s: %d\n", "nr_running", cfs_rq->nr_running);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 6e476f6d9..15585f5a9 100644
+index 6e476f6d9..f3df5513e 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,9 +19,43 @@
@@ -349,7 +335,7 @@ index 6e476f6d9..15585f5a9 100644
 +	diff_last = now - bsn->reduced_at;
 +	bsn->reduced_at = now;
 +	if(diff_last < sysctl_sched_wakeup_flood_threshold_ns) {
-+		bsn->greed_score += sysctl_sched_wakeup_flood_threshold_ns - diff_last;
++		bsn->burst_time += sysctl_sched_wakeup_flood_threshold_ns - diff_last;
 +		return;
  	}
 +	bsn->burst_time = 0;
