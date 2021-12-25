@@ -35,7 +35,7 @@
 
 unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  12500; // timeslice factor won't be lower than 12,500
-unsigned int __read_mostly sysctl_sched_wakeup_flood_threshold_ns = 200000; // wakeups more frequent than 200,000ns will be punished
+unsigned int __read_mostly sysctl_sched_wakeup_flood_threshold_ns =  70000; // wakeups more frequent than 200,000ns will be punished
 
 void bs_sched_update_internals(void)
 {
@@ -561,11 +561,9 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 				sysctl_sched_min_timeslice_factor);
 		else
 			time_factor = sysctl_sched_timeslice_factor;
-		//power = (time_factor >> 3) * (weight * weight >> 2);
 	} else {
 		time_factor = now - bsn->waiting_since;
 		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
-		//power = (time_factor >> 3) * (weight << 8);
 	}
 	power = (time_factor >> 3) * (weight * weight >> 2);
 	
