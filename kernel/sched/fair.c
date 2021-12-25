@@ -36,7 +36,6 @@
 unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  12500; // timeslice factor won't be lower than 12,500
 unsigned int __read_mostly sysctl_sched_wakeup_flood_threshold_ns = 200000; // wakeups more frequent than 200,000ns will be punished
-unsigned int __read_mostly sysctl_sched_burst_precision_reducer   =      4; // resist increases with every 2^4(=16)ns of burst
 
 void bs_sched_update_internals(void)
 {
@@ -551,8 +550,9 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 {
 	struct sched_entity *se = se_of(bsn);
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u64 time_factor, power, resist;
+	u64 weight, time_factor, power, resist;
 	
+	weight = scale_load_down(se->load.weight);
 	if(se == cfs_rq->curr) {
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
 		if(wakeup)
@@ -561,17 +561,19 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 				sysctl_sched_min_timeslice_factor);
 		else
 			time_factor = sysctl_sched_timeslice_factor;
+		//power = (time_factor >> 3) * (weight * weight >> 2);
 	} else {
 		time_factor = now - bsn->waiting_since;
 		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
+		//power = (time_factor >> 3) * (weight << 8);
 	}
-	power = time_factor * (scale_load_down(se->load.weight) << 11);
+	power = (time_factor >> 3) * (weight * weight >> 2);
 	
 	// if the task has given up cputime at least once before, then add greed_score,
 	// if the task has never given up cputime, then add bust_time on the resist.
 	resist = (min(
 		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
-		BS_SCHED_MAX_TIME) >> sysctl_sched_burst_precision_reducer) + 1;
+		BS_SCHED_MAX_TIME) >> 5) + 1;
 
 	return power / resist + 1;
 }
@@ -591,21 +593,23 @@ entity_before(u64 now, struct bs_node *a, struct bs_node *b, bool wakeup)
 static inline void reduce_burst_time(struct bs_node *bsn)
 {
 	u64 burst_score = min(bsn->burst_time, BS_SCHED_MAX_TIME);
-	u64 diff_last, new_burst_time;
+	u64 diff_last;
 	u64 now = sched_clock();
 
 	diff_last = now - bsn->reduced_at;
-	if(diff_last < sysctl_sched_wakeup_flood_threshold_ns)
-		new_burst_time = burst_score + sysctl_sched_wakeup_flood_threshold_ns - diff_last;
-	bsn->burst_time = new_burst_time;
 	bsn->reduced_at = now;
+	if(diff_last < sysctl_sched_wakeup_flood_threshold_ns) {
+		bsn->burst_time += sysctl_sched_wakeup_flood_threshold_ns - diff_last;
+		return;
+	}
+	bsn->burst_time = 0;
 
 	if(bsn->greed_score)
 		// the task has given up cputime at least once before
-		bsn->greed_score = (bsn->greed_score + new_burst_time) >> 1 || 1;
+		bsn->greed_score = (bsn->greed_score + burst_score) >> 1 || 1;
 	else
 		// the first time the task is giving up cputime
-		bsn->greed_score = new_burst_time;
+		bsn->greed_score = burst_score;
 }
 
 /*
