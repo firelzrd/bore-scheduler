@@ -552,7 +552,6 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	u64 weight, time_factor, power, resist;
 	
-	weight = scale_load_down(se->load.weight);
 	if(se == cfs_rq->curr) {
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
 		if(wakeup)
@@ -565,6 +564,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 		time_factor = now - bsn->waiting_since;
 		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
 	}
+	weight = scale_load_down(se->load.weight);
 	power = (time_factor >> 3) * (weight * weight >> 2);
 	
 	// if the task has given up cputime at least once before, then add greed_score,
