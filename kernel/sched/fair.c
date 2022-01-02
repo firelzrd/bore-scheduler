@@ -33,9 +33,9 @@
 #define BS_SCHED_MIN_SCORE 0
 #define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
 
-unsigned int __read_mostly sysctl_sched_timeslice_factor          = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
-unsigned int __read_mostly sysctl_sched_min_timeslice_factor      =  12500; // timeslice factor won't be lower than 12,500
-unsigned int __read_mostly sysctl_sched_wakeup_flood_threshold_ns =  70000; // wakeups more frequent than 200,000ns will be punished
+unsigned int __read_mostly sysctl_sched_timeslice_factor     = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
+unsigned int __read_mostly sysctl_sched_min_timeslice_factor =  12500; // timeslice factor won't be lower than 12,500
+unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns   =  70000; // wakeups more frequent than 70,000ns will be punished
 
 void bs_sched_update_internals(void)
 {
@@ -596,8 +596,8 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 
 	diff_last = now - bsn->reduced_at;
 	bsn->reduced_at = now;
-	if(diff_last < sysctl_sched_wakeup_flood_threshold_ns) {
-		bsn->burst_time += sysctl_sched_wakeup_flood_threshold_ns - diff_last;
+	if(diff_last < sysctl_sched_wakeup_throttle_ns) {
+		bsn->burst_time += sysctl_sched_wakeup_throttle_ns - diff_last;
 		return;
 	}
 	bsn->burst_time = 0;

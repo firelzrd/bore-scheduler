@@ -1820,8 +1820,8 @@ static struct ctl_table kern_table[] = {
 		.extra2		= SYSCTL_INT_MAX,
 	},
 	{
-		.procname	= "sched_wakeup_flood_threshold_ns",
-		.data		= &sysctl_sched_wakeup_flood_threshold_ns,
+		.procname	= "sched_wakeup_throttle_ns",
+		.data		= &sysctl_sched_wakeup_throttle_ns,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
