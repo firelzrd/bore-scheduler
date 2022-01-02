@@ -29,7 +29,7 @@
  */
 #include "sched.h"
 
-#define BS_SCHED_MAX_TIME  0x800000000ULL
+#define BS_SCHED_MAX_TIME  0xFFFFFFFFFULL
 #define BS_SCHED_MIN_SCORE 0
 #define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
 
@@ -562,7 +562,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 			time_factor = sysctl_sched_timeslice_factor;
 	} else {
 		time_factor = now - bsn->waiting_since;
-		if(unlikely(time_factor >= BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
+		if(unlikely(time_factor > BS_SCHED_MAX_TIME)) return BS_SCHED_MAX_SCORE;
 	}
 	weight = scale_load_down(se->load.weight);
 	power = (time_factor >> 3) * (weight * weight >> 2);
