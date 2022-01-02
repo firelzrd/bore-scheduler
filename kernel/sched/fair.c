@@ -564,7 +564,7 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
 		if(wakeup)
 			time_factor = max(
-				sysctl_sched_timeslice_factor / (cfs_rq->nr_running - 1 || 1),
+				sysctl_sched_timeslice_factor / ((cfs_rq->nr_running || 1) - 1 || 1),
 				sysctl_sched_min_timeslice_factor);
 		else
 			time_factor = sysctl_sched_timeslice_factor;
