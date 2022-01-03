@@ -7120,7 +7120,6 @@ static void yield_task_fair(struct rq *rq)
 {
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
-
 	struct sched_entity *se = &curr->se;
 	reduce_burst_time(&se->bs_node);
 
