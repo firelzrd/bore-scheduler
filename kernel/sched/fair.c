@@ -4302,7 +4302,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	account_entity_enqueue(cfs_rq, se);
 
 	check_schedstat_required();
-	update_stats_enqueue_fair(cfs_rq, se, flags);
+	update_stats_enqueue(cfs_rq, se, flags);
 	if (!curr)
 		__enqueue_entity(cfs_rq, se);
 	se->on_rq = 1;
