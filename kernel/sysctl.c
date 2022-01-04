@@ -119,7 +119,6 @@ static int __maybe_unused four = 4;
 static unsigned long zero_ul;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
-static int thirty_six = 36;
 static int one_hundred = 100;
 static int two_hundred = 200;
 static int one_thousand = 1000;
