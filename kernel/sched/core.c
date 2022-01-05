@@ -9293,7 +9293,7 @@ void __init sched_init(void)
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
 
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 20 by Masahito Suzuki, based on CacULE and Baby schedulers by Hamad Al Marri.");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 21 by Masahito Suzuki, based on CacULE and Baby schedulers by Hamad Al Marri.");
 	sched_init_bs_sched();
 
 	wait_bit_init();
