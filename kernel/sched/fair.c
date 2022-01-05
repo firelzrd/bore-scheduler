@@ -29,10 +29,6 @@
  */
 #include "sched.h"
 
-#define BS_SCHED_MAX_TIME  0xFFFFFFFFFULL
-#define BS_SCHED_MIN_SCORE 0
-#define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
-
 unsigned int __read_mostly sysctl_sched_timeslice_factor     = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor =  12500; // timeslice factor won't be lower than 12,500
 unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns   =  70000; // wakeups more frequent than 70,000ns will be punished
@@ -545,12 +541,21 @@ static int se_is_idle(struct sched_entity *se)
 static __always_inline
 void account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec);
 
+static inline void
+update_resist(struct bs_node *bsn)
+{
+	u64 resist = (min(
+		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
+		BS_SCHED_MAX_TIME) >> 5) + 1;
+	bsn->inv_resist = BS_SCHED_MAX_SCORE / resist;
+}
+
 static inline u64
 calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 {
 	struct sched_entity *se = se_of(bsn);
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u64 weight, time_factor, power, resist;
+	u64 weight, time_factor, power;
 	
 	if(se == cfs_rq->curr) {
 		if(unlikely(bsn->yield_flag)) return BS_SCHED_MIN_SCORE;
@@ -566,14 +571,8 @@ calc_score(u64 now, struct bs_node *bsn, bool wakeup)
 	}
 	weight = scale_load_down(se->load.weight);
 	power = (time_factor >> 3) * (weight * weight >> 2);
-	
-	// if the task has given up cputime at least once before, then add greed_score,
-	// if the task has never given up cputime, then add bust_time on the resist.
-	resist = (min(
-		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
-		BS_SCHED_MAX_TIME) >> 5) + 1;
 
-	return power / resist + 1;
+	return mul_u64_u64_shr(power, bsn->inv_resist, 64) + 1;
 }
 
 /*
@@ -598,7 +597,7 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 	bsn->reduced_at = now;
 	if(diff_last < sysctl_sched_wakeup_throttle_ns) {
 		bsn->burst_time += sysctl_sched_wakeup_throttle_ns - diff_last;
-		return;
+		goto update_resist;
 	}
 	bsn->burst_time = 0;
 
@@ -608,6 +607,9 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 	else
 		// the first time the task is giving up cputime
 		bsn->greed_score = burst_score;
+
+update_resist:
+	update_resist(bsn);
 }
 
 /*
@@ -888,6 +890,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->exec_start = now;
 	curr->bs_node.waiting_since = now;
 	curr->bs_node.burst_time += delta_exec;
+	update_resist(&curr->bs_node);
 
 	schedstat_set(curr->statistics.exec_max,
 		      max(delta_exec, curr->statistics.exec_max));
