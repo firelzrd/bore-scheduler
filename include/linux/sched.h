@@ -526,6 +526,10 @@ struct sched_statistics {
 #endif
 } ____cacheline_aligned;
 
+#define BS_SCHED_MAX_TIME  60000000000ULL // 36-bit
+#define BS_SCHED_MIN_SCORE 0
+#define BS_SCHED_MAX_SCORE 0xFFFFFFFFFFFFFFFFULL
+
 struct bs_node {
 	struct bs_node* 		next;
 	struct bs_node* 		prev;
@@ -533,6 +537,7 @@ struct bs_node {
 	u64       burst_time;
 	u64       greed_score;
 	u64				reduced_at;
+	u64       inv_resist;
 	bool      preempt_postponed;
 	bool			yield_flag;
 };
