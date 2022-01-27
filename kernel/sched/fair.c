@@ -31,7 +31,7 @@
 
 unsigned int __read_mostly sysctl_sched_timeslice_factor     = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor =  12500; // timeslice factor won't be lower than 12,500
-unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns   =  70000; // wakeups more frequent than 70,000ns will be punished
+unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns   =  30000; // wakeups more frequent than 30,000ns will be punished
 
 void bs_sched_update_internals(void)
 {
