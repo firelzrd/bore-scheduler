@@ -4269,6 +4269,12 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+
+	p->se.bs_node.greed_score = 0;
+	p->se.bs_node.reduced_at = 0;
+	p->se.bs_node.burst_time = 0;
+	p->se.bs_node.inv_resist = BS_SCHED_MAX_SCORE;
+	
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -5353,7 +5359,6 @@ static void sched_tick_remote(struct work_struct *work)
 	struct rq *rq = cpu_rq(cpu);
 	struct task_struct *curr;
 	struct rq_flags rf;
-	u64 delta;
 	int os;
 
 	/*
@@ -5373,14 +5378,6 @@ static void sched_tick_remote(struct work_struct *work)
 
 	update_rq_clock(rq);
 
-	if (!is_idle_task(curr)) {
-		/*
-		 * Make sure the next tick runs within a reasonable
-		 * amount of time.
-		 */
-		delta = rq_clock_task(rq) - curr->se.exec_start;
-		WARN_ON_ONCE(delta > (u64)NSEC_PER_SEC * 3);
-	}
 	curr->sched_class->task_tick(rq, curr, 0);
 
 	calc_load_nohz_remote(rq);
@@ -8178,6 +8175,8 @@ static void do_sched_yield(void)
 	struct rq_flags rf;
 	struct rq *rq;
 
+	struct task_struct *curr = current;
+
 	rq = this_rq_lock_irq(&rf);
 
 	schedstat_inc(rq->yld_count);
@@ -9352,6 +9351,9 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
+
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 21 by Masahito Suzuki, based on CacULE and Baby schedulers by Hamad Al Marri.");
+	sched_init_bs_sched();
 
 	wait_bit_init();
 
