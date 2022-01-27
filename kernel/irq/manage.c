@@ -1281,6 +1281,9 @@ static int irq_thread(void *data)
 		if (action_ret == IRQ_WAKE_THREAD)
 			irq_wake_secondary(desc, action);
 
+		if (IS_ENABLED(CONFIG_PREEMPT_RT))
+			process_interrupt_randomness();
+
 		wake_threads_waitq(desc);
 	}
 
