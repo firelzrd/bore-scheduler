@@ -4227,7 +4227,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.vruntime			= 0;
 
 	p->se.bs_node.greed_score = 0;
-	p->se.bs_node.reduced_at = 0;
+	p->se.bs_node.prev_wakeup_at = 0;
 	p->se.bs_node.burst_time = 0;
 	p->se.bs_node.inv_resist = BS_SCHED_MAX_SCORE;
 	
@@ -9273,7 +9273,7 @@ void __init sched_init(void)
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
 
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 21 by Masahito Suzuki, based on CacULE and Baby schedulers by Hamad Al Marri.");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 22 by Masahito Suzuki, based on CacULE and Baby schedulers by Hamad Al Marri.");
 	sched_init_bs_sched();
 
 	wait_bit_init();
