@@ -532,7 +532,7 @@ struct bs_node {
 	u64       waiting_since;
 	u64       burst_time;
 	u64       greed_score;
-	u64				reduced_at;
+	u64				prev_wakeup_at;
 	u64       inv_resist;
 	bool      preempt_postponed;
 	bool			yield_flag;

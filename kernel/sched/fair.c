@@ -32,6 +32,8 @@
 unsigned int __read_mostly sysctl_sched_timeslice_factor     = 200000; // up to 2 tasks on rq, timeslice factor is as high as 200,000
 unsigned int __read_mostly sysctl_sched_min_timeslice_factor =  12500; // timeslice factor won't be lower than 12,500
 unsigned int __read_mostly sysctl_sched_wakeup_throttle_ns   =  30000; // wakeups more frequent than 30,000ns will be punished
+unsigned int __read_mostly sysctl_sched_requeue_task_regain  =     32; // requeued task's burst time is divided by 2^32
+unsigned int __read_mostly sysctl_sched_yield_task_regain    =     16; // yielded task's burst time is divided by 2^16
 
 void bs_sched_update_internals(void)
 {
@@ -595,19 +597,10 @@ entity_before(u64 now, struct bs_node *a, struct bs_node *b, bool wakeup)
 	return score_a > score_b;
 }
 
-static inline void reduce_burst_time(struct bs_node *bsn)
+static inline void reduce_burst_time(struct bs_node *bsn, int reduction)
 {
 	u64 burst_score = min(bsn->burst_time, BS_SCHED_MAX_TIME);
-	u64 diff_last;
-	u64 now = sched_clock();
-
-	diff_last = now - bsn->reduced_at;
-	bsn->reduced_at = now;
-	if(diff_last < sysctl_sched_wakeup_throttle_ns) {
-		bsn->burst_time += sysctl_sched_wakeup_throttle_ns - diff_last;
-		goto update_resist;
-	}
-	bsn->burst_time = 0;
+	bsn->burst_time >>= reduction;
 
 	if(bsn->greed_score)
 		// the task has given up cputime at least once before
@@ -616,7 +609,6 @@ static inline void reduce_burst_time(struct bs_node *bsn)
 		// the first time the task is giving up cputime
 		bsn->greed_score = burst_score;
 
-update_resist:
 	update_resist(bsn);
 }
 
@@ -4272,8 +4264,6 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 */
 	update_curr(cfs_rq);
 
-	reduce_burst_time(&se->bs_node);
-
 	/*
 	 * When dequeuing a sched_entity, we must:
 	 *   - Update loads to have both entity and cfs_rq synced with now.
@@ -5427,6 +5417,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
+	u64 now, diff_last;
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -5444,9 +5435,20 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
+	now = sched_clock();
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
+
+		diff_last = now - se->bs_node.prev_wakeup_at;
+		se->bs_node.prev_wakeup_at = now;
+		if(diff_last < sysctl_sched_wakeup_throttle_ns) {
+			se->bs_node.burst_time += sysctl_sched_wakeup_throttle_ns - diff_last;
+			update_resist(&se->bs_node);
+		}
+		else
+			reduce_burst_time(&se->bs_node, sysctl_sched_requeue_task_regain);
+
 		cfs_rq = cfs_rq_of(se);
 		enqueue_entity(cfs_rq, se, flags);
 
@@ -7083,7 +7085,7 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
-	reduce_burst_time(&se->bs_node);
+	reduce_burst_time(&se->bs_node, sysctl_sched_yield_task_regain);
 
 	/*
 	 * Are we the only task in the tree?
