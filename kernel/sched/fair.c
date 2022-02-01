@@ -555,8 +555,9 @@ static inline void
 update_resist(struct bs_node *bsn)
 {
 	u64 resist = (min(
-		bsn->burst_time + (bsn->greed_score || bsn->burst_time),
-		BS_SCHED_MAX_TIME) >> 5) + 1;
+		bsn->burst_time + (bsn->greed_score ||
+		                   bsn->burst_time + (bsn->burst_time >> sysctl_sched_requeue_task_regain)
+		), BS_SCHED_MAX_TIME) >> 5) + 1;
 	bsn->inv_resist = BS_SCHED_MAX_SCORE / resist;
 }
 
