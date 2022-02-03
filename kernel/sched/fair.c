@@ -19,8 +19,13 @@
  *
  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
+ *
+ *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
+ *  Copyright (C) 2021 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include "sched.h"
+
+unsigned int __read_mostly sysctl_sched_burst_granularity = 8;
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -867,7 +872,12 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
-	curr->vruntime += calc_delta_fair(delta_exec, curr);
+	curr->burst_time += delta_exec;
+	curr->vruntime += mul_u64_u64_shr(
+		calc_delta_fair(delta_exec, curr),
+		(u64)sched_prio_to_wmult[min(fls(curr->burst_time >> sysctl_sched_burst_granularity), 39)],
+		16
+	);
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
@@ -5594,6 +5604,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
+		se->burst_time = 0;
 		cfs_rq = cfs_rq_of(se);
 		enqueue_entity(cfs_rq, se, flags);
 
@@ -7134,6 +7145,7 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
+	se->burst_time = 0;
 
 	/*
 	 * Are we the only task in the tree?
