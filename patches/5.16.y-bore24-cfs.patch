@@ -1,0 +1,141 @@
+From a06ff5f8bd41aa750dc21391a35dcb0e2bbeac5d Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Thu, 3 Feb 2022 11:35:30 +0900
+Subject: [PATCH] 5.16.y-bore24-cfs
+
+---
+ include/linux/sched.h        |  1 +
+ include/linux/sched/sysctl.h |  2 ++
+ kernel/sched/core.c          |  3 +++
+ kernel/sched/fair.c          | 14 +++++++++++++-
+ kernel/sysctl.c              | 10 ++++++++++
+ localversion                 |  1 -
+ 6 files changed, 29 insertions(+), 2 deletions(-)
+ delete mode 100644 localversion
+
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 69b35d61c..95755e6b8 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -536,6 +536,7 @@ struct sched_entity {
+ 	u64				exec_start;
+ 	u64				sum_exec_runtime;
+ 	u64				vruntime;
++	u64				burst_time;
+ 	u64				prev_sum_exec_runtime;
+ 
+ 	u64				nr_migrations;
+diff --git a/include/linux/sched/sysctl.h b/include/linux/sched/sysctl.h
+index 304f43117..7d6c0c97d 100644
+--- a/include/linux/sched/sysctl.h
++++ b/include/linux/sched/sysctl.h
+@@ -28,6 +28,8 @@ enum { sysctl_hung_task_timeout_secs = 0 };
+ 
+ extern unsigned int sysctl_sched_child_runs_first;
+ 
++extern unsigned int sysctl_sched_burst_granularity;
++
+ enum sched_tunable_scaling {
+ 	SCHED_TUNABLESCALING_NONE,
+ 	SCHED_TUNABLESCALING_LOG,
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 906516f39..2effa2523 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -4225,6 +4225,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
+ 	p->se.prev_sum_exec_runtime	= 0;
+ 	p->se.nr_migrations		= 0;
+ 	p->se.vruntime			= 0;
++	p->se.burst_time			= 0;
+ 	INIT_LIST_HEAD(&p->se.group_node);
+ 
+ #ifdef CONFIG_FAIR_GROUP_SCHED
+@@ -9274,6 +9275,8 @@ void __init sched_init(void)
+ 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
+ #endif
+ 
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 24 by Masahito Suzuki");
++
+ 	wait_bit_init();
+ 
+ #ifdef CONFIG_FAIR_GROUP_SCHED
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index a955216ee..4fbde0b3c 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -19,9 +19,14 @@
+  *
+  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
+  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
++ *
++ *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
++ *  Copyright (C) 2021 Masahito Suzuki <firelzrd@gmail.com>
+  */
+ #include "sched.h"
+ 
++unsigned int __read_mostly sysctl_sched_burst_granularity = 8;
++
+ /*
+  * Targeted preemption latency for CPU-bound tasks:
+  *
+@@ -867,7 +872,12 @@ static void update_curr(struct cfs_rq *cfs_rq)
+ 	curr->sum_exec_runtime += delta_exec;
+ 	schedstat_add(cfs_rq->exec_clock, delta_exec);
+ 
+-	curr->vruntime += calc_delta_fair(delta_exec, curr);
++	curr->burst_time += delta_exec;
++	curr->vruntime += mul_u64_u64_shr(
++		calc_delta_fair(delta_exec, curr),
++		(u64)sched_prio_to_wmult[min(fls(curr->burst_time >> sysctl_sched_burst_granularity), 39)],
++		16
++	);
+ 	update_min_vruntime(cfs_rq);
+ 
+ 	if (entity_is_task(curr)) {
+@@ -5584,6 +5594,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	for_each_sched_entity(se) {
+ 		if (se->on_rq)
+ 			break;
++		se->burst_time = 0;
+ 		cfs_rq = cfs_rq_of(se);
+ 		enqueue_entity(cfs_rq, se, flags);
+ 
+@@ -7124,6 +7135,7 @@ static void yield_task_fair(struct rq *rq)
+ 	struct task_struct *curr = rq->curr;
+ 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
+ 	struct sched_entity *se = &curr->se;
++	se->burst_time = 0;
+ 
+ 	/*
+ 	 * Are we the only task in the tree?
+diff --git a/kernel/sysctl.c b/kernel/sysctl.c
+index dc3c1ae9e..672f96e61 100644
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -119,6 +119,7 @@ static int __maybe_unused four = 4;
+ static unsigned long zero_ul;
+ static unsigned long one_ul = 1;
+ static unsigned long long_max = LONG_MAX;
++static int thirty_two = 32;
+ static int one_hundred = 100;
+ static int two_hundred = 200;
+ static int one_thousand = 1000;
+@@ -1782,6 +1783,15 @@ static struct ctl_table kern_table[] = {
+ 		.mode		= 0644,
+ 		.proc_handler	= proc_dointvec,
+ 	},
++	{
++		.procname	= "sched_burst_granularity",
++		.data		= &sysctl_sched_burst_granularity,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0644,
++		.proc_handler	= &proc_dointvec_minmax,
++		.extra1		= SYSCTL_ZERO,
++		.extra2		= &thirty_two,
++	},
+ #ifdef CONFIG_SCHEDSTATS
+ 	{
+ 		.procname	= "sched_schedstats",
+-- 
+2.30.2
+
