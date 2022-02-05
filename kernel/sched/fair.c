@@ -25,7 +25,7 @@
  */
 #include "sched.h"
 
-unsigned int __read_mostly sysctl_sched_burst_granularity = 8;
+unsigned int __read_mostly sysctl_sched_burst_granularity = 10;
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
