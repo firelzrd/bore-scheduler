@@ -1,7 +1,7 @@
-From a06ff5f8bd41aa750dc21391a35dcb0e2bbeac5d Mon Sep 17 00:00:00 2001
+From 21b8c06d27300b01b686eabc285654d14eaf0002 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Thu, 3 Feb 2022 11:35:30 +0900
-Subject: [PATCH] 5.16.y-bore24-cfs
+Date: Sun, 6 Feb 2022 05:22:50 +0900
+Subject: [PATCH] 5.16.y-bore24.3-cfs
 
 ---
  include/linux/sched.h        |  1 +
@@ -9,9 +9,7 @@ Subject: [PATCH] 5.16.y-bore24-cfs
  kernel/sched/core.c          |  3 +++
  kernel/sched/fair.c          | 14 +++++++++++++-
  kernel/sysctl.c              | 10 ++++++++++
- localversion                 |  1 -
- 6 files changed, 29 insertions(+), 2 deletions(-)
- delete mode 100644 localversion
+ 5 files changed, 29 insertions(+), 1 deletion(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 69b35d61c..95755e6b8 100644
@@ -60,7 +58,7 @@ index 906516f39..2effa2523 100644
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index a955216ee..4fbde0b3c 100644
+index b9f607aee..768115440 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,9 +19,14 @@
@@ -73,7 +71,7 @@ index a955216ee..4fbde0b3c 100644
   */
  #include "sched.h"
  
-+unsigned int __read_mostly sysctl_sched_burst_granularity = 8;
++unsigned int __read_mostly sysctl_sched_burst_granularity = 10;
 +
  /*
   * Targeted preemption latency for CPU-bound tasks:
@@ -92,7 +90,7 @@ index a955216ee..4fbde0b3c 100644
  	update_min_vruntime(cfs_rq);
  
  	if (entity_is_task(curr)) {
-@@ -5584,6 +5594,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -5594,6 +5604,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	for_each_sched_entity(se) {
  		if (se->on_rq)
  			break;
@@ -100,7 +98,7 @@ index a955216ee..4fbde0b3c 100644
  		cfs_rq = cfs_rq_of(se);
  		enqueue_entity(cfs_rq, se, flags);
  
-@@ -7124,6 +7135,7 @@ static void yield_task_fair(struct rq *rq)
+@@ -7134,6 +7145,7 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
