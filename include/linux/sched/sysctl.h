@@ -28,7 +28,9 @@ enum { sysctl_hung_task_timeout_secs = 0 };
 
 extern unsigned int sysctl_sched_child_runs_first;
 
+#ifdef CONFIG_SCHED_BORE
 extern unsigned int sysctl_sched_burst_granularity;
+#endif // CONFIG_SCHED_BORE
 
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,

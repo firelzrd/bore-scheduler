@@ -1262,6 +1262,21 @@ config CHECKPOINT_RESTORE
 
 	  If unsure, say N here.
 
+config SCHED_BORE
+	bool "BORE (Burst-Oriented Response Enhancer) CPU scheduler modification"
+	default y
+	help
+	  In Desktop and Mobile computing, one might prefer interactive
+		tasks to respond in very short time to get better experience.
+
+	  Enabling this kernel feature modifies the scheduler to
+		discriminate tasks by their burst time (runtime since last went
+		sleeping or yielding state) and prioritize those that run
+		less bursty. With very small impact to the scheduler's throughput,
+		it may improve responsiveness especially under heavy workload.
+
+	  If unsure say Y here.
+
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
 	select CGROUPS

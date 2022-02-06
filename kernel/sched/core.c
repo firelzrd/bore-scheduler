@@ -4225,7 +4225,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+#ifdef CONFIG_SCHED_BORE
 	p->se.burst_time			= 0;
+#endif // CONFIG_SCHED_BORE
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -9275,7 +9277,9 @@ void __init sched_init(void)
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
 
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) Scheduler Beta 24 by Masahito Suzuki");
+#ifdef CONFIG_SCHED_BORE
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification Beta 25 by Masahito Suzuki");
+#endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
 

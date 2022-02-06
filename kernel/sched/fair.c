@@ -25,7 +25,9 @@
  */
 #include "sched.h"
 
+#ifdef CONFIG_SCHED_BORE
 unsigned int __read_mostly sysctl_sched_burst_granularity = 10;
+#endif // CONFIG_SCHED_BORE
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -872,12 +874,18 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
+#ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
-	curr->vruntime += mul_u64_u64_shr(
-		calc_delta_fair(delta_exec, curr),
-		(u64)sched_prio_to_wmult[min(fls(curr->burst_time >> sysctl_sched_burst_granularity), 39)],
-		16
-	);
+	if(sched_feat(BORE))
+		curr->vruntime += mul_u64_u64_shr(
+			calc_delta_fair(delta_exec, curr),
+			(u64)sched_prio_to_wmult[min(
+				fls(curr->burst_time >> sysctl_sched_burst_granularity),
+				39)],
+			16);
+	else
+#endif // CONFIG_SCHED_BORE
+	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
@@ -5604,7 +5612,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
-		se->burst_time = 0;
 		cfs_rq = cfs_rq_of(se);
 		enqueue_entity(cfs_rq, se, flags);
 
@@ -5707,6 +5714,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
+#ifdef CONFIG_SCHED_BORE
+		se->burst_time = 0;
+#endif // CONFIG_SCHED_BORE
 
 		cfs_rq->h_nr_running--;
 		cfs_rq->idle_h_nr_running -= idle_h_nr_running;
@@ -7145,7 +7155,9 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
+#ifdef CONFIG_SCHED_BORE
 	se->burst_time = 0;
+#endif // CONFIG_SCHED_BORE
 
 	/*
 	 * Are we the only task in the tree?
