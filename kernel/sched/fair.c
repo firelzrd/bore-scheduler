@@ -882,7 +882,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 			(u64)sched_prio_to_wmult[min(
 				fls(curr->burst_time >> sysctl_sched_burst_granularity),
 				39)],
-			16);
+			22);
 	else
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
