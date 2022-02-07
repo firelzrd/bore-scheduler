@@ -119,9 +119,6 @@ static int __maybe_unused four = 4;
 static unsigned long zero_ul;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
-#ifdef CONFIG_SCHED_BORE
-static int thirty_two = 32;
-#endif // CONFIG_SCHED_BORE
 static int one_hundred = 100;
 static int two_hundred = 200;
 static int one_thousand = 1000;
@@ -1785,17 +1782,6 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
-#ifdef CONFIG_SCHED_BORE
-	{
-		.procname	= "sched_burst_granularity",
-		.data		= &sysctl_sched_burst_granularity,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= &thirty_two,
-	},
-#endif // CONFIG_SCHED_BORE
 #ifdef CONFIG_SCHEDSTATS
 	{
 		.procname	= "sched_schedstats",

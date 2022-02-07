@@ -25,10 +25,6 @@
  */
 #include "sched.h"
 
-#ifdef CONFIG_SCHED_BORE
-unsigned int __read_mostly sysctl_sched_burst_granularity = 10;
-#endif // CONFIG_SCHED_BORE
-
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -880,7 +876,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 		curr->vruntime += mul_u64_u64_shr(
 			calc_delta_fair(delta_exec, curr),
 			(u64)sched_prio_to_wmult[min(
-				fls(curr->burst_time >> sysctl_sched_burst_granularity),
+				fls(curr->burst_time),
 				39)],
 			22);
 	else
