@@ -1263,17 +1263,22 @@ config CHECKPOINT_RESTORE
 	  If unsure, say N here.
 
 config SCHED_BORE
-	bool "BORE (Burst-Oriented Response Enhancer) CPU scheduler modification"
+	bool "Burst-Oriented Response Enhancer"
 	default y
 	help
 	  In Desktop and Mobile computing, one might prefer interactive
-		tasks to respond in very short time to get better experience.
+	  tasks to keep responsive no matter what they run in the background.
 
-	  Enabling this kernel feature modifies the scheduler to
-		discriminate tasks by their burst time (runtime since last went
-		sleeping or yielding state) and prioritize those that run
-		less bursty. With very small impact to the scheduler's throughput,
-		it may improve responsiveness especially under heavy workload.
+	  Enabling this kernel feature modifies the scheduler to discriminate
+	  tasks by their burst time (runtime since it last went sleeping or
+	  yielding state) and prioritize those that run less bursty.
+	  Such tasks usually include window compositor, widgets backend,
+	  terminal emulator, video playback, games and so on.
+	  With a little impact to scheduling fairness, it may improve
+	  responsiveness especially under heavy background workload.
+
+	  You can turn it off by writing NO_BURST_PENALTY to sched/features.
+	  Enabling this feature implies NO_GENTLE_FAIR_SLEEPERS by default.
 
 	  If unsure say Y here.
 

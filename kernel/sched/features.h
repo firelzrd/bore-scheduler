@@ -4,7 +4,7 @@
  * Discriminate tasks by their burst time and prioritize those
  * that run less bursty.
  */
-SCHED_FEAT(BORE, true)
+SCHED_FEAT(BURST_PENALTY, true)
 #endif // CONFIG_SCHED_BORE
 /*
  * Only give sleepers 50% of their service deficit. This allows
