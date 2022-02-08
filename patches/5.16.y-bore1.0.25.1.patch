@@ -1,15 +1,15 @@
-From d093bb16a37bc01ec21f229c8e69e4604b5d0026 Mon Sep 17 00:00:00 2001
+From 7e4fc31215d98cc7547d6ca07e01441629aae662 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 7 Feb 2022 13:36:17 +0900
-Subject: [PATCH] 5.15.y-bore25-cfs
+Date: Tue, 8 Feb 2022 14:57:07 +0900
+Subject: [PATCH] 5.16.y-bore1.0.25.1
 
 ---
  include/linux/sched.h   |  3 +++
- init/Kconfig            | 15 +++++++++++++++
+ init/Kconfig            | 20 ++++++++++++++++++++
  kernel/sched/core.c     |  7 +++++++
- kernel/sched/fair.c     | 20 ++++++++++++++++++++
+ kernel/sched/fair.c     | 17 +++++++++++++++++
  kernel/sched/features.h | 11 +++++++++++
- 5 files changed, 56 insertions(+)
+ 5 files changed, 58 insertions(+)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 69b35d61c..d435e996c 100644
@@ -26,25 +26,30 @@ index 69b35d61c..d435e996c 100644
  #ifdef CONFIG_FAIR_GROUP_SCHED
  	int				depth;
 diff --git a/init/Kconfig b/init/Kconfig
-index 63f41a02f..598e48bbf 100644
+index 63f41a02f..61c7a7c1d 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1262,6 +1262,21 @@ config CHECKPOINT_RESTORE
+@@ -1262,6 +1262,26 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
 +config SCHED_BORE
-+	bool "BORE (Burst-Oriented Response Enhancer) CPU scheduler modification"
++	bool "Burst-Oriented Response Enhancer"
 +	default y
 +	help
 +	  In Desktop and Mobile computing, one might prefer interactive
-+		tasks to respond in very short time to get better experience.
++	  tasks to keep responsive no matter what they run in the background.
 +
-+	  Enabling this kernel feature modifies the scheduler to
-+		discriminate tasks by their burst time (runtime since last went
-+		sleeping or yielding state) and prioritize those that run
-+		less bursty. With very small impact to the scheduler's throughput,
-+		it may improve responsiveness especially under heavy workload.
++	  Enabling this kernel feature modifies the scheduler to discriminate
++	  tasks by their burst time (runtime since it last went sleeping or
++	  yielding state) and prioritize those that run less bursty.
++	  Such tasks usually include window compositor, widgets backend,
++	  terminal emulator, video playback, games and so on.
++	  With a little impact to scheduling fairness, it may improve
++	  responsiveness especially under heavy background workload.
++
++	  You can turn it off by writing NO_BURST_PENALTY to sched/features.
++	  Enabling this feature implies NO_GENTLE_FAIR_SLEEPERS by default.
 +
 +	  If unsure say Y here.
 +
@@ -52,7 +57,7 @@ index 63f41a02f..598e48bbf 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 906516f39..1b545da5a 100644
+index 906516f39..58dd3ced2 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4225,6 +4225,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
@@ -70,14 +75,14 @@ index 906516f39..1b545da5a 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification Beta 25 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.0.25.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index b9f607aee..2dc263ae8 100644
+index b9f607aee..64b5c01e0 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -90,25 +95,22 @@ index b9f607aee..2dc263ae8 100644
   */
  #include "sched.h"
  
-@@ -867,6 +870,17 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -867,6 +870,14 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
 +#ifdef CONFIG_SCHED_BORE
 +	curr->burst_time += delta_exec;
-+	if(sched_feat(BORE))
++	if(sched_feat(BURST_PENALTY))
 +		curr->vruntime += mul_u64_u64_shr(
 +			calc_delta_fair(delta_exec, curr),
-+			(u64)sched_prio_to_wmult[min(
-+				fls(curr->burst_time),
-+				39)],
-+			22);
++			(u64)sched_prio_to_wmult[min(fls(curr->burst_time), 39)], 22);
 +	else
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -5696,6 +5710,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -5696,6 +5707,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
@@ -118,7 +120,7 @@ index b9f607aee..2dc263ae8 100644
  
  		cfs_rq->h_nr_running--;
  		cfs_rq->idle_h_nr_running -= idle_h_nr_running;
-@@ -7134,6 +7151,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -7134,6 +7148,9 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
@@ -129,7 +131,7 @@ index b9f607aee..2dc263ae8 100644
  	/*
  	 * Are we the only task in the tree?
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index 1cf435bbc..fe56ee5e3 100644
+index 1cf435bbc..f4ffb0dc8 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -1,10 +1,21 @@
@@ -139,7 +141,7 @@ index 1cf435bbc..fe56ee5e3 100644
 + * Discriminate tasks by their burst time and prioritize those
 + * that run less bursty.
 + */
-+SCHED_FEAT(BORE, true)
++SCHED_FEAT(BURST_PENALTY, true)
 +#endif // CONFIG_SCHED_BORE
  /*
   * Only give sleepers 50% of their service deficit. This allows
