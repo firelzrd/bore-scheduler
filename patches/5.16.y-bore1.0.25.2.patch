@@ -1,7 +1,7 @@
-From 7e4fc31215d98cc7547d6ca07e01441629aae662 Mon Sep 17 00:00:00 2001
+From 77c7c70108efcd7aa60c89114318ead5d11c93ca Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 8 Feb 2022 14:57:07 +0900
-Subject: [PATCH] 5.16.y-bore1.0.25.1
+Date: Sat, 12 Feb 2022 18:12:00 +0900
+Subject: [PATCH] 5.16.y-bore1.0.25.2
 
 ---
  include/linux/sched.h   |  3 +++
@@ -57,7 +57,7 @@ index 63f41a02f..61c7a7c1d 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 906516f39..58dd3ced2 100644
+index 906516f39..84540c828 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4225,6 +4225,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
@@ -75,14 +75,14 @@ index 906516f39..58dd3ced2 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.0.25.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.0.25.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index b9f607aee..64b5c01e0 100644
+index b9f607aee..ffc710e5b 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -104,7 +104,7 @@ index b9f607aee..64b5c01e0 100644
 +	if(sched_feat(BURST_PENALTY))
 +		curr->vruntime += mul_u64_u64_shr(
 +			calc_delta_fair(delta_exec, curr),
-+			(u64)sched_prio_to_wmult[min(fls(curr->burst_time), 39)], 22);
++			(u64)sched_prio_to_wmult[min(fls64(curr->burst_time), 39)], 22);
 +	else
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
