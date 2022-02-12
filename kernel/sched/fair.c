@@ -875,7 +875,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	if(sched_feat(BURST_PENALTY))
 		curr->vruntime += mul_u64_u64_shr(
 			calc_delta_fair(delta_exec, curr),
-			(u64)sched_prio_to_wmult[min(fls(curr->burst_time), 39)], 22);
+			(u64)sched_prio_to_wmult[min(fls64(curr->burst_time), 39)], 22);
 	else
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
