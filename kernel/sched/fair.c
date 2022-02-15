@@ -95,6 +95,10 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
+#ifdef CONFIG_SCHED_BORE
+	unsigned short sysctl_sched_burst_penalty_scale = 1176;
+#endif // CONFIG_SCHED_BORE
+
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -849,6 +853,9 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	struct sched_entity *curr = cfs_rq->curr;
 	u64 now = rq_clock_task(rq_of(cfs_rq));
 	u64 delta_exec;
+#ifdef CONFIG_SCHED_BORE
+	u32 msb, logbt, burst_score;
+#endif // CONFIG_SCHED_BORE
 
 	if (unlikely(!curr))
 		return;
@@ -872,10 +879,15 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
-	if(sched_feat(BURST_PENALTY))
+	if(sched_feat(BURST_PENALTY)) {
+		msb = fls64(curr->burst_time);
+		logbt = msb ? msb - 1 : 0;
+		burst_score = (((logbt << 10) | ((curr->burst_time << (64 - (logbt
+		  ? logbt : 1))) >> 54)) * sysctl_sched_burst_penalty_scale) >> 20;
 		curr->vruntime += mul_u64_u64_shr(
 			calc_delta_fair(delta_exec, curr),
-			(u64)sched_prio_to_wmult[min(fls64(curr->burst_time), 39)], 22);
+			(u64)sched_prio_to_wmult[min(burst_score, 39)], 22);
+	}
 	else
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);

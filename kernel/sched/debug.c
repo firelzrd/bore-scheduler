@@ -316,6 +316,9 @@ static __init int sched_init_debug(void)
 
 	debugfs_create_u32("latency_warn_ms", 0644, debugfs_sched, &sysctl_resched_latency_warn_ms);
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
+#ifdef CONFIG_SCHED_BORE
+	debugfs_create_u16("burst_penalty_scale", 0644, debugfs_sched, &sysctl_sched_burst_penalty_scale);
+#endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_SMP
 	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
