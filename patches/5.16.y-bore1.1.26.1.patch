@@ -1,7 +1,7 @@
-From 0e71234f018b1cdd707f610b3bd04fb9c1bf6a6e Mon Sep 17 00:00:00 2001
+From 037cddaac272cb2e2a6fad7ecd07c1a4c0a66d51 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 15 Feb 2022 11:16:06 +0900
-Subject: [PATCH] 5.16.y-bore1.1.26.0
+Date: Sun, 27 Feb 2022 13:12:24 +0900
+Subject: [PATCH] 5.16.y-bore1.1.26.1
 
 ---
  include/linux/sched.h   |  3 +++
@@ -77,7 +77,7 @@ index 906516f39..c063aa045 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.1.26.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.1.26.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -98,7 +98,7 @@ index 7dcbaa31c..3e41be0fe 100644
  #ifdef CONFIG_SMP
  	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index b9f607aee..60e91ea81 100644
+index b9f607aee..8763a65c7 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -143,9 +143,9 @@ index b9f607aee..60e91ea81 100644
 +		logbt = msb ? msb - 1 : 0;
 +		burst_score = (((logbt << 10) | ((curr->burst_time << (64 - (logbt
 +		  ? logbt : 1))) >> 54)) * sysctl_sched_burst_penalty_scale) >> 20;
-+		curr->vruntime += mul_u64_u64_shr(
++		curr->vruntime += mul_u64_u32_shr(
 +			calc_delta_fair(delta_exec, curr),
-+			(u64)sched_prio_to_wmult[min(burst_score, 39)], 22);
++			sched_prio_to_wmult[min(burst_score, 39)], 22);
 +	}
 +	else
 +#endif // CONFIG_SCHED_BORE
