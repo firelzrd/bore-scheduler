@@ -884,9 +884,9 @@ static void update_curr(struct cfs_rq *cfs_rq)
 		logbt = msb ? msb - 1 : 0;
 		burst_score = (((logbt << 10) | ((curr->burst_time << (64 - (logbt
 		  ? logbt : 1))) >> 54)) * sysctl_sched_burst_penalty_scale) >> 20;
-		curr->vruntime += mul_u64_u64_shr(
+		curr->vruntime += mul_u64_u32_shr(
 			calc_delta_fair(delta_exec, curr),
-			(u64)sched_prio_to_wmult[min(burst_score, 39)], 22);
+			sched_prio_to_wmult[min(burst_score, 39)], 22);
 	}
 	else
 #endif // CONFIG_SCHED_BORE
