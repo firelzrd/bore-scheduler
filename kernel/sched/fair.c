@@ -97,7 +97,7 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
 	unsigned short sysctl_sched_burst_penalty_scale = 1176;
-	unsigned char  sysctl_sched_burst_reduction_bits = 6;
+	unsigned char  sysctl_sched_burst_reduction_bits = 3;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
