@@ -96,8 +96,8 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
-	unsigned short sysctl_sched_burst_penalty_scale = 1176;
-	unsigned char  sysctl_sched_burst_reduction_bits = 3;
+	unsigned short __read_mostly sysctl_sched_burst_penalty_scale = 1176;
+	unsigned char  __read_mostly sysctl_sched_burst_reduction_bits = 3;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -887,7 +887,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 		  ? logbt : 1))) >> 54)) * sysctl_sched_burst_penalty_scale) >> 20;
 		curr->vruntime += mul_u64_u32_shr(
 			calc_delta_fair(delta_exec, curr),
-			sched_prio_to_wmult[min(burst_score, 39)], 22);
+			sched_prio_to_wmult[min(burst_score, (u32)39)], 22);
 	}
 	else
 #endif // CONFIG_SCHED_BORE
