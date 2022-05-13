@@ -66,6 +66,11 @@ struct btrfs_dio_data {
 	struct extent_changeset *data_reserved;
 };
 
+struct btrfs_rename_ctx {
+	/* Output field. Stores the index number of the old directory entry. */
+	u64 index;
+};
+
 static const struct inode_operations btrfs_dir_inode_operations;
 static const struct inode_operations btrfs_symlink_inode_operations;
 static const struct inode_operations btrfs_special_inode_operations;
@@ -423,7 +428,7 @@ static noinline int cow_file_range_inline(struct btrfs_inode *inode, u64 start,
 		goto out;
 	}
 
-	set_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &inode->runtime_flags);
+	btrfs_set_inode_full_sync(inode);
 out:
 	/*
 	 * Don't forget to free the reserved space, as for inlined extent
@@ -4056,7 +4061,8 @@ int btrfs_update_inode_fallback(struct btrfs_trans_handle *trans,
 static int __btrfs_unlink_inode(struct btrfs_trans_handle *trans,
 				struct btrfs_inode *dir,
 				struct btrfs_inode *inode,
-				const char *name, int name_len)
+				const char *name, int name_len,
+				struct btrfs_rename_ctx *rename_ctx)
 {
 	struct btrfs_root *root = dir->root;
 	struct btrfs_fs_info *fs_info = root->fs_info;
@@ -4112,15 +4118,27 @@ static int __btrfs_unlink_inode(struct btrfs_trans_handle *trans,
 		goto err;
 	}
 skip_backref:
+	if (rename_ctx)
+		rename_ctx->index = index;
+
 	ret = btrfs_delete_delayed_dir_index(trans, dir, index);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
 		goto err;
 	}
 
-	btrfs_del_inode_ref_in_log(trans, root, name, name_len, inode,
-				   dir_ino);
-	btrfs_del_dir_entries_in_log(trans, root, name, name_len, dir, index);
+	/*
+	 * If we are in a rename context, we don't need to update anything in the
+	 * log. That will be done later during the rename by btrfs_log_new_name().
+	 * Besides that, doing it here would only cause extra unncessary btree
+	 * operations on the log tree, increasing latency for applications.
+	 */
+	if (!rename_ctx) {
+		btrfs_del_inode_ref_in_log(trans, root, name, name_len, inode,
+					   dir_ino);
+		btrfs_del_dir_entries_in_log(trans, root, name, name_len, dir,
+					     index);
+	}
 
 	/*
 	 * If we have a pending delayed iput we could end up with the final iput
@@ -4152,7 +4170,7 @@ int btrfs_unlink_inode(struct btrfs_trans_handle *trans,
 		       const char *name, int name_len)
 {
 	int ret;
-	ret = __btrfs_unlink_inode(trans, dir, inode, name, name_len);
+	ret = __btrfs_unlink_inode(trans, dir, inode, name, name_len, NULL);
 	if (!ret) {
 		drop_nlink(&inode->vfs_inode);
 		ret = btrfs_update_inode(trans, inode->root, inode);
@@ -4877,8 +4895,7 @@ int btrfs_cont_expand(struct btrfs_inode *inode, loff_t oldsize, loff_t size)
 						cur_offset + hole_size - 1, 0);
 			hole_em = alloc_extent_map();
 			if (!hole_em) {
-				set_bit(BTRFS_INODE_NEEDS_FULL_SYNC,
-					&inode->runtime_flags);
+				btrfs_set_inode_full_sync(inode);
 				goto next;
 			}
 			hole_em->start = cur_offset;
@@ -5972,14 +5989,8 @@ static int btrfs_set_inode_index_count(struct btrfs_inode *inode)
 		goto out;
 	ret = 0;
 
-	/*
-	 * MAGIC NUMBER EXPLANATION:
-	 * since we search a directory based on f_pos we have to start at 2
-	 * since '.' and '..' have f_pos of 0 and 1 respectively, so everybody
-	 * else has to start at 2
-	 */
 	if (path->slots[0] == 0) {
-		inode->index_cnt = 2;
+		inode->index_cnt = BTRFS_DIR_START_INDEX;
 		goto out;
 	}
 
@@ -5990,7 +6001,7 @@ static int btrfs_set_inode_index_count(struct btrfs_inode *inode)
 
 	if (found_key.objectid != btrfs_ino(inode) ||
 	    found_key.type != BTRFS_DIR_INDEX_KEY) {
-		inode->index_cnt = 2;
+		inode->index_cnt = BTRFS_DIR_START_INDEX;
 		goto out;
 	}
 
@@ -6141,7 +6152,7 @@ static struct inode *btrfs_new_inode(struct btrfs_trans_handle *trans,
 	 * sync since it will be a full sync anyway and this will blow away the
 	 * old info in the log.
 	 */
-	set_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &BTRFS_I(inode)->runtime_flags);
+	btrfs_set_inode_full_sync(BTRFS_I(inode));
 
 	key[0].objectid = objectid;
 	key[0].type = BTRFS_INODE_ITEM_KEY;
@@ -6538,7 +6549,7 @@ static int btrfs_link(struct dentry *old_dentry, struct inode *dir,
 				goto fail;
 		}
 		d_instantiate(dentry, inode);
-		btrfs_log_new_name(trans, BTRFS_I(inode), NULL, parent);
+		btrfs_log_new_name(trans, old_dentry, NULL, 0, parent);
 	}
 
 fail:
@@ -8103,8 +8114,13 @@ int btrfs_readpage(struct file *file, struct page *page)
 	btrfs_lock_and_flush_ordered_range(inode, start, end, NULL);
 
 	ret = btrfs_do_readpage(page, NULL, &bio_ctrl, 0, NULL);
-	if (bio_ctrl.bio)
-		ret = submit_one_bio(bio_ctrl.bio, 0, bio_ctrl.bio_flags);
+	if (bio_ctrl.bio) {
+		int ret2;
+
+		ret2 = submit_one_bio(bio_ctrl.bio, 0, bio_ctrl.bio_flags);
+		if (ret == 0)
+			ret = ret2;
+	}
 	return ret;
 }
 
@@ -8733,7 +8749,7 @@ out:
 	 * extents beyond i_size to drop.
 	 */
 	if (control.extents_found > 0)
-		set_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &BTRFS_I(inode)->runtime_flags);
+		btrfs_set_inode_full_sync(BTRFS_I(inode));
 
 	return ret;
 }
@@ -9029,14 +9045,14 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 	struct inode *new_inode = new_dentry->d_inode;
 	struct inode *old_inode = old_dentry->d_inode;
 	struct timespec64 ctime = current_time(old_inode);
+	struct btrfs_rename_ctx old_rename_ctx;
+	struct btrfs_rename_ctx new_rename_ctx;
 	u64 old_ino = btrfs_ino(BTRFS_I(old_inode));
 	u64 new_ino = btrfs_ino(BTRFS_I(new_inode));
 	u64 old_idx = 0;
 	u64 new_idx = 0;
 	int ret;
 	int ret2;
-	bool root_log_pinned = false;
-	bool dest_log_pinned = false;
 	bool need_abort = false;
 
 	/*
@@ -9139,29 +9155,6 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 				BTRFS_I(new_inode), 1);
 	}
 
-	/*
-	 * Now pin the logs of the roots. We do it to ensure that no other task
-	 * can sync the logs while we are in progress with the rename, because
-	 * that could result in an inconsistency in case any of the inodes that
-	 * are part of this rename operation were logged before.
-	 *
-	 * We pin the logs even if at this precise moment none of the inodes was
-	 * logged before. This is because right after we checked for that, some
-	 * other task fsyncing some other inode not involved with this rename
-	 * operation could log that one of our inodes exists.
-	 *
-	 * We don't need to pin the logs before the above calls to
-	 * btrfs_insert_inode_ref(), since those don't ever need to change a log.
-	 */
-	if (old_ino != BTRFS_FIRST_FREE_OBJECTID) {
-		btrfs_pin_log_trans(root);
-		root_log_pinned = true;
-	}
-	if (new_ino != BTRFS_FIRST_FREE_OBJECTID) {
-		btrfs_pin_log_trans(dest);
-		dest_log_pinned = true;
-	}
-
 	/* src is a subvolume */
 	if (old_ino == BTRFS_FIRST_FREE_OBJECTID) {
 		ret = btrfs_unlink_subvol(trans, old_dir, old_dentry);
@@ -9169,7 +9162,8 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 		ret = __btrfs_unlink_inode(trans, BTRFS_I(old_dir),
 					   BTRFS_I(old_dentry->d_inode),
 					   old_dentry->d_name.name,
-					   old_dentry->d_name.len);
+					   old_dentry->d_name.len,
+					   &old_rename_ctx);
 		if (!ret)
 			ret = btrfs_update_inode(trans, root, BTRFS_I(old_inode));
 	}
@@ -9185,7 +9179,8 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 		ret = __btrfs_unlink_inode(trans, BTRFS_I(new_dir),
 					   BTRFS_I(new_dentry->d_inode),
 					   new_dentry->d_name.name,
-					   new_dentry->d_name.len);
+					   new_dentry->d_name.len,
+					   &new_rename_ctx);
 		if (!ret)
 			ret = btrfs_update_inode(trans, dest, BTRFS_I(new_inode));
 	}
@@ -9215,46 +9210,31 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 	if (new_inode->i_nlink == 1)
 		BTRFS_I(new_inode)->dir_index = new_idx;
 
-	if (root_log_pinned) {
-		btrfs_log_new_name(trans, BTRFS_I(old_inode), BTRFS_I(old_dir),
-				   new_dentry->d_parent);
-		btrfs_end_log_trans(root);
-		root_log_pinned = false;
-	}
-	if (dest_log_pinned) {
-		btrfs_log_new_name(trans, BTRFS_I(new_inode), BTRFS_I(new_dir),
-				   old_dentry->d_parent);
-		btrfs_end_log_trans(dest);
-		dest_log_pinned = false;
-	}
-out_fail:
 	/*
-	 * If we have pinned a log and an error happened, we unpin tasks
-	 * trying to sync the log and force them to fallback to a transaction
-	 * commit if the log currently contains any of the inodes involved in
-	 * this rename operation (to ensure we do not persist a log with an
-	 * inconsistent state for any of these inodes or leading to any
-	 * inconsistencies when replayed). If the transaction was aborted, the
-	 * abortion reason is propagated to userspace when attempting to commit
-	 * the transaction. If the log does not contain any of these inodes, we
-	 * allow the tasks to sync it.
+	 * Now pin the logs of the roots. We do it to ensure that no other task
+	 * can sync the logs while we are in progress with the rename, because
+	 * that could result in an inconsistency in case any of the inodes that
+	 * are part of this rename operation were logged before.
 	 */
-	if (ret && (root_log_pinned || dest_log_pinned)) {
-		if (btrfs_inode_in_log(BTRFS_I(old_dir), fs_info->generation) ||
-		    btrfs_inode_in_log(BTRFS_I(new_dir), fs_info->generation) ||
-		    btrfs_inode_in_log(BTRFS_I(old_inode), fs_info->generation) ||
-		    btrfs_inode_in_log(BTRFS_I(new_inode), fs_info->generation))
-			btrfs_set_log_full_commit(trans);
+	if (old_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_pin_log_trans(root);
+	if (new_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_pin_log_trans(dest);
 
-		if (root_log_pinned) {
-			btrfs_end_log_trans(root);
-			root_log_pinned = false;
-		}
-		if (dest_log_pinned) {
-			btrfs_end_log_trans(dest);
-			dest_log_pinned = false;
-		}
-	}
+	/* Do the log updates for all inodes. */
+	if (old_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_log_new_name(trans, old_dentry, BTRFS_I(old_dir),
+				   old_rename_ctx.index, new_dentry->d_parent);
+	if (new_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_log_new_name(trans, new_dentry, BTRFS_I(new_dir),
+				   new_rename_ctx.index, old_dentry->d_parent);
+
+	/* Now unpin the logs. */
+	if (old_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_end_log_trans(root);
+	if (new_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_end_log_trans(dest);
+out_fail:
 	ret2 = btrfs_end_transaction(trans);
 	ret = ret ? ret : ret2;
 out_notrans:
@@ -9329,11 +9309,11 @@ static int btrfs_rename(struct user_namespace *mnt_userns,
 	struct btrfs_root *dest = BTRFS_I(new_dir)->root;
 	struct inode *new_inode = d_inode(new_dentry);
 	struct inode *old_inode = d_inode(old_dentry);
+	struct btrfs_rename_ctx rename_ctx;
 	u64 index = 0;
 	int ret;
 	int ret2;
 	u64 old_ino = btrfs_ino(BTRFS_I(old_inode));
-	bool log_pinned = false;
 
 	if (btrfs_ino(BTRFS_I(new_dir)) == BTRFS_EMPTY_SUBVOL_DIR_OBJECTID)
 		return -EPERM;
@@ -9438,29 +9418,11 @@ static int btrfs_rename(struct user_namespace *mnt_userns,
 	if (unlikely(old_ino == BTRFS_FIRST_FREE_OBJECTID)) {
 		ret = btrfs_unlink_subvol(trans, old_dir, old_dentry);
 	} else {
-		/*
-		 * Now pin the log. We do it to ensure that no other task can
-		 * sync the log while we are in progress with the rename, as
-		 * that could result in an inconsistency in case any of the
-		 * inodes that are part of this rename operation were logged
-		 * before.
-		 *
-		 * We pin the log even if at this precise moment none of the
-		 * inodes was logged before. This is because right after we
-		 * checked for that, some other task fsyncing some other inode
-		 * not involved with this rename operation could log that one of
-		 * our inodes exists.
-		 *
-		 * We don't need to pin the logs before the above call to
-		 * btrfs_insert_inode_ref(), since that does not need to change
-		 * a log.
-		 */
-		btrfs_pin_log_trans(root);
-		log_pinned = true;
 		ret = __btrfs_unlink_inode(trans, BTRFS_I(old_dir),
 					BTRFS_I(d_inode(old_dentry)),
 					old_dentry->d_name.name,
-					old_dentry->d_name.len);
+					old_dentry->d_name.len,
+					&rename_ctx);
 		if (!ret)
 			ret = btrfs_update_inode(trans, root, BTRFS_I(old_inode));
 	}
@@ -9502,12 +9464,9 @@ static int btrfs_rename(struct user_namespace *mnt_userns,
 	if (old_inode->i_nlink == 1)
 		BTRFS_I(old_inode)->dir_index = index;
 
-	if (log_pinned) {
-		btrfs_log_new_name(trans, BTRFS_I(old_inode), BTRFS_I(old_dir),
-				   new_dentry->d_parent);
-		btrfs_end_log_trans(root);
-		log_pinned = false;
-	}
+	if (old_ino != BTRFS_FIRST_FREE_OBJECTID)
+		btrfs_log_new_name(trans, old_dentry, BTRFS_I(old_dir),
+				   rename_ctx.index, new_dentry->d_parent);
 
 	if (flags & RENAME_WHITEOUT) {
 		ret = btrfs_whiteout_for_rename(trans, root, mnt_userns,
@@ -9519,28 +9478,6 @@ static int btrfs_rename(struct user_namespace *mnt_userns,
 		}
 	}
 out_fail:
-	/*
-	 * If we have pinned the log and an error happened, we unpin tasks
-	 * trying to sync the log and force them to fallback to a transaction
-	 * commit if the log currently contains any of the inodes involved in
-	 * this rename operation (to ensure we do not persist a log with an
-	 * inconsistent state for any of these inodes or leading to any
-	 * inconsistencies when replayed). If the transaction was aborted, the
-	 * abortion reason is propagated to userspace when attempting to commit
-	 * the transaction. If the log does not contain any of these inodes, we
-	 * allow the tasks to sync it.
-	 */
-	if (ret && log_pinned) {
-		if (btrfs_inode_in_log(BTRFS_I(old_dir), fs_info->generation) ||
-		    btrfs_inode_in_log(BTRFS_I(new_dir), fs_info->generation) ||
-		    btrfs_inode_in_log(BTRFS_I(old_inode), fs_info->generation) ||
-		    (new_inode &&
-		     btrfs_inode_in_log(BTRFS_I(new_inode), fs_info->generation)))
-			btrfs_set_log_full_commit(trans);
-
-		btrfs_end_log_trans(root);
-		log_pinned = false;
-	}
 	ret2 = btrfs_end_transaction(trans);
 	ret = ret ? ret : ret2;
 out_notrans:
@@ -10020,8 +9957,7 @@ static int __btrfs_prealloc_file_range(struct inode *inode, int mode,
 
 		em = alloc_extent_map();
 		if (!em) {
-			set_bit(BTRFS_INODE_NEEDS_FULL_SYNC,
-				&BTRFS_I(inode)->runtime_flags);
+			btrfs_set_inode_full_sync(BTRFS_I(inode));
 			goto next;
 		}
 

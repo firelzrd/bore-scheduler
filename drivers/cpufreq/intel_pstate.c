@@ -364,6 +364,13 @@ static void intel_pstate_set_itmt_prio(int cpu)
 	 * update them at any time after it has been called.
 	 */
 	sched_set_itmt_core_prio(cppc_perf.highest_perf, cpu);
+	/*
+	 * On some systems with overclocking enabled, CPPC.highest_perf is hardcoded to 0xff.
+	 * In this case we can't use CPPC.highest_perf to enable ITMT.
+	 * In this case we can look at MSR_HWP_CAPABILITIES bits [8:0] to decide.
+	 */
+	if (cppc_perf.highest_perf == 0xff)
+		cppc_perf.highest_perf = HWP_HIGHEST_PERF(READ_ONCE(all_cpu_data[cpu]->hwp_cap_cached));
 
 	if (max_highest_perf <= min_highest_perf) {
 		if (cppc_perf.highest_perf > max_highest_perf)
@@ -1322,6 +1329,7 @@ static ssize_t store_no_turbo(struct kobject *a, struct kobj_attribute *b,
 	mutex_unlock(&intel_pstate_limits_lock);
 
 	intel_pstate_update_policies();
+	arch_set_max_freq_ratio(global.no_turbo);
 
 	mutex_unlock(&intel_pstate_driver_lock);
 

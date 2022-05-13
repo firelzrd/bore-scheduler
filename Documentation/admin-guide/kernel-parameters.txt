@@ -376,6 +376,10 @@
 	autoconf=	[IPV6]
 			See Documentation/networking/ipv6.rst.
 
+	autogroup=	[KNL] Enable or disable scheduler automatic task group
+			creation.
+			Format: <bool>
+
 	show_lapic=	[APIC,X86] Advanced Programmable Interrupt Controller
 			Limit apic dumping. The parameter defines the maximal
 			number of local apics being dumped. Also it is possible
@@ -3365,8 +3369,6 @@
 	noapic		[SMP,APIC] Tells the kernel to not make use of any
 			IOAPICs that may be present in the system.
 
-	noautogroup	Disable scheduler automatic task group creation.
-
 	nobats		[PPC] Do not use BATs for mapping kernel lowmem
 			on "Classic" PPC cores.
 
@@ -3504,6 +3506,9 @@
 			in this list will have their RCU callbacks offloaded,
 			just as if they had also been called out in the
 			rcu_nocbs= boot parameter.
+
+			Note that this argument takes precedence over
+			the CONFIG_RCU_NOCB_CPU_DEFAULT_ALL option.
 
 	noiotrap	[SH] Disables trapped I/O port accesses.
 
@@ -3937,6 +3942,15 @@
 		nomsi		[MSI] If the PCI_MSI kernel config parameter is
 				enabled, this kernel boot option can be used to
 				disable the use of MSI interrupts system-wide.
+		pcie_acs_override =
+					[PCIE] Override missing PCIe ACS support for:
+				downstream
+					All downstream ports - full ACS capabilities
+				multifunction
+					All multifunction devices - multifunction ACS subset
+				id:nnnn:nnnn
+					Specific device - full ACS capabilities
+					Specified as vid:did (vendor/device ID) in hex
 		noioapicquirk	[APIC] Disable all boot interrupt quirks.
 				Safety option to keep boot IRQs enabled. This
 				should never be necessary.
@@ -4355,6 +4369,12 @@
 			fully seed the kernel's CRNG. Default is controlled
 			by CONFIG_RANDOM_TRUST_CPU.
 
+	random.trust_bootloader={on,off}
+			[KNL] Enable or disable trusting the use of the
+			a seed passed by the bootloader (if available) to
+			fully seed the kernel's CRNG. Default is controlled
+			by CONFIG_RANDOM_TRUST_BOOTLOADER.
+
 	randomize_kstack_offset=
 			[KNL] Enable or disable kernel stack offset
 			randomization, which provides roughly 5 bits of
@@ -4396,6 +4416,9 @@
 			arguments are omitted, no CPU will be set to
 			no-callback mode from boot but the mode may be
 			toggled at runtime via cpusets.
+
+			Note that this argument takes precedence over
+			the CONFIG_RCU_NOCB_CPU_DEFAULT_ALL option.
 
 	rcu_nocb_poll	[KNL]
 			Rather than requiring that offloaded CPUs

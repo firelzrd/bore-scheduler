@@ -44,6 +44,10 @@ struct blk_crypto_profile;
  * Defined here to simplify include dependency.
  */
 #define BLKCG_MAX_POLS		6
+/*
+ * Non blk-rq-qos blkcg policies include blk-throttle and bfq
+ */
+#define BLKCG_NON_RQOS_POLS		2
 
 static inline int blk_validate_block_size(unsigned long bsize)
 {
@@ -415,6 +419,7 @@ struct request_queue {
 
 #define QUEUE_FLAG_MQ_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_SAME_COMP) |		\
+				 (1 << QUEUE_FLAG_SAME_FORCE)	|	\
 				 (1 << QUEUE_FLAG_NOWAIT))
 
 void blk_queue_flag_set(unsigned int flag, struct request_queue *q);

@@ -202,6 +202,10 @@ endif
 part-of-module = $(if $(filter $(basename $@).o, $(real-obj-m)),y)
 quiet_modtag = $(if $(part-of-module),[M],   )
 
+ifdef CONFIG_LTO_CLANG_THIN
+KBUILD_LDFLAGS	+= --thinlto-cache-dir=$(thinlto-dir)$(extmod-prefix).thinlto-cache
+endif
+
 modkern_cflags =                                          \
 	$(if $(part-of-module),                           \
 		$(KBUILD_CFLAGS_MODULE) $(CFLAGS_MODULE), \

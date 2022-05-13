@@ -2947,7 +2947,6 @@ static void sd_read_app_tag_own(struct scsi_disk *sdkp, unsigned char *buffer)
  */
 static void sd_read_block_limits(struct scsi_disk *sdkp)
 {
-	unsigned int sector_sz = sdkp->device->sector_size;
 	const int vpd_len = 64;
 	unsigned char *buffer = kmalloc(vpd_len, GFP_KERNEL);
 
@@ -2956,9 +2955,7 @@ static void sd_read_block_limits(struct scsi_disk *sdkp)
 	    scsi_get_vpd_page(sdkp->device, 0xb0, buffer, vpd_len))
 		goto out;
 
-	blk_queue_io_min(sdkp->disk->queue,
-			 get_unaligned_be16(&buffer[6]) * sector_sz);
-
+	sdkp->min_xfer_blocks = get_unaligned_be16(&buffer[6]);
 	sdkp->max_xfer_blocks = get_unaligned_be32(&buffer[8]);
 	sdkp->opt_xfer_blocks = get_unaligned_be32(&buffer[12]);
 
@@ -3214,6 +3211,29 @@ out:
 	kfree(buffer);
 }
 
+static bool sd_validate_min_xfer_size(struct scsi_disk *sdkp)
+{
+	struct scsi_device *sdp = sdkp->device;
+	unsigned int min_xfer_bytes =
+		logical_to_bytes(sdp, sdkp->min_xfer_blocks);
+
+	if (sdkp->min_xfer_blocks == 0)
+		return false;
+
+	if (min_xfer_bytes & (sdkp->physical_block_size - 1)) {
+		sd_first_printk(KERN_WARNING, sdkp,
+				"Preferred minimum I/O size %u bytes not a " \
+				"multiple of physical block size (%u bytes)\n",
+				min_xfer_bytes, sdkp->physical_block_size);
+		sdkp->min_xfer_blocks = 0;
+		return false;
+	}
+
+	sd_first_printk(KERN_INFO, sdkp, "Preferred minimum I/O size %u bytes\n",
+			min_xfer_bytes);
+	return true;
+}
+
 /*
  * Determine the device's preferred I/O size for reads and writes
  * unless the reported value is unreasonably small, large, not a
@@ -3225,6 +3245,8 @@ static bool sd_validate_opt_xfer_size(struct scsi_disk *sdkp,
 	struct scsi_device *sdp = sdkp->device;
 	unsigned int opt_xfer_bytes =
 		logical_to_bytes(sdp, sdkp->opt_xfer_blocks);
+	unsigned int min_xfer_bytes =
+		logical_to_bytes(sdp, sdkp->min_xfer_blocks);
 
 	if (sdkp->opt_xfer_blocks == 0)
 		return false;
@@ -3258,6 +3280,15 @@ static bool sd_validate_opt_xfer_size(struct scsi_disk *sdkp,
 				"Optimal transfer size %u bytes not a " \
 				"multiple of physical block size (%u bytes)\n",
 				opt_xfer_bytes, sdkp->physical_block_size);
+		return false;
+	}
+
+	if (min_xfer_bytes && opt_xfer_bytes & (min_xfer_bytes - 1)) {
+		sd_first_printk(KERN_WARNING, sdkp,
+				"Optimal transfer size %u bytes not a " \
+				"multiple of preferred minimum block " \
+				"size (%u bytes)\n",
+				opt_xfer_bytes, min_xfer_bytes);
 		return false;
 	}
 
@@ -3344,6 +3375,10 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	/* Some devices report a maximum block count for READ/WRITE requests. */
 	dev_max = min_not_zero(dev_max, sdkp->max_xfer_blocks);
 	q->limits.max_dev_sectors = logical_to_sectors(sdp, dev_max);
+
+	if (sd_validate_min_xfer_size(sdkp))
+		blk_queue_io_min(sdkp->disk->queue,
+				 logical_to_bytes(sdp, sdkp->min_xfer_blocks));
 
 	if (sd_validate_opt_xfer_size(sdkp, dev_max)) {
 		q->limits.io_opt = logical_to_bytes(sdp, sdkp->opt_xfer_blocks);

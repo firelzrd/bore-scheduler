@@ -384,8 +384,11 @@ sched_core_dequeue(struct rq *rq, struct task_struct *p, int flags) { }
  * part of the period that we allow rt tasks to run in us.
  * default: 0.95s
  */
+#ifdef CONFIG_CACHY
+int sysctl_sched_rt_runtime = 980000;
+#else
 int sysctl_sched_rt_runtime = 950000;
-
+#endif
 
 /*
  * Serialization rules:
@@ -4980,6 +4983,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		 * finish_task_switch()'s mmdrop().
 		 */
 		switch_mm_irqs_off(prev->active_mm, next->mm, next);
+		lru_gen_use_mm(next->mm);
 
 		if (!prev->mm) {                        // from kernel
 			/* will mmdrop() in finish_task_switch(). */
@@ -6970,6 +6974,7 @@ int can_nice(const struct task_struct *p, const int nice)
 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
 		capable(CAP_SYS_NICE));
 }
+EXPORT_SYMBOL_GPL(can_nice);
 
 #ifdef __ARCH_WANT_SYS_NICE
 

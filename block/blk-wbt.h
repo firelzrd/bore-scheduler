@@ -88,6 +88,7 @@ static inline unsigned int wbt_inflight(struct rq_wb *rwb)
 
 #ifdef CONFIG_BLK_WBT
 
+struct rq_qos *wbt_rq_qos(struct request_queue *q);
 int wbt_init(struct request_queue *);
 void wbt_disable_default(struct request_queue *);
 void wbt_enable_default(struct request_queue *);
@@ -100,6 +101,11 @@ void wbt_set_write_cache(struct request_queue *, bool);
 u64 wbt_default_latency_nsec(struct request_queue *);
 
 #else
+
+static inline struct rq_qos *wbt_rq_qos(struct request_queue *q)
+{
+	return NULL;
+}
 
 static inline void wbt_track(struct request *rq, enum wbt_flags flags)
 {

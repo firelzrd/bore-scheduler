@@ -45,6 +45,10 @@
  * Module parameters.
  */
 
+static unsigned int hid_poll_interval;
+module_param_named(poll, hid_poll_interval, uint, 0644);
+MODULE_PARM_DESC(poll, "Polling interval of any device");
+
 static unsigned int hid_mousepoll_interval;
 module_param_named(mousepoll, hid_mousepoll_interval, uint, 0644);
 MODULE_PARM_DESC(mousepoll, "Polling interval of mice");
@@ -1106,6 +1110,10 @@ static int usbhid_start(struct hid_device *hid)
 			pr_info("%s: Fixing fullspeed to highspeed interval: %d -> %d\n",
 				hid->name, endpoint->bInterval, interval);
 		}
+
+		/* First set polling interval for all devices */
+		if (hid_poll_interval > 0)
+			interval = hid_poll_interval;
 
 		/* Change the polling interval of mice, joysticks
 		 * and keyboards.

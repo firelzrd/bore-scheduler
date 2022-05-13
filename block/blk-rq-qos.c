@@ -2,6 +2,11 @@
 
 #include "blk-rq-qos.h"
 
+static DEFINE_IDA(rq_qos_ida);
+static int nr_rqos_blkcg_pols;
+static DEFINE_MUTEX(rq_qos_mutex);
+static LIST_HEAD(rq_qos_list);
+
 /*
  * Increment 'v', if 'v' is below 'below'. Returns true if we succeeded,
  * false if 'v' + 1 would be bigger than 'below'.
@@ -294,11 +299,303 @@ void rq_qos_wait(struct rq_wait *rqw, void *private_data,
 
 void rq_qos_exit(struct request_queue *q)
 {
-	blk_mq_debugfs_unregister_queue_rqos(q);
-
+	/*
+	 * queue must have been unregistered here, it is safe to iterate
+	 * the list w/o lock
+	 */
 	while (q->rq_qos) {
 		struct rq_qos *rqos = q->rq_qos;
 		q->rq_qos = rqos->next;
 		rqos->ops->exit(rqos);
 	}
+	blk_mq_debugfs_unregister_queue_rqos(q);
+}
+
+static struct rq_qos *rq_qos_by_name(struct request_queue *q,
+		const char *name)
+{
+	struct rq_qos *rqos;
+
+	for (rqos = q->rq_qos; rqos; rqos = rqos->next) {
+		if (!rqos->ops->name)
+			continue;
+
+		if (!strncmp(rqos->ops->name, name,
+					strlen(rqos->ops->name)))
+			return rqos;
+	}
+	return NULL;
+}
+
+/*
+ * After the pluggable blk-qos, rqos's life cycle become complicated,
+ * as we may modify the rqos list there. Except for the places where
+ * queue is not registered, there are following places may access rqos
+ * list concurrently:
+ * (1) normal IO path, can be serialized by queue freezing
+ * (2) blkg_create, the .pd_init_fn() may access rqos, can be serialized
+ *     by queue_lock.
+ * (3) cgroup file, such as ioc_cost_model_write, rq_qos_get is for this
+ *     case to keep the rqos alive.
+ */
+struct rq_qos *rq_qos_get(struct request_queue *q, int id)
+{
+	struct rq_qos *rqos;
+
+	spin_lock_irq(&q->queue_lock);
+	rqos = rq_qos_by_id(q, id);
+	if (rqos && rqos->dying)
+		rqos = NULL;
+	if (rqos)
+		refcount_inc(&rqos->ref);
+	spin_unlock_irq(&q->queue_lock);
+	return rqos;
+}
+EXPORT_SYMBOL_GPL(rq_qos_get);
+
+void rq_qos_put(struct rq_qos *rqos)
+{
+	struct request_queue *q = rqos->q;
+
+	spin_lock_irq(&q->queue_lock);
+	refcount_dec(&rqos->ref);
+	if (rqos->dying)
+		wake_up(&rqos->waitq);
+	spin_unlock_irq(&q->queue_lock);
+}
+EXPORT_SYMBOL_GPL(rq_qos_put);
+
+void rq_qos_activate(struct request_queue *q,
+		struct rq_qos *rqos, const struct rq_qos_ops *ops)
+{
+	struct rq_qos *pos;
+
+	rqos->dying = false;
+	refcount_set(&rqos->ref, 1);
+	init_waitqueue_head(&rqos->waitq);
+	rqos->id = ops->id;
+	rqos->ops = ops;
+	rqos->q = q;
+	rqos->next = NULL;
+
+	spin_lock_irq(&q->queue_lock);
+	pos = q->rq_qos;
+	if (pos) {
+		while (pos->next)
+			pos = pos->next;
+		pos->next = rqos;
+	} else {
+		q->rq_qos = rqos;
+	}
+	spin_unlock_irq(&q->queue_lock);
+
+	if (rqos->ops->debugfs_attrs)
+		blk_mq_debugfs_register_rqos(rqos);
+
+	if (ops->owner)
+		__module_get(ops->owner);
+}
+EXPORT_SYMBOL_GPL(rq_qos_activate);
+
+void rq_qos_deactivate(struct rq_qos *rqos)
+{
+	struct request_queue *q = rqos->q;
+	struct rq_qos **cur;
+
+	spin_lock_irq(&q->queue_lock);
+	rqos->dying = true;
+	/*
+	 * Drain all of the usage of get/put_rqos()
+	 */
+	wait_event_lock_irq(rqos->waitq,
+		refcount_read(&rqos->ref) == 1, q->queue_lock);
+	for (cur = &q->rq_qos; *cur; cur = &(*cur)->next) {
+		if (*cur == rqos) {
+			*cur = rqos->next;
+			break;
+		}
+	}
+	spin_unlock_irq(&q->queue_lock);
+	blk_mq_debugfs_unregister_rqos(rqos);
+
+	if (rqos->ops->owner)
+		module_put(rqos->ops->owner);
+}
+EXPORT_SYMBOL_GPL(rq_qos_deactivate);
+
+static struct rq_qos_ops *rq_qos_op_find(const char *name)
+{
+	struct rq_qos_ops *pos;
+
+	list_for_each_entry(pos, &rq_qos_list, node) {
+		if (!strncmp(pos->name, name, strlen(pos->name)))
+			return pos;
+	}
+
+	return NULL;
+}
+
+int rq_qos_register(struct rq_qos_ops *ops)
+{
+	int ret, start;
+
+	mutex_lock(&rq_qos_mutex);
+
+	if (rq_qos_op_find(ops->name)) {
+		ret = -EEXIST;
+		goto out;
+	}
+
+	if (ops->flags & RQOS_FLAG_CGRP_POL &&
+	    nr_rqos_blkcg_pols >= (BLKCG_MAX_POLS - BLKCG_NON_RQOS_POLS)) {
+		ret = -ENOSPC;
+		goto out;
+	}
+
+	start = 1;
+	ret = ida_simple_get(&rq_qos_ida, start, INT_MAX, GFP_KERNEL);
+	if (ret < 0)
+		goto out;
+
+	if (ops->flags & RQOS_FLAG_CGRP_POL)
+		nr_rqos_blkcg_pols++;
+
+	ops->id = ret;
+	ret = 0;
+	INIT_LIST_HEAD(&ops->node);
+	list_add_tail(&ops->node, &rq_qos_list);
+out:
+	mutex_unlock(&rq_qos_mutex);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(rq_qos_register);
+
+void rq_qos_unregister(struct rq_qos_ops *ops)
+{
+	mutex_lock(&rq_qos_mutex);
+
+	if (ops->flags & RQOS_FLAG_CGRP_POL)
+		nr_rqos_blkcg_pols--;
+	list_del_init(&ops->node);
+	ida_simple_remove(&rq_qos_ida, ops->id);
+	mutex_unlock(&rq_qos_mutex);
+}
+EXPORT_SYMBOL_GPL(rq_qos_unregister);
+
+ssize_t queue_qos_show(struct request_queue *q, char *buf)
+{
+	struct rq_qos_ops *ops;
+	struct rq_qos *rqos;
+	int ret = 0;
+
+	mutex_lock(&rq_qos_mutex);
+	/*
+	 * Show the policies in the order of being invoked.
+	 * queue_lock is not needed here as the sysfs_lock is
+	 * protected us from the queue_qos_store()
+	 */
+	for (rqos = q->rq_qos; rqos; rqos = rqos->next) {
+		if (!rqos->ops->name)
+			continue;
+		ret += sprintf(buf + ret, "[%s] ", rqos->ops->name);
+	}
+	list_for_each_entry(ops, &rq_qos_list, node) {
+		if (!rq_qos_by_name(q, ops->name))
+			ret += sprintf(buf + ret, "%s ", ops->name);
+	}
+
+	ret--; /* overwrite the last space */
+	ret += sprintf(buf + ret, "\n");
+	mutex_unlock(&rq_qos_mutex);
+
+	return ret;
+}
+
+static int rq_qos_switch(struct request_queue *q,
+		const struct rq_qos_ops *ops,
+		struct rq_qos *rqos)
+{
+	int ret;
+
+	blk_mq_freeze_queue(q);
+	if (!rqos) {
+		ret = ops->init(q);
+	} else {
+		ops->exit(rqos);
+		ret = 0;
+	}
+	blk_mq_unfreeze_queue(q);
+
+	return ret;
+}
+
+ssize_t queue_qos_store(struct request_queue *q, const char *page,
+			  size_t count)
+{
+	const struct rq_qos_ops *ops;
+	struct rq_qos *rqos;
+	const char *qosname;
+	char *buf;
+	bool add;
+	int ret;
+
+	if (!blk_queue_registered(q))
+		return -ENOENT;
+
+	buf = kstrdup(page, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	buf = strim(buf);
+	if (buf[0] != '+' && buf[0] != '-') {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	add = buf[0] == '+';
+	qosname = buf + 1;
+
+	rqos = rq_qos_by_name(q, qosname);
+	if ((buf[0] == '+' && rqos)) {
+		ret = -EEXIST;
+		goto out;
+	}
+
+	if ((buf[0] == '-' && !rqos)) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	if (add) {
+		mutex_lock(&rq_qos_mutex);
+		ops = rq_qos_op_find(qosname);
+		if (!ops) {
+			/*
+			 * module_init callback may request this mutex
+			 */
+			mutex_unlock(&rq_qos_mutex);
+			request_module("%s", qosname);
+			mutex_lock(&rq_qos_mutex);
+			ops = rq_qos_op_find(qosname);
+		}
+		if (!ops) {
+			ret = -EINVAL;
+		} else if (ops->owner && !try_module_get(ops->owner)) {
+			ops = NULL;
+			ret = -EAGAIN;
+		}
+		mutex_unlock(&rq_qos_mutex);
+		if (!ops)
+			goto out;
+	} else {
+		ops = rqos->ops;
+	}
+
+	ret = rq_qos_switch(q, ops, add ? NULL : rqos);
+
+	if (add)
+		module_put(ops->owner);
+out:
+	kfree(buf);
+	return ret ? ret : count;
 }

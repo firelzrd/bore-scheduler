@@ -2033,6 +2033,8 @@ select_cpu:
 static void __blk_mq_delay_run_hw_queue(struct blk_mq_hw_ctx *hctx, bool async,
 					unsigned long msecs)
 {
+	unsigned long flag;
+
 	if (unlikely(blk_mq_hctx_stopped(hctx)))
 		return;
 
@@ -2047,8 +2049,12 @@ static void __blk_mq_delay_run_hw_queue(struct blk_mq_hw_ctx *hctx, bool async,
 		put_cpu();
 	}
 
-	kblockd_mod_delayed_work_on(blk_mq_hctx_next_cpu(hctx), &hctx->run_work,
-				    msecs_to_jiffies(msecs));
+	spin_lock_irqsave(&hctx->queue->queue_lock, flag);
+	if (!blk_queue_dead(hctx->queue))
+		kblockd_mod_delayed_work_on(blk_mq_hctx_next_cpu(hctx),
+					    &hctx->run_work,
+					    msecs_to_jiffies(msecs));
+	spin_unlock_irqrestore(&hctx->queue->queue_lock, flag);
 }
 
 /**

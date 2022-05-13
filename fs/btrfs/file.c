@@ -691,7 +691,6 @@ int btrfs_drop_extents(struct btrfs_trans_handle *trans,
 	int modify_tree = -1;
 	int update_refs;
 	int found = 0;
-	int leafs_visited = 0;
 	struct btrfs_path *path = args->path;
 
 	args->bytes_found = 0;
@@ -729,7 +728,6 @@ int btrfs_drop_extents(struct btrfs_trans_handle *trans,
 				path->slots[0]--;
 		}
 		ret = 0;
-		leafs_visited++;
 next_slot:
 		leaf = path->nodes[0];
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
@@ -741,7 +739,6 @@ next_slot:
 				ret = 0;
 				break;
 			}
-			leafs_visited++;
 			leaf = path->nodes[0];
 			recow = 1;
 		}
@@ -987,7 +984,7 @@ delete_extent_item:
 	 * which case it unlocked our path, so check path->locks[0] matches a
 	 * write lock.
 	 */
-	if (!ret && args->replace_extent && leafs_visited == 1 &&
+	if (!ret && args->replace_extent &&
 	    path->locks[0] == BTRFS_WRITE_LOCK &&
 	    btrfs_leaf_free_space(leaf) >=
 	    sizeof(struct btrfs_item) + args->extent_item_size) {
@@ -2474,7 +2471,7 @@ out:
 	hole_em = alloc_extent_map();
 	if (!hole_em) {
 		btrfs_drop_extent_cache(inode, offset, end - 1, 0);
-		set_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &inode->runtime_flags);
+		btrfs_set_inode_full_sync(inode);
 	} else {
 		hole_em->start = offset;
 		hole_em->len = end - offset;
@@ -2495,8 +2492,7 @@ out:
 		} while (ret == -EEXIST);
 		free_extent_map(hole_em);
 		if (ret)
-			set_bit(BTRFS_INODE_NEEDS_FULL_SYNC,
-					&inode->runtime_flags);
+			btrfs_set_inode_full_sync(inode);
 	}
 
 	return 0;
@@ -2850,7 +2846,7 @@ int btrfs_replace_file_extents(struct btrfs_inode *inode,
 	 * maps for the replacement extents (or holes).
 	 */
 	if (extent_info && !extent_info->is_new_extent)
-		set_bit(BTRFS_INODE_NEEDS_FULL_SYNC, &inode->runtime_flags);
+		btrfs_set_inode_full_sync(inode);
 
 	if (ret)
 		goto out_trans;

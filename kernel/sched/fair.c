@@ -35,9 +35,13 @@
  *
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
  */
+#ifdef CONFIG_CACHY
+unsigned int sysctl_sched_latency			= 3000000ULL;
+static unsigned int normalized_sysctl_sched_latency	= 4000000ULL;
+#else
 unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
-
+#endif
 /*
  * The initial- and re-scaling of tunables is configurable
  *
@@ -56,8 +60,13 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  *
  * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+#ifdef CONFIG_CACHY
+unsigned int sysctl_sched_min_granularity			= 400000ULL;
+static unsigned int normalized_sysctl_sched_min_granularity	= 500000ULL;
+#else
 unsigned int sysctl_sched_min_granularity			= 750000ULL;
 static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
+#endif
 
 /*
  * Minimal preemption granularity for CPU-bound SCHED_IDLE tasks.
@@ -87,8 +96,13 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  *
  * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+#ifdef CONFIG_CACHY
+unsigned int sysctl_sched_wakeup_granularity			= 500000UL;
+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 800000UL;
+#else
 unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
+#endif
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
@@ -141,7 +155,11 @@ int __weak arch_asym_cpu_priority(int cpu)
  *
  * (default: 5 msec, units: microseconds)
  */
+#ifdef CONFIG_CACHY
+unsigned int sysctl_sched_cfs_bandwidth_slice		= 3000UL;
+#else
 unsigned int sysctl_sched_cfs_bandwidth_slice		= 5000UL;
+#endif
 #endif
 
 static inline void update_load_add(struct load_weight *lw, unsigned long inc)

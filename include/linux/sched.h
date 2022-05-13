@@ -284,13 +284,40 @@ enum {
 
 extern void scheduler_tick(void);
 
-#define	MAX_SCHEDULE_TIMEOUT		LONG_MAX
-
+#define	MAX_SCHEDULE_TIMEOUT	LONG_MAX
 extern long schedule_timeout(long timeout);
 extern long schedule_timeout_interruptible(long timeout);
 extern long schedule_timeout_killable(long timeout);
 extern long schedule_timeout_uninterruptible(long timeout);
 extern long schedule_timeout_idle(long timeout);
+
+#ifdef CONFIG_HIGH_RES_TIMERS
+extern long schedule_msec_hrtimeout(long timeout);
+extern long schedule_min_hrtimeout(void);
+extern long schedule_msec_hrtimeout_interruptible(long timeout);
+extern long schedule_msec_hrtimeout_uninterruptible(long timeout);
+#else
+static inline long schedule_msec_hrtimeout(long timeout)
+{
+	return schedule_timeout(msecs_to_jiffies(timeout));
+}
+
+static inline long schedule_min_hrtimeout(void)
+{
+	return schedule_timeout(1);
+}
+
+static inline long schedule_msec_hrtimeout_interruptible(long timeout)
+{
+	return schedule_timeout_interruptible(msecs_to_jiffies(timeout));
+}
+
+static inline long schedule_msec_hrtimeout_uninterruptible(long timeout)
+{
+	return schedule_timeout_uninterruptible(msecs_to_jiffies(timeout));
+}
+#endif
+
 asmlinkage void schedule(void);
 extern void schedule_preempt_disabled(void);
 asmlinkage void preempt_schedule_irq(void);
@@ -915,6 +942,10 @@ struct task_struct {
 #ifdef CONFIG_MEMCG
 	unsigned			in_user_fault:1;
 #endif
+#ifdef CONFIG_LRU_GEN
+	/* whether the LRU algorithm may apply to this access */
+	unsigned			in_lru_fault:1;
+#endif
 #ifdef CONFIG_COMPAT_BRK
 	unsigned			brk_randomized:1;
 #endif
@@ -1047,6 +1078,7 @@ struct task_struct {
 	/* Cached requested key. */
 	struct key			*cached_requested_key;
 #endif
+	int fsync_count;
 
 	/*
 	 * executable name, excluding path.

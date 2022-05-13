@@ -54,6 +54,10 @@ if_changed_except = $(if $(call newer_prereqs_except,$(2))$(cmd-check),      \
 	$(cmd);                                                              \
 	printf '%s\n' 'cmd_$@ := $(make-cmd)' > $(dot-target).cmd, @:)
 
+ifdef CONFIG_LTO_CLANG_THIN
+KBUILD_LDFLAGS	+= --thinlto-cache-dir=$(thinlto-dir)$(extmod-prefix).thinlto-cache
+endif # CONFIG_LTO_CLANG_THIN
+
 
 # Re-generate module BTFs if either module's .ko or vmlinux changed
 $(modules): %.ko: %$(mod-prelink-ext).o %.mod.o scripts/module.lds $(if $(KBUILD_BUILTIN),vmlinux) FORCE

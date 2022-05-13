@@ -166,6 +166,10 @@ static ssize_t energy_perf_bias_store(struct device *dev,
 	if (ret < 0)
 		return ret;
 
+	/* update the ITMT scheduler logic to use the power policy data */
+	/* scale the val up by 2 so the range is 224 - 256 */
+	sched_set_itmt_power_ratio(256 - val * 2, cpu);
+
 	return count;
 }
 

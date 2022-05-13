@@ -729,7 +729,10 @@ void blk_mq_debugfs_register(struct request_queue *q)
 
 	if (q->rq_qos) {
 		struct rq_qos *rqos = q->rq_qos;
-
+		/*
+		 * queue has not been registered right now, it is safe to
+		 * iterate the rqos w/o lock
+		 */
 		while (rqos) {
 			blk_mq_debugfs_register_rqos(rqos);
 			rqos = rqos->next;
@@ -820,21 +823,6 @@ void blk_mq_debugfs_unregister_sched(struct request_queue *q)
 	q->sched_debugfs_dir = NULL;
 }
 
-static const char *rq_qos_id_to_name(enum rq_qos_id id)
-{
-	switch (id) {
-	case RQ_QOS_WBT:
-		return "wbt";
-	case RQ_QOS_LATENCY:
-		return "latency";
-	case RQ_QOS_COST:
-		return "cost";
-	case RQ_QOS_IOPRIO:
-		return "ioprio";
-	}
-	return "unknown";
-}
-
 void blk_mq_debugfs_unregister_rqos(struct rq_qos *rqos)
 {
 	debugfs_remove_recursive(rqos->debugfs_dir);
@@ -844,7 +832,6 @@ void blk_mq_debugfs_unregister_rqos(struct rq_qos *rqos)
 void blk_mq_debugfs_register_rqos(struct rq_qos *rqos)
 {
 	struct request_queue *q = rqos->q;
-	const char *dir_name = rq_qos_id_to_name(rqos->id);
 
 	if (rqos->debugfs_dir || !rqos->ops->debugfs_attrs)
 		return;
@@ -853,7 +840,7 @@ void blk_mq_debugfs_register_rqos(struct rq_qos *rqos)
 		q->rqos_debugfs_dir = debugfs_create_dir("rqos",
 							 q->debugfs_dir);
 
-	rqos->debugfs_dir = debugfs_create_dir(dir_name,
+	rqos->debugfs_dir = debugfs_create_dir(rqos->ops->name,
 					       rqos->q->rqos_debugfs_dir);
 
 	debugfs_create_files(rqos->debugfs_dir, rqos, rqos->ops->debugfs_attrs);
