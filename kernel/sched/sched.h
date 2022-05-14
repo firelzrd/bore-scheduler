@@ -2390,9 +2390,9 @@ extern unsigned int sysctl_sched_wakeup_granularity;
 extern int sysctl_resched_latency_warn_ms;
 extern int sysctl_resched_latency_warn_once;
 #ifdef CONFIG_SCHED_BORE
-extern unsigned short sysctl_sched_burst_penalty_scale;
-extern unsigned char sysctl_sched_burst_reduction_bits_deq;
-extern unsigned char sysctl_sched_burst_reduction_bits_fork;
+extern unsigned short sched_burst_penalty_scale;
+extern unsigned char sched_burst_granularity;
+extern unsigned char sched_burst_reduction;
 #endif // CONFIG_SCHED_BORE
 
 extern unsigned int sysctl_sched_tunable_scaling;

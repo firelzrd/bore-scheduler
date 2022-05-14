@@ -44,10 +44,6 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_update_nr_running_tp);
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
-#ifdef CONFIG_SCHED_BORE
-unsigned char  __read_mostly sysctl_sched_burst_reduction_bits_fork = 0;
-#endif // CONFIG_SCHED_BORE
-
 #ifdef CONFIG_SCHED_DEBUG
 /*
  * Debugging: various feature bits
@@ -4229,9 +4225,6 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
-#ifdef CONFIG_SCHED_BORE
-	p->se.burst_time >>= sysctl_sched_burst_reduction_bits_fork;
-#endif // CONFIG_SCHED_BORE
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -9282,7 +9275,7 @@ void __init sched_init(void)
 #endif
 
 #ifdef CONFIG_SCHED_BORE
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.2.28.0 by Masahito Suzuki");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.3.30.0 by Masahito Suzuki");
 #endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();

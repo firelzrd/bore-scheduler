@@ -317,9 +317,9 @@ static __init int sched_init_debug(void)
 	debugfs_create_u32("latency_warn_ms", 0644, debugfs_sched, &sysctl_resched_latency_warn_ms);
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
 #ifdef CONFIG_SCHED_BORE
-	debugfs_create_u16("burst_penalty_scale", 0644, debugfs_sched, &sysctl_sched_burst_penalty_scale);
-	debugfs_create_u8("burst_reduction_bits_deq", 0644, debugfs_sched, &sysctl_sched_burst_reduction_bits_deq);
-	debugfs_create_u8("burst_reduction_bits_fork", 0644, debugfs_sched, &sysctl_sched_burst_reduction_bits_fork);
+	debugfs_create_u16("burst_penalty_scale", 0644, debugfs_sched, &sched_burst_penalty_scale);
+	debugfs_create_u8("burst_granularity", 0644, debugfs_sched, &sched_burst_granularity);
+	debugfs_create_u8("burst_reduction", 0644, debugfs_sched, &sched_burst_reduction);
 #endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_SMP
