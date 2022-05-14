@@ -1,7 +1,7 @@
 From 310c16c35b6d65dbd895bf6413b031fa51819528 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 14 May 2022 11:24:38 +0900
-Subject: [PATCH] 5.17.y-bore-latnice1.3.29.0
+Subject: [PATCH] 5.17.y-bore-latnice1.3.29.1
 
 ---
  include/linux/sched.h   |  3 +++
@@ -66,7 +66,7 @@ index 05b18bdc3..3b11fef27 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.3.29.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.3.29.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -107,7 +107,7 @@ index b273c2064..c47df5d6a 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +unsigned short __read_mostly sysctl_sched_burst_penalty_scale = 1176;
-+unsigned char  __read_mostly sysctl_sched_burst_reduction_bits_deq = 3;
++unsigned char  __read_mostly sysctl_sched_burst_reduction_bits_deq = 2;
 +#endif // CONFIG_SCHED_BORE
 +
  int sched_thermal_decay_shift;
