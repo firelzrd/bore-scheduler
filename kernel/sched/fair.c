@@ -110,8 +110,8 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
-unsigned short __read_mostly sched_burst_penalty_scale = 1217;
-unsigned char  __read_mostly sched_burst_granularity = 4;
+unsigned short __read_mostly sched_burst_penalty_scale = 1256;
+unsigned char  __read_mostly sched_burst_granularity = 5;
 unsigned char  __read_mostly sched_burst_reduction = 2;
 #endif // CONFIG_SCHED_BORE
 
@@ -874,7 +874,8 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	u64 now = rq_clock_task(rq_of(cfs_rq));
 	u64 delta_exec;
 #ifdef CONFIG_SCHED_BORE
-	u32 msb, hi, lo, burst_score;
+	u64 burst_count;
+	u32 msb, bcnt_prec10, burst_score;
 #endif // CONFIG_SCHED_BORE
 
 	if (unlikely(!curr))
@@ -900,10 +901,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
 	if(sched_feat(BURST_PENALTY)) {
-		msb = fls64(curr->burst_time >> sched_burst_granularity);
-		hi = msb << 10;
-		lo = curr->burst_time << ((65 - msb) & 0x3F) >> 54;
-		burst_score = min((hi | lo) * sched_burst_penalty_scale >> 20, (u32)39);
+		burst_count = curr->burst_time >> sched_burst_granularity;
+		msb = fls64(burst_count);
+		bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
+		burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
 		curr->vruntime += mul_u64_u32_shr(
 			calc_delta_fair(delta_exec, curr),
 			sched_prio_to_wmult[burst_score], 22);
