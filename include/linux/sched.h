@@ -548,6 +548,9 @@ struct sched_entity {
 	u64				prev_sum_exec_runtime;
 
 	u64				nr_migrations;
+#ifdef CONFIG_SCHED_BORE
+	u64				burst_time;
+#endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	int				depth;
