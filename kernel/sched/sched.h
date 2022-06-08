@@ -2415,6 +2415,7 @@ extern int sysctl_resched_latency_warn_once;
 extern unsigned short sched_burst_penalty_scale;
 extern unsigned char sched_burst_granularity;
 extern unsigned char sched_burst_reduction;
+extern bool sched_burst_preempt;
 #endif // CONFIG_SCHED_BORE
 
 extern unsigned int sysctl_sched_tunable_scaling;

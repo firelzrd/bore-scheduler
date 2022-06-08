@@ -99,6 +99,7 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 unsigned short __read_mostly sched_burst_penalty_scale = 1256;
 unsigned char  __read_mostly sched_burst_granularity = 5;
 unsigned char  __read_mostly sched_burst_reduction = 2;
+bool __read_mostly sched_burst_preempt = 1;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -7175,6 +7176,11 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 		return;
 
 	update_curr(cfs_rq_of(se));
+#ifdef CONFIG_SCHED_BORE
+	/* More bursty tasks are preempted by those less bursty anyway */
+	if(sched_feat(BURST_PENALTY) && sched_burst_preempt && (se->burst_time > pse->burst_time))
+		goto preempt;
+#endif // CONFIG_SCHED_BORE
 	if (wakeup_preempt_entity(se, pse) == 1) {
 		/*
 		 * Bias pick_next to pick the sched entity that is
