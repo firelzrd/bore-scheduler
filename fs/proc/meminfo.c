@@ -108,6 +108,10 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 #endif
 	show_val_kb(m, "PageTables:     ",
 		    global_node_page_state(NR_PAGETABLE));
+#ifdef CONFIG_UKSM
+	show_val_kb(m, "KsmZeroPages:     ",
+		    global_zone_page_state(NR_UKSM_ZERO_PAGES));
+#endif
 
 	show_val_kb(m, "NFS_Unstable:   ", 0);
 	show_val_kb(m, "Bounce:         ",
