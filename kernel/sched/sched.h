@@ -1193,6 +1193,65 @@ static inline raw_spinlock_t *__rq_lockp(struct rq *rq)
 bool cfs_prio_less(struct task_struct *a, struct task_struct *b, bool fi);
 
 /*
+ * A simple wrapper around refcount. An allocated sched_core_cookie's
+ * address is used to compute the cookie of the task.
+ */
+struct sched_core_cookie {
+	refcount_t refcnt;
+	unsigned int __percpu *nr_running;
+};
+
+/*
+ * When tasks with the same cookie can make pairs on SMT siblings, forceidle can be
+ * avoided a lot, so when wake up and load balance, we try to make and keep the pairs
+ * with the same cookie on SMT siblings.
+ */
+static inline bool
+sched_core_make_pair_balance(struct rq *src_rq, struct rq *dst_rq, struct task_struct *p)
+{
+	struct sched_core_cookie *ck = (struct sched_core_cookie *)p->core_cookie;
+	unsigned int src_cpu, dst_cpu, t;
+	unsigned int src_nr_running, dst_nr_running;
+
+	if (!ck)
+		return true;
+
+	/*
+	 * When load balance, if ck->nr_running on src_cpu is less than that on SMT
+	 * siblings, don't migrate the task.
+	 */
+	if (src_rq) {
+		if (!sched_core_enabled(src_rq))
+			return true;
+		src_cpu = cpu_of(src_rq);
+		src_nr_running = *per_cpu_ptr(ck->nr_running, src_cpu);
+		for_each_cpu(t, cpu_smt_mask(src_cpu)) {
+			if (t == src_cpu)
+				continue;
+			if (*per_cpu_ptr(ck->nr_running, t) >= src_nr_running)
+				return false;
+		}
+
+	}
+
+	/*
+	 * If task p can make pair the cookied task with p->core_cookie on the
+	 * dst core, we can wake up task p on dst_rq, or migrate it to dst_rq.
+	 */
+	dst_cpu = cpu_of(dst_rq);
+	dst_nr_running = *per_cpu_ptr(ck->nr_running, dst_cpu);
+	for_each_cpu(t, cpu_smt_mask(dst_cpu)) {
+		if (t == dst_cpu)
+			continue;
+		if (*per_cpu_ptr(ck->nr_running, t) <= dst_nr_running)
+			return false;
+	}
+
+	return true;
+}
+
+
+/*
  * Helpers to check if the CPU's core cookie matches with the task's cookie
  * when core scheduling is enabled.
  * A special case is that the task's cookie always matches with CPU's core
@@ -1204,19 +1263,21 @@ static inline bool sched_cpu_cookie_match(struct rq *rq, struct task_struct *p)
 	if (!sched_core_enabled(rq))
 		return true;
 
-	return rq->core->core_cookie == p->core_cookie;
+	return rq->core->core_cookie == p->core_cookie ||
+		sched_core_make_pair_balance(NULL, rq, p);
 }
 
-static inline bool sched_core_cookie_match(struct rq *rq, struct task_struct *p)
+static inline bool
+sched_core_cookie_match(struct rq *src_rq, struct rq *dst_rq, struct task_struct *p)
 {
 	bool idle_core = true;
 	int cpu;
 
 	/* Ignore cookie match if core scheduler is not enabled on the CPU. */
-	if (!sched_core_enabled(rq))
+	if (!sched_core_enabled(dst_rq))
 		return true;
 
-	for_each_cpu(cpu, cpu_smt_mask(cpu_of(rq))) {
+	for_each_cpu(cpu, cpu_smt_mask(cpu_of(dst_rq))) {
 		if (!available_idle_cpu(cpu)) {
 			idle_core = false;
 			break;
@@ -1227,7 +1288,8 @@ static inline bool sched_core_cookie_match(struct rq *rq, struct task_struct *p)
 	 * A CPU in an idle core is always the best choice for tasks with
 	 * cookies.
 	 */
-	return idle_core || rq->core->core_cookie == p->core_cookie;
+	return idle_core || dst_rq->core->core_cookie == p->core_cookie ||
+		sched_core_make_pair_balance(src_rq, dst_rq, p);
 }
 
 static inline bool sched_group_cookie_match(struct rq *rq,
@@ -1241,7 +1303,7 @@ static inline bool sched_group_cookie_match(struct rq *rq,
 		return true;
 
 	for_each_cpu_and(cpu, sched_group_span(group), p->cpus_ptr) {
-		if (sched_core_cookie_match(rq, p))
+		if (sched_core_cookie_match(NULL, rq, p))
 			return true;
 	}
 	return false;

@@ -3,21 +3,20 @@
 #include <linux/prctl.h>
 #include "sched.h"
 
-/*
- * A simple wrapper around refcount. An allocated sched_core_cookie's
- * address is used to compute the cookie of the task.
- */
-struct sched_core_cookie {
-	refcount_t refcnt;
-};
-
 static unsigned long sched_core_alloc_cookie(void)
 {
 	struct sched_core_cookie *ck = kmalloc(sizeof(*ck), GFP_KERNEL);
+	int cpu;
+	
 	if (!ck)
 		return 0;
 
 	refcount_set(&ck->refcnt, 1);
+
+	ck->nr_running = alloc_percpu(unsigned int);
+	for_each_possible_cpu(cpu)
+		*per_cpu_ptr(ck->nr_running, cpu) = 0;
+
 	sched_core_get();
 
 	return (unsigned long)ck;
@@ -28,6 +27,7 @@ static void sched_core_put_cookie(unsigned long cookie)
 	struct sched_core_cookie *ptr = (void *)cookie;
 
 	if (ptr && refcount_dec_and_test(&ptr->refcnt)) {
+		free_percpu(ptr->nr_running);
 		kfree(ptr);
 		sched_core_put();
 	}
@@ -78,7 +78,7 @@ static unsigned long sched_core_update_cookie(struct task_struct *p,
 	old_cookie = p->core_cookie;
 	p->core_cookie = cookie;
 
-	if (enqueued)
+	if (task_on_rq_queued(p))
 		sched_core_enqueue(rq, p);
 
 	/*

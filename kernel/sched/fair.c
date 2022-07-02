@@ -6074,7 +6074,7 @@ find_idlest_group_cpu(struct sched_group *group, struct task_struct *p, int this
 	for_each_cpu_and(i, sched_group_span(group), p->cpus_ptr) {
 		struct rq *rq = cpu_rq(i);
 
-		if (!sched_core_cookie_match(rq, p))
+		if (!sched_core_cookie_match(NULL, rq, p))
 			continue;
 
 		if (sched_idle_cpu(i))
@@ -7703,7 +7703,7 @@ static int task_hot(struct task_struct *p, struct lb_env *env)
 	 * Don't migrate task if the task's cookie does not match
 	 * with the destination CPU's core cookie.
 	 */
-	if (!sched_core_cookie_match(cpu_rq(env->dst_cpu), p))
+	if (!(sched_core_cookie_match(env->src_rq, env->dst_rq, p)))
 		return 1;
 
 	if (sysctl_sched_migration_cost == 0)
