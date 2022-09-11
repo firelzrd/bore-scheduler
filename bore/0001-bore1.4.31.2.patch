@@ -67,7 +67,7 @@ index 1eec4925b..325fad52b 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.4.31.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.4.31.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -111,8 +111,8 @@ index 2f461f059..42a5a110c 100644
 +#ifdef CONFIG_SCHED_BORE
 +unsigned short __read_mostly sched_burst_penalty_scale = 1256;
 +unsigned char  __read_mostly sched_burst_granularity = 5;
-+unsigned char  __read_mostly sched_burst_reduction = 4;
-+bool __read_mostly sched_burst_preempt = 0;
++unsigned char  __read_mostly sched_burst_reduction = 3;
++bool __read_mostly sched_burst_preempt = 1;
 +#endif // CONFIG_SCHED_BORE
 +
  int sched_thermal_decay_shift;
