@@ -99,7 +99,7 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 unsigned short __read_mostly sched_burst_penalty_scale = 1256;
 unsigned char  __read_mostly sched_burst_granularity = 5;
 unsigned char  __read_mostly sched_burst_reduction = 3;
-bool __read_mostly sched_burst_preempt = 1;
+bool           __read_mostly sched_burst_preempt = 1;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -848,6 +848,30 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 }
 #endif /* CONFIG_SMP */
 
+#ifdef CONFIG_SCHED_BORE
+static inline void update_burst_score(struct sched_entity *se) {
+	u64 burst_count;
+	u32 msb, bcnt_prec10;
+
+	burst_count = se->burst_time >> sched_burst_granularity;
+	msb = fls64(burst_count);
+	bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
+	se->burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
+}
+
+static u64 calc_burst_scale(u64 delta, struct sched_entity *se) {
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
+}
+
+static u64 calc_delta_burst_scale(u64 delta, struct sched_entity *se) {
+	return calc_burst_scale(calc_delta_fair(delta, se), se);
+}
+
+static inline void reduce_burst(struct sched_entity *se) {
+	se->burst_time >>= sched_burst_reduction;
+}
+#endif // CONFIG_SCHED_BORE
+
 /*
  * Update the current task's runtime statistics.
  */
@@ -856,10 +880,6 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	struct sched_entity *curr = cfs_rq->curr;
 	u64 now = rq_clock_task(rq_of(cfs_rq));
 	u64 delta_exec;
-#ifdef CONFIG_SCHED_BORE
-	u64 burst_count;
-	u32 msb, bcnt_prec10, burst_score;
-#endif // CONFIG_SCHED_BORE
 
 	if (unlikely(!curr))
 		return;
@@ -883,15 +903,9 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
-	if(sched_feat(BURST_PENALTY)) {
-		burst_count = curr->burst_time >> sched_burst_granularity;
-		msb = fls64(burst_count);
-		bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
-		burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
-		curr->vruntime += mul_u64_u32_shr(
-			calc_delta_fair(delta_exec, curr),
-			sched_prio_to_wmult[burst_score], 22);
-	}
+	update_burst_score(curr);
+	if (sched_feat(BURST_PENALTY))
+		curr->vruntime += calc_delta_burst_scale(delta_exec, curr);
 	else
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
@@ -4519,6 +4533,11 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
 
+
+#ifdef CONFIG_SCHED_BORE
+static int wakeup_preempt_entity_burst(struct sched_entity *curr,
+                                 struct sched_entity *se, bool burst_scale);
+#endif // CONFIG_SCHED_BORE
 static int
 wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
 
@@ -4563,6 +4582,14 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 			se = second;
 	}
 
+#ifdef CONFIG_SCHED_BORE
+	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
+		if (cfs_rq->next && wakeup_preempt_entity_burst(cfs_rq->next, left, true) < 1)
+			se = cfs_rq->next;
+		else if (cfs_rq->last && wakeup_preempt_entity(cfs_rq->last, left) < 1)
+			se = cfs_rq->last;
+	} else
+#endif // CONFIG_SCHED_BORE
 	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1) {
 		/*
 		 * Someone really wants this to run. If it's not unfair, run it.
@@ -5743,11 +5770,11 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	util_est_dequeue(&rq->cfs, p);
 
 	for_each_sched_entity(se) {
+#ifdef CONFIG_SCHED_BORE
+		reduce_burst(se);
+#endif // CONFIG_SCHED_BORE
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
-#ifdef CONFIG_SCHED_BORE
-		se->burst_time >>= sched_burst_reduction;
-#endif // CONFIG_SCHED_BORE
 
 		cfs_rq->h_nr_running--;
 		cfs_rq->idle_h_nr_running -= idle_h_nr_running;
@@ -7064,7 +7091,12 @@ static unsigned long wakeup_gran(struct sched_entity *se)
  *
  */
 static int
+#ifdef CONFIG_SCHED_BORE
+wakeup_preempt_entity_burst(struct sched_entity *curr,
+                            struct sched_entity *se, bool burst_scale)
+#else // CONFIG_SCHED_BORE
 wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
+#endif // CONFIG_SCHED_BORE
 {
 	s64 gran, vdiff = curr->vruntime - se->vruntime;
 
@@ -7072,11 +7104,20 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 		return -1;
 
 	gran = wakeup_gran(se);
+#ifdef CONFIG_SCHED_BORE
+	if (burst_scale) gran = calc_burst_scale(gran, se);
+#endif // CONFIG_SCHED_BORE
 	if (vdiff > gran)
 		return 1;
 
 	return 0;
 }
+#ifdef CONFIG_SCHED_BORE
+static int wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
+{
+	return wakeup_preempt_entity_burst(curr, se, false);
+}
+#endif // CONFIG_SCHED_BORE
 
 static void set_last_buddy(struct sched_entity *se)
 {
@@ -7177,9 +7218,13 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 	update_curr(cfs_rq_of(se));
 #ifdef CONFIG_SCHED_BORE
-	/* More bursty tasks are preempted by those less bursty anyway */
-	if(sched_feat(BURST_PENALTY) && sched_burst_preempt && (se->burst_time > pse->burst_time))
-		goto preempt;
+	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
+		if (wakeup_preempt_entity_burst(se, pse, true) == 1) {
+			if (!next_buddy_marked)
+				set_next_buddy(pse);
+			goto preempt;
+		}
+	} else
 #endif // CONFIG_SCHED_BORE
 	if (wakeup_preempt_entity(se, pse) == 1) {
 		/*
@@ -7418,7 +7463,7 @@ static void yield_task_fair(struct rq *rq)
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
 #ifdef CONFIG_SCHED_BORE
-	se->burst_time >>= sched_burst_reduction;
+	reduce_burst(se);
 #endif // CONFIG_SCHED_BORE
 
 	/*

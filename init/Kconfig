@@ -1278,7 +1278,8 @@ config SCHED_BORE
 	  responsiveness especially under heavy background workload.
 
 	  You can turn it off by writing NO_BURST_PENALTY to sched/features.
-	  Enabling this feature implies NO_GENTLE_FAIR_SLEEPERS by default.
+	  Enabling this feature implies GENTLE_FAIR_SLEEPERS disabled and
+		NEXT_BUDDY enabled by default.
 
 	  If unsure say Y here.
 
