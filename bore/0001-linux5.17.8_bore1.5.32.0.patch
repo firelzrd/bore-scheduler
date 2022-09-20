@@ -1,37 +1,38 @@
-From c44b1b065d57060c79d198618d9114226879d14e Mon Sep 17 00:00:00 2001
+From cd609e8580c04ea676e68564dcf28c6944a494ef Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Thu, 9 Jun 2022 18:30:37 +0900
-Subject: [PATCH] bore1.4.31.0
+Date: Wed, 21 Sep 2022 03:33:28 +0900
+Subject: [PATCH] linux5.17.8_bore1.5.32.0
 
 ---
- include/linux/sched.h   |  3 +++
- init/Kconfig            | 20 ++++++++++++++++++++
- kernel/sched/core.c     |  4 ++++
- kernel/sched/debug.c    |  6 ++++++
- kernel/sched/fair.c     | 38 ++++++++++++++++++++++++++++++++++++++
- kernel/sched/features.h | 11 +++++++++++
- kernel/sched/sched.h    |  6 ++++++
- 7 files changed, 88 insertions(+)
+ include/linux/sched.h   |  4 ++
+ init/Kconfig            | 21 +++++++++++
+ kernel/sched/core.c     |  4 ++
+ kernel/sched/debug.c    |  6 +++
+ kernel/sched/fair.c     | 83 +++++++++++++++++++++++++++++++++++++++++
+ kernel/sched/features.h | 15 ++++++++
+ kernel/sched/sched.h    |  6 +++
+ 7 files changed, 139 insertions(+)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 4b4cc633b..7cc87ce6a 100644
+index 535833c98..579c2dbde 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -548,6 +548,9 @@ struct sched_entity {
+@@ -576,6 +576,10 @@ struct sched_entity {
  	u64				prev_sum_exec_runtime;
  
  	u64				nr_migrations;
 +#ifdef CONFIG_SCHED_BORE
 +	u64				burst_time;
++	u8				burst_score;
 +#endif // CONFIG_SCHED_BORE
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
  	int				depth;
 diff --git a/init/Kconfig b/init/Kconfig
-index e9119bf54..3e6d85355 100644
+index d5aebf11d..73f860613 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1262,6 +1262,26 @@ config CHECKPOINT_RESTORE
+@@ -1282,6 +1282,27 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
@@ -51,7 +52,8 @@ index e9119bf54..3e6d85355 100644
 +	  responsiveness especially under heavy background workload.
 +
 +	  You can turn it off by writing NO_BURST_PENALTY to sched/features.
-+	  Enabling this feature implies NO_GENTLE_FAIR_SLEEPERS by default.
++	  Enabling this feature implies GENTLE_FAIR_SLEEPERS disabled and
++		NEXT_BUDDY enabled by default.
 +
 +	  If unsure say Y here.
 +
@@ -59,22 +61,22 @@ index e9119bf54..3e6d85355 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 1eec4925b..325fad52b 100644
+index f518b0791..f57cb2a45 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -9316,6 +9316,10 @@ void __init sched_init(void)
+@@ -9333,6 +9333,10 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.4.31.2 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.5.32.0 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
-index 102d6f70e..78a6d28e6 100644
+index cc06e81a9..d0987bfce 100644
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -316,6 +316,12 @@ static __init int sched_init_debug(void)
@@ -91,7 +93,7 @@ index 102d6f70e..78a6d28e6 100644
  #ifdef CONFIG_SMP
  	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 2f461f059..42a5a110c 100644
+index 9700e0359..beff5bf98 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -104,7 +106,7 @@ index 2f461f059..42a5a110c 100644
   */
  #include "sched.h"
  
-@@ -92,6 +95,13 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
+@@ -106,6 +109,13 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
  
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
  
@@ -112,77 +114,156 @@ index 2f461f059..42a5a110c 100644
 +unsigned short __read_mostly sched_burst_penalty_scale = 1256;
 +unsigned char  __read_mostly sched_burst_granularity = 5;
 +unsigned char  __read_mostly sched_burst_reduction = 3;
-+bool __read_mostly sched_burst_preempt = 1;
++bool           __read_mostly sched_burst_preempt = 1;
 +#endif // CONFIG_SCHED_BORE
 +
  int sched_thermal_decay_shift;
  static int __init setup_sched_thermal_decay_shift(char *str)
  {
-@@ -846,6 +856,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
- 	struct sched_entity *curr = cfs_rq->curr;
- 	u64 now = rq_clock_task(rq_of(cfs_rq));
- 	u64 delta_exec;
-+#ifdef CONFIG_SCHED_BORE
-+	u64 burst_count;
-+	u32 msb, bcnt_prec10, burst_score;
-+#endif // CONFIG_SCHED_BORE
+@@ -856,6 +866,30 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
+ }
+ #endif /* CONFIG_SMP */
  
- 	if (unlikely(!curr))
- 		return;
-@@ -867,6 +881,19 @@ static void update_curr(struct cfs_rq *cfs_rq)
++#ifdef CONFIG_SCHED_BORE
++static inline void update_burst_score(struct sched_entity *se) {
++	u64 burst_count;
++	u32 msb, bcnt_prec10;
++
++	burst_count = se->burst_time >> sched_burst_granularity;
++	msb = fls64(burst_count);
++	bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
++	se->burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
++}
++
++static u64 calc_burst_scale(u64 delta, struct sched_entity *se) {
++	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
++}
++
++static u64 calc_delta_burst_scale(u64 delta, struct sched_entity *se) {
++	return calc_burst_scale(calc_delta_fair(delta, se), se);
++}
++
++static inline void reduce_burst(struct sched_entity *se) {
++	se->burst_time >>= sched_burst_reduction;
++}
++#endif // CONFIG_SCHED_BORE
++
+ /*
+  * Update the current task's runtime statistics.
+  */
+@@ -885,6 +919,13 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
 +#ifdef CONFIG_SCHED_BORE
 +	curr->burst_time += delta_exec;
-+	if(sched_feat(BURST_PENALTY)) {
-+		burst_count = curr->burst_time >> sched_burst_granularity;
-+		msb = fls64(burst_count);
-+		bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
-+		burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
-+		curr->vruntime += mul_u64_u32_shr(
-+			calc_delta_fair(delta_exec, curr),
-+			sched_prio_to_wmult[burst_score], 22);
-+	}
++	update_burst_score(curr);
++	if (sched_feat(BURST_PENALTY))
++		curr->vruntime += calc_delta_burst_scale(delta_exec, curr);
 +	else
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -5718,6 +5745,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -4535,6 +4576,11 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
+ }
+ 
++
++#ifdef CONFIG_SCHED_BORE
++static int wakeup_preempt_entity_burst(struct sched_entity *curr,
++                                 struct sched_entity *se, bool burst_scale);
++#endif // CONFIG_SCHED_BORE
+ static int
+ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
+ 
+@@ -4579,6 +4625,14 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
+ 			se = second;
+ 	}
+ 
++#ifdef CONFIG_SCHED_BORE
++	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
++		if (cfs_rq->next && wakeup_preempt_entity_burst(cfs_rq->next, left, true) < 1)
++			se = cfs_rq->next;
++		else if (cfs_rq->last && wakeup_preempt_entity(cfs_rq->last, left) < 1)
++			se = cfs_rq->last;
++	} else
++#endif // CONFIG_SCHED_BORE
+ 	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1) {
+ 		/*
+ 		 * Someone really wants this to run. If it's not unfair, run it.
+@@ -5759,6 +5813,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	util_est_dequeue(&rq->cfs, p);
+ 
  	for_each_sched_entity(se) {
++#ifdef CONFIG_SCHED_BORE
++		reduce_burst(se);
++#endif // CONFIG_SCHED_BORE
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
+ 
+@@ -7081,7 +7138,12 @@ static unsigned long wakeup_gran(struct sched_entity *se)
+  *
+  */
+ static int
 +#ifdef CONFIG_SCHED_BORE
-+		se->burst_time >>= sched_burst_reduction;
++wakeup_preempt_entity_burst(struct sched_entity *curr,
++                            struct sched_entity *se, bool burst_scale)
++#else // CONFIG_SCHED_BORE
+ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
++#endif // CONFIG_SCHED_BORE
+ {
+ 	s64 gran, vdiff = curr->vruntime - se->vruntime;
+ 
+@@ -7089,11 +7151,20 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
+ 		return -1;
+ 
+ 	gran = wakeup_gran(se);
++#ifdef CONFIG_SCHED_BORE
++	if (burst_scale) gran = calc_burst_scale(gran, se);
++#endif // CONFIG_SCHED_BORE
+ 	if (vdiff > gran)
+ 		return 1;
+ 
+ 	return 0;
+ }
++#ifdef CONFIG_SCHED_BORE
++static int wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
++{
++	return wakeup_preempt_entity_burst(curr, se, false);
++}
 +#endif // CONFIG_SCHED_BORE
  
- 		cfs_rq->h_nr_running--;
- 		cfs_rq->idle_h_nr_running -= idle_h_nr_running;
-@@ -7146,6 +7176,11 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+ static void set_last_buddy(struct sched_entity *se)
+ {
+@@ -7193,6 +7264,15 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  		return;
  
  	update_curr(cfs_rq_of(se));
 +#ifdef CONFIG_SCHED_BORE
-+	/* More bursty tasks are preempted by those less bursty anyway */
-+	if(sched_feat(BURST_PENALTY) && sched_burst_preempt && (se->burst_time > pse->burst_time))
-+		goto preempt;
++	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
++		if (wakeup_preempt_entity_burst(se, pse, true) == 1) {
++			if (!next_buddy_marked)
++				set_next_buddy(pse);
++			goto preempt;
++		}
++	} else
 +#endif // CONFIG_SCHED_BORE
  	if (wakeup_preempt_entity(se, pse) == 1) {
  		/*
  		 * Bias pick_next to pick the sched entity that is
-@@ -7382,6 +7417,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -7429,6 +7509,9 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
 +#ifdef CONFIG_SCHED_BORE
-+	se->burst_time >>= sched_burst_reduction;
++	reduce_burst(se);
 +#endif // CONFIG_SCHED_BORE
  
  	/*
  	 * Are we the only task in the tree?
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index 1cf435bbc..f4ffb0dc8 100644
+index cfff560e0..2d573dcf1 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -1,10 +1,21 @@
@@ -207,11 +288,23 @@ index 1cf435bbc..f4ffb0dc8 100644
  
  /*
   * Place new tasks ahead so that they do not starve already running
+@@ -17,7 +28,11 @@ SCHED_FEAT(START_DEBIT, true)
+  * wakeup-preemption), since its likely going to consume data we
+  * touched, increases cache locality.
+  */
++#ifdef CONFIG_SCHED_BORE
++SCHED_FEAT(NEXT_BUDDY, true)
++#else // CONFIG_SCHED_BORE
+ SCHED_FEAT(NEXT_BUDDY, false)
++#endif // CONFIG_SCHED_BORE
+ 
+ /*
+  * Prefer to schedule the task that ran last (when we did
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index e8a554948..c82dceebe 100644
+index 777df72a7..2068a292a 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2411,6 +2411,12 @@ extern unsigned int sysctl_sched_idle_min_granularity;
+@@ -2472,6 +2472,12 @@ extern unsigned int sysctl_sched_idle_min_granularity;
  extern unsigned int sysctl_sched_wakeup_granularity;
  extern int sysctl_resched_latency_warn_ms;
  extern int sysctl_resched_latency_warn_once;
