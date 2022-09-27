@@ -99,7 +99,6 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 unsigned short __read_mostly sched_burst_penalty_scale = 1256;
 unsigned char  __read_mostly sched_burst_granularity = 5;
 unsigned char  __read_mostly sched_burst_reduction = 3;
-bool           __read_mostly sched_burst_preempt = 1;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -859,12 +858,12 @@ static inline void update_burst_score(struct sched_entity *se) {
 	se->burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
 }
 
-static u64 calc_burst_scale(u64 delta, struct sched_entity *se) {
+static u64 burst_scale(u64 delta, struct sched_entity *se) {
 	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
 }
 
-static u64 calc_delta_burst_scale(u64 delta, struct sched_entity *se) {
-	return calc_burst_scale(calc_delta_fair(delta, se), se);
+static u64 calc_delta_fair_bscale(u64 delta, struct sched_entity *se) {
+	return burst_scale(calc_delta_fair(delta, se), se);
 }
 
 static inline void reduce_burst(struct sched_entity *se) {
@@ -905,7 +904,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->burst_time += delta_exec;
 	update_burst_score(curr);
 	if (sched_feat(BURST_PENALTY))
-		curr->vruntime += calc_delta_burst_scale(delta_exec, curr);
+		curr->vruntime += calc_delta_fair_bscale(delta_exec, curr);
 	else
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
@@ -4535,8 +4534,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 
 #ifdef CONFIG_SCHED_BORE
-static int wakeup_preempt_entity_burst(struct sched_entity *curr,
-                                 struct sched_entity *se, bool burst_scale);
+static int
+wakeup_preempt_entity_bscale(struct sched_entity *curr,
+                             struct sched_entity *se, bool do_scale);
 #endif // CONFIG_SCHED_BORE
 static int
 wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
@@ -4583,14 +4583,12 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	}
 
 #ifdef CONFIG_SCHED_BORE
-	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
-		if (cfs_rq->next && wakeup_preempt_entity_burst(cfs_rq->next, left, true) < 1)
-			se = cfs_rq->next;
-		else if (cfs_rq->last && wakeup_preempt_entity(cfs_rq->last, left) < 1)
-			se = cfs_rq->last;
-	} else
+	if (cfs_rq->next && wakeup_preempt_entity_bscale(
+		                  cfs_rq->next, left, sched_feat(BURST_PENALTY)) < 1)
+#else // CONFIG_SCHED_BORE
+	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1)
 #endif // CONFIG_SCHED_BORE
-	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1) {
+	{
 		/*
 		 * Someone really wants this to run. If it's not unfair, run it.
 		 */
@@ -7092,8 +7090,8 @@ static unsigned long wakeup_gran(struct sched_entity *se)
  */
 static int
 #ifdef CONFIG_SCHED_BORE
-wakeup_preempt_entity_burst(struct sched_entity *curr,
-                            struct sched_entity *se, bool burst_scale)
+wakeup_preempt_entity_bscale(struct sched_entity *curr,
+                             struct sched_entity *se, bool do_scale)
 #else // CONFIG_SCHED_BORE
 wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 #endif // CONFIG_SCHED_BORE
@@ -7105,7 +7103,7 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 
 	gran = wakeup_gran(se);
 #ifdef CONFIG_SCHED_BORE
-	if (burst_scale) gran = calc_burst_scale(gran, se);
+	if (do_scale) gran = burst_scale(gran, se);
 #endif // CONFIG_SCHED_BORE
 	if (vdiff > gran)
 		return 1;
@@ -7115,7 +7113,7 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 #ifdef CONFIG_SCHED_BORE
 static int wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 {
-	return wakeup_preempt_entity_burst(curr, se, false);
+	return wakeup_preempt_entity_bscale(curr, se, false);
 }
 #endif // CONFIG_SCHED_BORE
 
@@ -7218,15 +7216,11 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 	update_curr(cfs_rq_of(se));
 #ifdef CONFIG_SCHED_BORE
-	if (sched_feat(BURST_PENALTY) && sched_burst_preempt) {
-		if (wakeup_preempt_entity_burst(se, pse, true) == 1) {
-			if (!next_buddy_marked)
-				set_next_buddy(pse);
-			goto preempt;
-		}
-	} else
+	if (wakeup_preempt_entity_bscale(se, pse, sched_feat(BURST_PENALTY)) == 1)
+#else // CONFIG_SCHED_BORE
+	if (wakeup_preempt_entity(se, pse) == 1)
 #endif // CONFIG_SCHED_BORE
-	if (wakeup_preempt_entity(se, pse) == 1) {
+	{
 		/*
 		 * Bias pick_next to pick the sched entity that is
 		 * triggering this preemption.
