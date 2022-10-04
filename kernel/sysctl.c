@@ -111,7 +111,6 @@ extern unsigned int sched_bore;
 extern unsigned int sched_burst_penalty_scale;
 extern unsigned int sched_burst_granularity;
 extern unsigned int sched_burst_reduction;
-static int three          = 3;
 static int sixty_four     = 64;
 static int maxval_12_bits = 4095;
 #endif // CONFIG_SCHED_BORE
@@ -2367,7 +2366,7 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_penalty_scale",
