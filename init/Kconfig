@@ -1277,7 +1277,7 @@ config SCHED_BORE
 	  With a little impact to scheduling fairness, it may improve
 	  responsiveness especially under heavy background workload.
 
-	  You can turn it off by writing NO_BURST_PENALTY to sched/features.
+	  You can turn it off by setting the sysctl kernel.sched_bore = 0.
 	  Enabling this feature implies GENTLE_FAIR_SLEEPERS disabled and
 		NEXT_BUDDY enabled by default.
 

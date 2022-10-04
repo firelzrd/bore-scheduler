@@ -96,9 +96,10 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
-unsigned short __read_mostly sched_burst_penalty_scale = 1256;
-unsigned char  __read_mostly sched_burst_granularity = 5;
-unsigned char  __read_mostly sched_burst_reduction = 3;
+unsigned int __read_mostly sched_bore                = 1;
+unsigned int __read_mostly sched_burst_penalty_scale = 1256;
+unsigned int __read_mostly sched_burst_granularity   = 5;
+unsigned int __read_mostly sched_burst_reduction     = 3;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -903,7 +904,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
 	update_burst_score(curr);
-	if (sched_feat(BURST_PENALTY))
+	if (sched_bore)
 		curr->vruntime += calc_delta_fair_bscale(delta_exec, curr);
 	else
 #endif // CONFIG_SCHED_BORE
@@ -4584,7 +4585,7 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
 #ifdef CONFIG_SCHED_BORE
 	if (cfs_rq->next && wakeup_preempt_entity_bscale(
-		                  cfs_rq->next, left, sched_feat(BURST_PENALTY)) < 1)
+		                  cfs_rq->next, left, sched_bore) < 1)
 #else // CONFIG_SCHED_BORE
 	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1)
 #endif // CONFIG_SCHED_BORE
@@ -7216,7 +7217,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 	update_curr(cfs_rq_of(se));
 #ifdef CONFIG_SCHED_BORE
-	if (wakeup_preempt_entity_bscale(se, pse, sched_feat(BURST_PENALTY)) == 1)
+	if (wakeup_preempt_entity_bscale(se, pse, sched_bore) == 1)
 #else // CONFIG_SCHED_BORE
 	if (wakeup_preempt_entity(se, pse) == 1)
 #endif // CONFIG_SCHED_BORE
