@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+/asn1_compiler
+/bin2c
+/insert-sys-cert
+/kallsyms
+/module.lds
+/recordmcount
+/sign-file
+/sorttable
+/unifdef
