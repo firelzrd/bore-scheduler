@@ -1278,8 +1278,8 @@ config SCHED_BORE
 	  responsiveness especially under heavy background workload.
 
 	  You can turn it off by setting the sysctl kernel.sched_bore = 0.
-	  Enabling this feature implies GENTLE_FAIR_SLEEPERS disabled and
-		NEXT_BUDDY enabled by default.
+	  Enabling this feature implies NEXT_BUDDY and HRTICK enabled and
+		GENTLE_FAIR_SLEEPERS and ALT_PERIOD disabled by default.
 
 	  If unsure say Y here.
 
