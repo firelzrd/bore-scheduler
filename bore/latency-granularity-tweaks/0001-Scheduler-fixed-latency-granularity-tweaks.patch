@@ -1,0 +1,77 @@
+From 0a8ffe0d326e14dfe9dc2916513baaf1f0720809 Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Sat, 29 Oct 2022 06:18:19 +0900
+Subject: [PATCH] Scheduler fixed latency / granularity tweaks
+
+---
+ kernel/sched/fair.c | 26 +++++++++++++-------------
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 914096c5b..223813dfe 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -66,10 +66,10 @@
+  * (to see the precise effective timeslice length of your workload,
+  *  run vmstat and monitor the context-switches (cs) field)
+  *
+- * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
++ * (default: 16ms, units: nanoseconds)
+  */
+-unsigned int sysctl_sched_latency			= 6000000ULL;
+-static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
++unsigned int sysctl_sched_latency			= 16000000ULL;
++static unsigned int normalized_sysctl_sched_latency	= 16000000ULL;
+ 
+ /*
+  * The initial- and re-scaling of tunables is configurable
+@@ -80,25 +80,25 @@ static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
+  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
+  *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
+  *
+- * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
++ * (default SCHED_TUNABLESCALING_NONE)
+  */
+-unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
++unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
+ 
+ /*
+  * Minimal preemption granularity for CPU-bound tasks:
+  *
+- * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
++ * (default: 1 msec, units: nanoseconds)
+  */
+-unsigned int sysctl_sched_min_granularity			= 750000ULL;
+-static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
++unsigned int sysctl_sched_min_granularity			= 1000000ULL;
++static unsigned int normalized_sysctl_sched_min_granularity	= 1000000ULL;
+ 
+ /*
+  * Minimal preemption granularity for CPU-bound SCHED_IDLE tasks.
+  * Applies only when SCHED_IDLE tasks compete with normal tasks.
+  *
+- * (default: 0.75 msec)
++ * (default: 1 msec)
+  */
+-unsigned int sysctl_sched_idle_min_granularity			= 750000ULL;
++unsigned int sysctl_sched_idle_min_granularity			= 1000000ULL;
+ 
+ /*
+  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
+@@ -118,10 +118,10 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
+  * and reduces their over-scheduling. Synchronous workloads will still
+  * have immediate wakeup/sleep latencies.
+  *
+- * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
++ * (default: 2 msec, units: nanoseconds)
+  */
+-unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
+-static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
++unsigned int sysctl_sched_wakeup_granularity			= 2000000UL;
++static unsigned int normalized_sysctl_sched_wakeup_granularity	= 2000000UL;
+ 
+ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+ 
+-- 
+2.30.2
+

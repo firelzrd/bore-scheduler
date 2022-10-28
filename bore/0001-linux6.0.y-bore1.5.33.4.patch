@@ -1,7 +1,7 @@
-From 86244e025de2723080e182c09fd994076315a744 Mon Sep 17 00:00:00 2001
+From 881a849236134549911e781b2909a7298056ebc0 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 12 Oct 2022 14:08:54 +0900
-Subject: [PATCH] linux6.0-bore1.5.33.3
+Date: Sat, 29 Oct 2022 06:29:30 +0900
+Subject: [PATCH] linux6.0.y-bore1.5.33.4
 
 ---
  include/linux/sched.h   |  4 ++
@@ -60,7 +60,7 @@ index 532362fcf..2d0eda053 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index ee28253c9..c19af8dac 100644
+index ee28253c9..88fbe3193 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -9617,6 +9617,10 @@ void __init sched_init(void)
@@ -68,14 +68,14 @@ index ee28253c9..c19af8dac 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.5.33.3 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.5.33.4 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 914096c5b..9d912dc16 100644
+index 223813dfe..40b59a429 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -88,7 +88,7 @@ index 914096c5b..9d912dc16 100644
   */
  #include <linux/energy_model.h>
  #include <linux/mmap_lock.h>
-@@ -125,6 +128,13 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
+@@ -125,6 +128,13 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 2000000UL;
  
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
  
@@ -294,7 +294,7 @@ index ee7f23c76..01f3393c3 100644
 +#endif // CONFIG_SCHED_BORE
  SCHED_FEAT(BASE_SLICE, true)
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 205d605ca..183ca09a9 100644
+index 205d605ca..f62e26765 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -94,8 +94,16 @@ static const int six_hundred_forty_kb = 640 * 1024;
@@ -315,8 +315,8 @@ index 205d605ca..183ca09a9 100644
  /**
   * enum sysctl_writes_mode - supported sysctl write modes
   *
-@@ -2081,6 +2089,44 @@ static struct ctl_table kern_table[] = {
- 		.extra2		= SYSCTL_INT_MAX,
+@@ -2052,6 +2060,44 @@ static struct ctl_table kern_table[] = {
+ 		.extra2		= SYSCTL_ONE_THOUSAND,
  	},
  #endif
 +#ifdef CONFIG_SCHED_BORE
@@ -357,9 +357,9 @@ index 205d605ca..183ca09a9 100644
 +		.extra2		= &sixty_four,
 +	},
 +#endif // CONFIG_SCHED_BORE
- 	{ }
- };
- 
+ 	{
+ 		.procname	= "panic_on_warn",
+ 		.data		= &panic_on_warn,
 -- 
 2.30.2
 
