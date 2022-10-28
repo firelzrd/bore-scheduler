@@ -2298,6 +2298,44 @@ static struct ctl_table kern_table[] = {
 		.extra2		= SYSCTL_ONE_THOUSAND,
 	},
 #endif
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_bore",
+		.data		= &sched_bore,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "sched_burst_penalty_scale",
+		.data		= &sched_burst_penalty_scale,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &maxval_12_bits,
+	},
+	{
+		.procname	= "sched_burst_granularity",
+		.data		= &sched_burst_granularity,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &sixty_four,
+	},
+	{
+		.procname	= "sched_burst_reduction",
+		.data		= &sched_burst_reduction,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ONE,
+		.extra2		= &sixty_four,
+	},
+#endif // CONFIG_SCHED_BORE
 	{
 		.procname	= "panic_on_warn",
 		.data		= &panic_on_warn,
@@ -2358,44 +2396,6 @@ static struct ctl_table kern_table[] = {
 		.extra2		= SYSCTL_INT_MAX,
 	},
 #endif
-#ifdef CONFIG_SCHED_BORE
-	{
-		.procname	= "sched_bore",
-		.data		= &sched_bore,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
-	},
-	{
-		.procname	= "sched_burst_penalty_scale",
-		.data		= &sched_burst_penalty_scale,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= &maxval_12_bits,
-	},
-	{
-		.procname	= "sched_burst_granularity",
-		.data		= &sched_burst_granularity,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= &sixty_four,
-	},
-	{
-		.procname	= "sched_burst_reduction",
-		.data		= &sched_burst_reduction,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ONE,
-		.extra2		= &sixty_four,
-	},
-#endif // CONFIG_SCHED_BORE
 	{ }
 };
 
