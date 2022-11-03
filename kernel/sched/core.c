@@ -4232,6 +4232,15 @@ int wake_up_state(struct task_struct *p, unsigned int state)
  */
 static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
+	struct task_struct *sib;
+	u64 cnt, sum, avg;
+	list_for_each_entry(sib, &p->sibling, sibling) {
+		cnt++;
+		sum += sib->se.burst_time;
+	}
+	if (cnt) avg = sum / cnt;
+	p->se.burst_time = max(p->se.burst_time, avg);
+
 	p->on_rq			= 0;
 
 	p->se.on_rq			= 0;
@@ -9317,7 +9326,7 @@ void __init sched_init(void)
 #endif
 
 #ifdef CONFIG_SCHED_BORE
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.5.33.4 by Masahito Suzuki");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.6.34.0 by Masahito Suzuki");
 #endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
