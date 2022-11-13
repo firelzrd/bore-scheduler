@@ -1,7 +1,7 @@
-From b2cbc5d6e0c58ded22bc8335efbfbe7c419a3169 Mon Sep 17 00:00:00 2001
+From 16738f2de2ffaec9abd5892d82eda5b0e16e22d7 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 12 Nov 2022 07:23:48 +0900
-Subject: [PATCH] bore1.6.34.0_1.6.34.1
+Date: Mon, 14 Nov 2022 03:54:45 +0900
+Subject: [PATCH] bore1.6.34.0_1.6.34.3
 
 ---
  kernel/sched/core.c |  2 +-
@@ -9,7 +9,7 @@ Subject: [PATCH] bore1.6.34.0_1.6.34.1
  2 files changed, 34 insertions(+), 6 deletions(-)
 
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 44220021c..07ea55eba 100644
+index 44220021c..edda2f0d4 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -9627,7 +9627,7 @@ void __init sched_init(void)
@@ -17,12 +17,12 @@ index 44220021c..07ea55eba 100644
  
  #ifdef CONFIG_SCHED_BORE
 -	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.6.34.0 by Masahito Suzuki");
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.6.34.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.6.34.3 by Masahito Suzuki");
  #endif // CONFIG_SCHED_BORE
  
  	wait_bit_init();
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 9d912dc16..e0d314ddc 100644
+index 9d912dc16..4cc0ccb10 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -69,10 +69,16 @@
@@ -30,12 +30,12 @@ index 9d912dc16..e0d314ddc 100644
   *  run vmstat and monitor the context-switches (cs) field)
   *
 - * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
-+ * (BORE default: 16ms constant, units: nanoseconds)
++ * (BORE default: 12.8ms constant, units: nanoseconds)
 + * (CFS  default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_latency			= 16000000ULL;
-+static unsigned int normalized_sysctl_sched_latency	= 16000000ULL;
++unsigned int sysctl_sched_latency			= 12800000ULL;
++static unsigned int normalized_sysctl_sched_latency	= 12800000ULL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_latency			= 6000000ULL;
  static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
@@ -61,12 +61,12 @@ index 9d912dc16..e0d314ddc 100644
   * Minimal preemption granularity for CPU-bound tasks:
   *
 - * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
-+ * (BORE default: 2 msec constant, units: nanoseconds)
++ * (BORE default: 1.6 msec constant, units: nanoseconds)
 + * (CFS  default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_min_granularity			= 2000000ULL;
-+static unsigned int normalized_sysctl_sched_min_granularity	= 2000000ULL;
++unsigned int sysctl_sched_min_granularity			= 1600000ULL;
++static unsigned int normalized_sysctl_sched_min_granularity	= 1600000ULL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_min_granularity			= 750000ULL;
  static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
@@ -77,11 +77,11 @@ index 9d912dc16..e0d314ddc 100644
   * Applies only when SCHED_IDLE tasks compete with normal tasks.
   *
 - * (default: 0.75 msec)
-+ * (BORE default: 2 msec constant)
++ * (BORE default: 1.6 msec constant)
 + * (CFS  default: 0.75 msec)
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_idle_min_granularity			= 2000000ULL;
++unsigned int sysctl_sched_idle_min_granularity			= 1600000ULL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_idle_min_granularity			= 750000ULL;
 +#endif // CONFIG_SCHED_BORE
@@ -93,12 +93,12 @@ index 9d912dc16..e0d314ddc 100644
   * have immediate wakeup/sleep latencies.
   *
 - * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
-+ * (BORE default: 4 msec constant, units: nanoseconds)
++ * (BORE default: 4.8 msec constant, units: nanoseconds)
 + * (CFS  default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_wakeup_granularity			= 4000000UL;
-+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 4000000UL;
++unsigned int sysctl_sched_wakeup_granularity			= 4800000UL;
++static unsigned int normalized_sysctl_sched_wakeup_granularity	= 4800000UL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
  static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
