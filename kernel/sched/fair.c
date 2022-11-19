@@ -99,7 +99,6 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 unsigned int __read_mostly sched_bore                = 1;
 unsigned int __read_mostly sched_burst_penalty_scale = 1256;
 unsigned int __read_mostly sched_burst_granularity   = 5;
-unsigned int __read_mostly sched_burst_reduction     = 3;
 #endif // CONFIG_SCHED_BORE
 
 int sched_thermal_decay_shift;
@@ -853,7 +852,7 @@ static inline void update_burst_score(struct sched_entity *se) {
 	u64 burst_count;
 	u32 msb, bcnt_prec10;
 
-	burst_count = se->burst_time >> sched_burst_granularity;
+	burst_count = max(se->burst_time, se->prev_burst_time) >> sched_burst_granularity;
 	msb = fls64(burst_count);
 	bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
 	se->burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
@@ -867,8 +866,9 @@ static u64 calc_delta_fair_bscale(u64 delta, struct sched_entity *se) {
 	return burst_scale(calc_delta_fair(delta, se), se);
 }
 
-static inline void reduce_burst(struct sched_entity *se) {
-	se->burst_time >>= sched_burst_reduction;
+static inline void reset_burst(struct sched_entity *se) {
+	se->prev_burst_time = (se->prev_burst_time + se->burst_time) >> 1;
+	se->burst_time = 0;
 }
 #endif // CONFIG_SCHED_BORE
 
@@ -4533,7 +4533,6 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
 
-
 #ifdef CONFIG_SCHED_BORE
 static int
 wakeup_preempt_entity_bscale(struct sched_entity *curr,
@@ -5770,7 +5769,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	for_each_sched_entity(se) {
 #ifdef CONFIG_SCHED_BORE
-		reduce_burst(se);
+		reset_burst(se);
 #endif // CONFIG_SCHED_BORE
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
@@ -7458,7 +7457,7 @@ static void yield_task_fair(struct rq *rq)
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
 #ifdef CONFIG_SCHED_BORE
-	reduce_burst(se);
+	reset_burst(se);
 #endif // CONFIG_SCHED_BORE
 
 	/*

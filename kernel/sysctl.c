@@ -116,6 +116,7 @@ static int maxval_12_bits = 4095;
 #endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_PROC_SYSCTL
+
 /**
  * enum sysctl_writes_mode - supported sysctl write modes
  *
@@ -2324,15 +2325,6 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &sixty_four,
-	},
-	{
-		.procname	= "sched_burst_reduction",
-		.data		= &sched_burst_reduction,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ONE,
 		.extra2		= &sixty_four,
 	},
 #endif // CONFIG_SCHED_BORE

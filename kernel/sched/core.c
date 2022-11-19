@@ -4224,6 +4224,21 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 	return try_to_wake_up(p, state, 0);
 }
 
+#ifdef CONFIG_SCHED_BORE
+static inline void sched_fork_burst(struct task_struct *p)
+{
+	struct task_struct *sib;
+	u64 cnt, sum, avg;
+	list_for_each_entry(sib, &p->sibling, sibling) {
+		cnt++;
+		sum += sib->se.prev_burst_time;
+	}
+	if (cnt) avg = sum / cnt;
+	p->se.prev_burst_time = max(p->se.prev_burst_time, avg);
+	p->se.burst_time = 0;
+}
+#endif // CONFIG_SCHED_BORE
+
 /*
  * Perform scheduler related setup for a newly forked process p.
  * p is forked by current.
@@ -4232,15 +4247,6 @@ int wake_up_state(struct task_struct *p, unsigned int state)
  */
 static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
-	struct task_struct *sib;
-	u64 cnt, sum, avg;
-	list_for_each_entry(sib, &p->sibling, sibling) {
-		cnt++;
-		sum += sib->se.burst_time;
-	}
-	if (cnt) avg = sum / cnt;
-	p->se.burst_time = max(p->se.burst_time, avg);
-
 	p->on_rq			= 0;
 
 	p->se.on_rq			= 0;
@@ -4249,6 +4255,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+#ifdef CONFIG_SCHED_BORE
+	sched_fork_burst(p);
+#endif // CONFIG_SCHED_BORE
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -9326,7 +9335,7 @@ void __init sched_init(void)
 #endif
 
 #ifdef CONFIG_SCHED_BORE
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.6.34.0 by Masahito Suzuki");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.0 by Masahito Suzuki");
 #endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
