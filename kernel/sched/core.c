@@ -4320,6 +4320,22 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 	return try_to_wake_up(p, state, 0);
 }
 
+#ifdef CONFIG_SCHED_BORE
+static inline void sched_on_fork_calc_prev_burst_from_siblings(struct task_struct *p)
+{
+	struct task_struct *sib;
+	u64 sum, avg;
+	u16 cnt;
+	list_for_each_entry(sib, &p->sibling, sibling) {
+		cnt++;
+		sum += sib->se.prev_burst_time;
+	}
+	if (cnt) avg = sum / cnt;
+	p->se.prev_burst_time = max(p->se.prev_burst_time, avg);
+	p->se.burst_time = 0;
+}
+#endif // CONFIG_SCHED_BORE
+
 /*
  * Perform scheduler related setup for a newly forked process p.
  * p is forked by current.
@@ -4336,6 +4352,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+#ifdef CONFIG_SCHED_BORE
+	p->se.burst_time      = 0;
+#endif // CONFIG_SCHED_BORE
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -4536,6 +4555,9 @@ late_initcall(sched_core_sysctl_init);
 int sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
 	__sched_fork(clone_flags, p);
+#ifdef CONFIG_SCHED_BORE
+	sched_on_fork_calc_prev_burst_from_siblings(p);
+#endif // CONFIG_SCHED_BORE
 	/*
 	 * We mark the process as NEW here. This guarantees that
 	 * nobody will actually run it, and a signal or other external
@@ -8947,6 +8969,9 @@ void __init init_idle(struct task_struct *idle, int cpu)
 
 	idle->__state = TASK_RUNNING;
 	idle->se.exec_start = sched_clock();
+#ifdef CONFIG_SCHED_BORE
+	idle->se.prev_burst_time = 0;
+#endif //CONFIG_SCHED_BORE
 	/*
 	 * PF_KTHREAD should already be set at this point; regardless, make it
 	 * look like a proper per-CPU kthread.
@@ -9616,6 +9641,10 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
 #endif
+
+#ifdef CONFIG_SCHED_BORE
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.3 by Masahito Suzuki");
+#endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
 
