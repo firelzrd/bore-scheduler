@@ -131,7 +131,8 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 #ifdef CONFIG_SCHED_BORE
 unsigned int __read_mostly sched_bore                = 1;
 unsigned int __read_mostly sched_burst_penalty_scale = 1256;
-unsigned int __read_mostly sched_burst_granularity   = 5;
+unsigned int __read_mostly sched_burst_granularity   = 12;
+static int three          = 3;
 static int sixty_four     = 64;
 static int maxval_12_bits = 4095;
 #endif // CONFIG_SCHED_BORE
@@ -198,7 +199,7 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
+		.extra2		= &three,
 	},
 	{
 		.procname	= "sched_burst_penalty_scale",
@@ -976,7 +977,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
 	update_burst_score(curr);
-	if (sched_bore)
+	if (sched_bore & 1)
 		curr->vruntime += calc_delta_fair_bscale(delta_exec, curr);
 	else
 #endif // CONFIG_SCHED_BORE
@@ -4764,7 +4765,7 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
 #ifdef CONFIG_SCHED_BORE
 	if (cfs_rq->next && wakeup_preempt_entity_bscale(
-		                  cfs_rq->next, left, sched_bore) < 1)
+		                  cfs_rq->next, left, sched_bore & 2) < 1)
 #else // CONFIG_SCHED_BORE
 	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1)
 #endif // CONFIG_SCHED_BORE
@@ -7395,7 +7396,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 	update_curr(cfs_rq_of(se));
 #ifdef CONFIG_SCHED_BORE
-	if (wakeup_preempt_entity_bscale(se, pse, sched_bore) == 1)
+	if (wakeup_preempt_entity_bscale(se, pse, sched_bore & 2) == 1)
 #else // CONFIG_SCHED_BORE
 	if (wakeup_preempt_entity(se, pse) == 1)
 #endif // CONFIG_SCHED_BORE
