@@ -132,6 +132,7 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 unsigned int __read_mostly sched_bore                = 1;
 unsigned int __read_mostly sched_burst_penalty_scale = 1256;
 unsigned int __read_mostly sched_burst_granularity   = 12;
+unsigned int __read_mostly sched_burst_smoothness    = 1;
 static int three          = 3;
 static int sixty_four     = 64;
 static int maxval_12_bits = 4095;
@@ -218,6 +219,15 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &sixty_four,
+	},
+	{
+		.procname	= "sched_burst_smoothness",
+		.data		= &sched_burst_smoothness,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &three,
 	},
 #endif // CONFIG_SCHED_BORE
 	{
@@ -939,8 +949,13 @@ static u64 calc_delta_fair_bscale(u64 delta, struct sched_entity *se) {
 	return burst_scale(calc_delta_fair(delta, se), se);
 }
 
+static inline u64 binary_smooth(u64 old, u64 new, unsigned int smoothness) {
+	return (new + old * ((1 << smoothness) - 1)) >> smoothness;
+}
+
 static inline void reset_burst(struct sched_entity *se) {
-	se->prev_burst_time = (se->prev_burst_time + se->burst_time) >> 1;
+	se->prev_burst_time = binary_smooth(
+		se->prev_burst_time, se->burst_time, sched_burst_smoothness);
 	se->burst_time = 0;
 }
 #endif // CONFIG_SCHED_BORE
