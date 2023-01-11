@@ -932,13 +932,16 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_SCHED_BORE
 static inline void update_burst_score(struct sched_entity *se) {
-	u64 burst_count;
-	u32 msb, bcnt_prec10;
-
-	burst_count = max(se->burst_time, se->prev_burst_time) >> sched_burst_granularity;
-	msb = fls64(burst_count);
-	bcnt_prec10 = (msb << 10) | (burst_count << ((65 - msb) & 0x3F) >> 54);
-	se->burst_score = min(bcnt_prec10 * sched_burst_penalty_scale >> 20, (u32)39);
+	u64 burst_time;
+	s32 bits;
+	u32 intgr, fdigs, dec10;
+	
+	burst_time = max(se->burst_time, se->prev_burst_time);
+	bits = fls64(burst_time);
+	intgr = max((u32)bits, sched_burst_granularity) - sched_burst_granularity;
+	fdigs = max(bits - 1, (s32)sched_burst_granularity);
+	dec10 = (intgr << 10) | (burst_time << (64 - fdigs) >> 54);
+	se->burst_score = min((u32)39, dec10 * sched_burst_penalty_scale >> 20);
 }
 
 static u64 burst_scale(u64 delta, struct sched_entity *se) {
