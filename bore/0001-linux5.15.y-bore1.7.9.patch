@@ -1,7 +1,7 @@
 From e2be6c9661f664510b836794198efab27e1b9a22 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Thu, 19 Jan 2023 05:29:12 +0900
-Subject: [PATCH] linux5.15.y-bore1.7.8
+Subject: [PATCH] linux5.15.y-bore1.7.9
 
 ---
  include/linux/sched.h   |   5 ++
@@ -78,7 +78,7 @@ index 2bd5e235d..fda6fd081 100644
 +		cnt++;
 +		sum += sib->se.prev_burst_time >> 8;
 +	}
-+	if (cnt) avg = do_div(sum, cnt) << 8;
++	if (cnt) avg = div_u64(sum, cnt) << 8;
 +	if (p->se.prev_burst_time < avg) p->se.prev_burst_time = avg;
 +}
 +#endif // CONFIG_SCHED_BORE
@@ -122,7 +122,7 @@ index 2bd5e235d..fda6fd081 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.8 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.9 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
