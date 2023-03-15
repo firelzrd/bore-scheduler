@@ -1,17 +1,17 @@
-From c785a51f37c2575373cfd396197ac9d395d4625b Mon Sep 17 00:00:00 2001
+From 089eb290173776c8d4d5d766cd865856447de093 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Thu, 19 Jan 2023 05:27:20 +0900
-Subject: [PATCH] linux5.15.y-bore1.7.10
+Date: Wed, 15 Mar 2023 11:30:03 +0900
+Subject: [PATCH] linux5.15.y-bore1.7.11
 
 ---
  include/linux/sched.h   |  5 +++
- init/Kconfig            | 20 +++++++++
- kernel/sched/core.c     | 29 +++++++++++++
+ init/Kconfig            | 20 ++++++++++
+ kernel/sched/core.c     | 28 ++++++++++++++
  kernel/sched/debug.c    |  3 ++
- kernel/sched/fair.c     | 90 ++++++++++++++++++++++++++++++++++++++++-
+ kernel/sched/fair.c     | 86 ++++++++++++++++++++++++++++++++++++++++-
  kernel/sched/features.h |  4 ++
- kernel/sysctl.c         | 49 ++++++++++++++++++++++
- 7 files changed, 198 insertions(+), 2 deletions(-)
+ kernel/sysctl.c         | 49 +++++++++++++++++++++++
+ 7 files changed, 193 insertions(+), 2 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index e418935f8..2c1fe67e7 100644
@@ -30,10 +30,10 @@ index e418935f8..2c1fe67e7 100644
  	u64				nr_migrations;
  
 diff --git a/init/Kconfig b/init/Kconfig
-index a41443937..2ce39f916 100644
+index dafc3ba6f..6808befea 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1262,6 +1262,26 @@ config CHECKPOINT_RESTORE
+@@ -1266,6 +1266,26 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
@@ -61,7 +61,7 @@ index a41443937..2ce39f916 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 2bd5e235d..fda6fd081 100644
+index c1458fa8b..da5897e79 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4214,6 +4214,21 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -69,14 +69,14 @@ index 2bd5e235d..fda6fd081 100644
  }
  
 +#ifdef CONFIG_SCHED_BORE
-+static inline void sched_fork_update_prev_burst(struct task_struct *p)
++static inline void adjust_prev_burst(struct task_struct *p)
 +{
-+	struct task_struct *sib;
 +	u32 cnt = 0;
 +	u64 sum = 0, avg = 0;
++	struct task_struct *sib;
 +	list_for_each_entry(sib, &p->sibling, sibling) {
 +		cnt++;
-+		sum += sib->se.prev_burst_time >> 8;
++		sum += max(sib->se.prev_burst_time, sib->se.burst_time) >> 8;
 +	}
 +	if (cnt) avg = div_u64(sum, cnt) << 8;
 +	if (p->se.prev_burst_time < avg) p->se.prev_burst_time = avg;
@@ -96,18 +96,17 @@ index 2bd5e235d..fda6fd081 100644
  	INIT_LIST_HEAD(&p->se.group_node);
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
-@@ -4371,6 +4389,10 @@ int sysctl_schedstats(struct ctl_table *table, int write, void *buffer,
+@@ -4371,6 +4389,9 @@ int sysctl_schedstats(struct ctl_table *table, int write, void *buffer,
  int sched_fork(unsigned long clone_flags, struct task_struct *p)
  {
  	__sched_fork(clone_flags, p);
 +#ifdef CONFIG_SCHED_BORE
-+	sched_fork_update_prev_burst(p);
-+	p->se.burst_time = 0;
++	adjust_prev_burst(p);
 +#endif // CONFIG_SCHED_BORE
  	/*
  	 * We mark the process as NEW here. This guarantees that
  	 * nobody will actually run it, and a signal or other external
-@@ -8711,6 +8733,9 @@ void __init init_idle(struct task_struct *idle, int cpu)
+@@ -8710,6 +8731,9 @@ void __init init_idle(struct task_struct *idle, int cpu)
  
  	idle->__state = TASK_RUNNING;
  	idle->se.exec_start = sched_clock();
@@ -117,12 +116,12 @@ index 2bd5e235d..fda6fd081 100644
  	/*
  	 * PF_KTHREAD should already be set at this point; regardless, make it
  	 * look like a proper per-CPU kthread.
-@@ -9378,6 +9403,10 @@ void __init sched_init(void)
+@@ -9377,6 +9401,10 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.10 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 1.7.11 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -143,7 +142,7 @@ index 34c5ff3a0..5fe68d13e 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 6648683cd..90f0739e0 100644
+index 6648683cd..35fc5cb38 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -170,7 +169,7 @@ index 6648683cd..90f0739e0 100644
  int sched_thermal_decay_shift;
  static int __init setup_sched_thermal_decay_shift(char *str)
  {
-@@ -819,6 +829,39 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
+@@ -819,6 +829,35 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
  }
  #endif /* CONFIG_SMP */
  
@@ -180,7 +179,7 @@ index 6648683cd..90f0739e0 100644
 +	s32 bits;
 +	u32 intgr, fdigs, dec10;
 +	
-+	burst_time = max(se->burst_time, se->prev_burst_time);
++	burst_time = max(se->prev_burst_time, se->burst_time);
 +	bits = fls64(burst_time);
 +	intgr = max((u32)bits, sched_burst_granularity) - sched_burst_granularity;
 +	fdigs = max(bits - 1, (s32)sched_burst_granularity);
@@ -192,15 +191,11 @@ index 6648683cd..90f0739e0 100644
 +	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
 +}
 +
-+static u64 calc_delta_fair_bscale(u64 delta, struct sched_entity *se) {
-+	return burst_scale(calc_delta_fair(delta, se), se);
-+}
-+
 +static inline u64 binary_smooth(u64 old, u64 new, unsigned int smoothness) {
 +	return (new + old * ((1 << smoothness) - 1)) >> smoothness;
 +}
 +
-+static inline void reset_burst(struct sched_entity *se) {
++static void reset_burst(struct sched_entity *se) {
 +	se->prev_burst_time = binary_smooth(
 +		se->prev_burst_time, se->burst_time, sched_burst_smoothness);
 +	se->burst_time = 0;
@@ -210,7 +205,7 @@ index 6648683cd..90f0739e0 100644
  /*
   * Update the current task's runtime statistics.
   */
-@@ -843,6 +886,13 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -843,6 +882,13 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -218,13 +213,13 @@ index 6648683cd..90f0739e0 100644
 +	curr->burst_time += delta_exec;
 +	update_burst_score(curr);
 +	if (sched_bore & 1)
-+		curr->vruntime += calc_delta_fair_bscale(delta_exec, curr);
++		curr->vruntime += burst_scale(calc_delta_fair(delta_exec, curr), curr);
 +	else
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -4646,6 +4696,11 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -4646,6 +4692,11 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	se->prev_sum_exec_runtime = se->sum_exec_runtime;
  }
  
@@ -236,7 +231,7 @@ index 6648683cd..90f0739e0 100644
  static int
  wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
  
-@@ -4690,7 +4745,13 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
+@@ -4690,7 +4741,13 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
  			se = second;
  	}
  
@@ -251,7 +246,7 @@ index 6648683cd..90f0739e0 100644
  		/*
  		 * Someone really wants this to run. If it's not unfair, run it.
  		 */
-@@ -5852,6 +5913,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -5852,6 +5909,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -261,7 +256,7 @@ index 6648683cd..90f0739e0 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -7235,7 +7299,12 @@ static unsigned long wakeup_gran(struct sched_entity *se)
+@@ -7235,7 +7295,12 @@ static unsigned long wakeup_gran(struct sched_entity *se)
   *
   */
  static int
@@ -274,7 +269,7 @@ index 6648683cd..90f0739e0 100644
  {
  	s64 gran, vdiff = curr->vruntime - se->vruntime;
  
-@@ -7243,11 +7312,20 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
+@@ -7243,11 +7308,20 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
  		return -1;
  
  	gran = wakeup_gran(se);
@@ -295,7 +290,7 @@ index 6648683cd..90f0739e0 100644
  
  static void set_last_buddy(struct sched_entity *se)
  {
-@@ -7347,7 +7425,12 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+@@ -7347,7 +7421,12 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  		return;
  
  	update_curr(cfs_rq_of(se));
@@ -309,7 +304,7 @@ index 6648683cd..90f0739e0 100644
  		/*
  		 * Bias pick_next to pick the sched entity that is
  		 * triggering this preemption.
-@@ -7583,6 +7666,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -7583,6 +7662,9 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
@@ -336,7 +331,7 @@ index c4947c1b5..5dc7b258c 100644
  /*
   * Place new tasks ahead so that they do not starve already running
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 34ce5953d..3a935b572 100644
+index 928798f89..ccbdbb936 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -148,6 +148,17 @@ static unsigned long hung_task_timeout_max = (LONG_MAX/HZ);
@@ -357,7 +352,7 @@ index 34ce5953d..3a935b572 100644
  #ifdef CONFIG_PROC_SYSCTL
  
  /**
-@@ -2651,6 +2662,44 @@ static struct ctl_table kern_table[] = {
+@@ -2640,6 +2651,44 @@ static struct ctl_table kern_table[] = {
  		.extra2		= SYSCTL_ONE_THOUSAND,
  	},
  #endif
