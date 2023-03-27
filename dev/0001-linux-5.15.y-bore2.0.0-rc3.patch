@@ -1,7 +1,7 @@
 From df09838e64ac9a5a2a99fb256347c0864e0274eb Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Wed, 22 Mar 2023 06:28:55 +0900
-Subject: [PATCH] linux-5.15.y-bore2.0.0-rc2
+Subject: [PATCH] linux-5.15.y-bore2.0.0-rc3
 
 ---
  include/linux/sched.h   |   7 +++
@@ -125,7 +125,7 @@ index e809c36ec..23bffdcdd 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0-rc2 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0-rc3 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -230,9 +230,9 @@ index 9283f4e60..e5237a591 100644
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int __read_mostly sched_bore                 = 3;
 +unsigned int __read_mostly sched_burst_penalty_offset = 12;
-+unsigned int __read_mostly sched_burst_penalty_scale  = 1542;
++unsigned int __read_mostly sched_burst_penalty_scale  = 1292;
 +unsigned int __read_mostly sched_burst_preempt_offset = 16;
-+unsigned int __read_mostly sched_burst_smoothness     = 2;
++unsigned int __read_mostly sched_burst_smoothness     = 1;
 +#endif // CONFIG_SCHED_BORE
 +
  int sched_thermal_decay_shift;
