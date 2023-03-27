@@ -1,7 +1,7 @@
 From df09838e64ac9a5a2a99fb256347c0864e0274eb Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Wed, 22 Mar 2023 06:28:55 +0900
-Subject: [PATCH] linux-5.15.y-bore2.0.0-rc1
+Subject: [PATCH] linux-5.15.y-bore2.0.0-rc2
 
 ---
  include/linux/sched.h   |   7 +++
@@ -125,7 +125,7 @@ index e809c36ec..23bffdcdd 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0-rc1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0-rc2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -247,7 +247,7 @@ index 9283f4e60..e5237a591 100644
 +	u32 pen10, pre10;
 +	u64 burst_time = se->max_burst_time;
 +	u32 bits = fls64(burst_time);
-+	u32 fdigs = likely(bits) && bits - 1;
++	u32 fdigs = likely(bits) ? bits - 1 : 0;
 +	s32 bits10 = (bits << 10) | (burst_time << (64 - fdigs) >> 54);
 +
 +	pen10 = max(0, bits10 - (s32)(sched_burst_penalty_offset << 10));
