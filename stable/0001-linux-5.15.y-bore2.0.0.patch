@@ -1,7 +1,7 @@
 From df09838e64ac9a5a2a99fb256347c0864e0274eb Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Wed, 22 Mar 2023 06:28:55 +0900
-Subject: [PATCH] linux-5.15.y-bore2.0.0-rc3
+Subject: [PATCH] linux-5.15.y-bore2.0.0
 
 ---
  include/linux/sched.h   |   7 +++
@@ -125,7 +125,7 @@ index e809c36ec..23bffdcdd 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0-rc3 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.0.0 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -304,7 +304,7 @@ index 9283f4e60..e5237a591 100644
 +static int
 +wakeup_preempt_entity_bscale(struct sched_entity *curr,
 +                             struct sched_entity *se, bool do_scale);
-+#else
++#else // CONFIG_SCHED_BORE
  static int
  wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
 +#endif // CONFIG_SCHED_BORE

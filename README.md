@@ -22,26 +22,31 @@ It is an attempt to improve CFS' responsiveness for various desktop applications
 
 ![alt Burst time bitcount vs Burst score](https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/burst-time-bitcount-vs-burst-score.png)
 
-### sched_bore (range: 0 - 3, default: 1)
+### sched_bore (range: 0 - 3, default: 3)
 
 sched_bore & 0x1 = vruntime scaling  
-sched_bore & 0x2 = wakeup preemption scaling (default: disabled)
+sched_bore & 0x2 = wakeup preemption scaling
 
 setting sched_bore=0 makes the scheduler behave as pseudo CFS.
 
-### sched_burst_granularity (range: 0 - 64, default: 12)
+### sched_burst_penalty_offset (range: 0 - 64, default: 12)
 
 How many bits to reduce from burst time bit count when calculating burst score.  
 Increasing this value prevents tasks of shorter burst time from being too strong.  
 Increasing this value also lengthens the effective burst time range.
 
-### sched_burst_penalty_scale (range: 0 - 4095, default: 1280)
+### sched_burst_penalty_scale (range: 0 - 4095, default: 1292)
 
 How strongly tasks are discriminated accordingly to their burst time ratio, scaled in 1/1024 of its precursor value.  
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness (range: 0 - 3, default: 2)
+### sched_burst_preempt_offset (range: 0 - 64, default: 16)
+
+How many bits of burst time in nanoseconds at minimum for the burst preempt feature to start functioning.  
+Decreasing this value may strengthen wider range of interactive tasks by reinforcing their wakeup preemption, but going too far may harm some benchmark scores.  
+
+### sched_burst_smoothness (range: 0 - 3, default: 1)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
 Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_score / (2 ^ burst_smoothness) into it. burst_smoothness=0 means no smoothening.
