@@ -1,7 +1,7 @@
 From 1cb0b7ee353bd6ab4c0298c523e76492f1ccdf7a Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Thu, 6 Apr 2023 18:32:10 +0900
-Subject: [PATCH] linux6.1.y-bore2.1.0
+Subject: [PATCH] linux6.1.y-bore2.1.1
 
 ---
  include/linux/sched.h   |   6 ++
@@ -123,7 +123,7 @@ index 9ebfd4841..4dbae3f29 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.1.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.1.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -247,8 +247,8 @@ index 88821ab00..98f5968ea 100644
 +static inline u64 preempt_scale(
 +	u64 delta, struct sched_entity *curr, struct sched_entity *se) {
 +
-+	u32 score = 20 + max(0, (s32)se->penalty_score - (s32)curr->penalty_score);
-+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[min(39, score)], 22);
++	u32 score = max(0, (s32)se->penalty_score - (s32)curr->penalty_score) >> 1;
++	return mul_u64_u32_shr(delta, sched_prio_to_wmult[min(39, 20 + score)], 22);
 +}
 +
 +static inline u64 binary_smooth(u64 old, u64 new, unsigned int smoothness) {

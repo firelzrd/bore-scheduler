@@ -41,11 +41,6 @@ How strongly tasks are discriminated accordingly to their burst time ratio, scal
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_preempt_offset (range: 0 - 64, default: 23)
-
-How many bits of burst time in nanoseconds at minimum for the burst preempt feature to start functioning.  
-Decreasing this value may strengthen wider range of interactive tasks by reinforcing their wakeup preemption, but going too far may harm some benchmark scores.  
-
 ### sched_burst_smoothness (range: 0 - 3, default: 1)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
