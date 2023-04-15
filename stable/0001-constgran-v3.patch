@@ -1,10 +1,10 @@
 From 823fb7f07b91a3c7b7d1a4d6a3532a4e4c337e70 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Fri, 7 Apr 2023 00:57:07 +0900
-Subject: [PATCH] constgran v2 sched: Make latency / granularity constant
+Subject: [PATCH] constgran v3 sched: Make latency / granularity constant
  tunable_scaling = 1 (logarithmic) -> 0 (constant) latency_ns = variable
  6-24ms -> constant 12.8ms min_granularity_ns = variable 0.75-3ms -> constant
- 1.6ms wakeup_granularity_ns = variable 1-4ms -> constant 9.6ms
+ 1.6ms wakeup_granularity_ns = variable 1-4ms -> constant 14.4ms
 
 ---
  kernel/sched/fair.c | 31 +++++++++++++++++++++++++++----
@@ -68,12 +68,12 @@ index 44de1349c..3ad82e1ab 100644
   * have immediate wakeup/sleep latencies.
   *
 - * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
-+ * (BORE default: 9.6 msec constant, units: nanoseconds)
++ * (BORE default: 14.4 msec constant, units: nanoseconds)
 + * (CFS  default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_wakeup_granularity			= 9600000UL;
-+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 9600000UL;
++unsigned int sysctl_sched_wakeup_granularity			= 14400000UL;
++static unsigned int normalized_sysctl_sched_wakeup_granularity	= 14400000UL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
  static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
