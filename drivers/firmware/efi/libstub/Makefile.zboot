@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: GPL-2.0
+
+# to be include'd by arch/$(ARCH)/boot/Makefile after setting
+# EFI_ZBOOT_PAYLOAD, EFI_ZBOOT_BFD_TARGET and EFI_ZBOOT_MACH_TYPE
+
+comp-type-$(CONFIG_KERNEL_GZIP)		:= gzip
+comp-type-$(CONFIG_KERNEL_LZ4)		:= lz4
+comp-type-$(CONFIG_KERNEL_LZMA)		:= lzma
+comp-type-$(CONFIG_KERNEL_LZO)		:= lzo
+comp-type-$(CONFIG_KERNEL_XZ)		:= xzkern
+comp-type-$(CONFIG_KERNEL_ZSTD)		:= zstd22
+
+# Copy the SizeOfHeaders, SizeOfCode and SizeOfImage fields from the payload to
+# the end of the compressed image. Note that this presupposes a PE header
+# offset of 64 bytes, which is what arm64, RISC-V and LoongArch use.
+quiet_cmd_compwithsize = $(quiet_cmd_$(comp-type-y))
+      cmd_compwithsize = $(cmd_$(comp-type-y)) && ( \
+			   dd status=none if=$< bs=4 count=1 skip=37 ; \
+			   dd status=none if=$< bs=4 count=1 skip=23 ; \
+			   dd status=none if=$< bs=4 count=1 skip=36 ) >> $@
+
+$(obj)/vmlinuz: $(obj)/$(EFI_ZBOOT_PAYLOAD) FORCE
+	$(call if_changed,compwithsize)
+
+OBJCOPYFLAGS_vmlinuz.o := -I binary -O $(EFI_ZBOOT_BFD_TARGET) \
+			  --rename-section .data=.gzdata,load,alloc,readonly,contents
+$(obj)/vmlinuz.o: $(obj)/vmlinuz FORCE
+	$(call if_changed,objcopy)
+
+AFLAGS_zboot-header.o += -DMACHINE_TYPE=IMAGE_FILE_MACHINE_$(EFI_ZBOOT_MACH_TYPE) \
+			 -DZBOOT_EFI_PATH="\"$(realpath $(obj)/vmlinuz.efi.elf)\"" \
+			 -DCOMP_TYPE="\"$(comp-type-y)\""
+
+$(obj)/zboot-header.o: $(srctree)/drivers/firmware/efi/libstub/zboot-header.S FORCE
+	$(call if_changed_rule,as_o_S)
+
+ZBOOT_DEPS := $(obj)/zboot-header.o $(objtree)/drivers/firmware/efi/libstub/lib.a
+
+LDFLAGS_vmlinuz.efi.elf := -T $(srctree)/drivers/firmware/efi/libstub/zboot.lds
+$(obj)/vmlinuz.efi.elf: $(obj)/vmlinuz.o $(ZBOOT_DEPS) FORCE
+	$(call if_changed,ld)
+
+OBJCOPYFLAGS_vmlinuz.efi := -O binary
+$(obj)/vmlinuz.efi: $(obj)/vmlinuz.efi.elf FORCE
+	$(call if_changed,objcopy)
+
+targets += zboot-header.o vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi

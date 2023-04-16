@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0
+
+bindings_generated.rs
+bindings_helpers_generated.rs
+exports_*_generated.h
+doc/
+test/

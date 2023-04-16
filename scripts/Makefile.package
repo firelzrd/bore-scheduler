@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Makefile for the different targets used to generate full packages of a kernel
+
+include $(srctree)/scripts/Kbuild.include
+include $(srctree)/scripts/Makefile.lib
+
+KERNELPATH := kernel-$(subst -,_,$(KERNELRELEASE))
+KBUILD_PKG_ROOTCMD ?="fakeroot -u"
+# Include only those top-level files that are needed by make, plus the GPL copy
+TAR_CONTENT := Documentation LICENSES arch block certs crypto drivers fs \
+               include init io_uring ipc kernel lib mm net rust \
+               samples scripts security sound tools usr virt \
+               .config Makefile \
+               Kbuild Kconfig COPYING $(wildcard localversion*)
+MKSPEC     := $(srctree)/scripts/package/mkspec
+
+quiet_cmd_src_tar = TAR     $(2).tar.gz
+      cmd_src_tar = \
+if test "$(objtree)" != "$(srctree)"; then \
+	echo >&2; \
+	echo >&2 "  ERROR:"; \
+	echo >&2 "  Building source tarball is not possible outside the"; \
+	echo >&2 "  kernel source tree. Don't set KBUILD_OUTPUT"; \
+	echo >&2; \
+	false; \
+fi ; \
+tar -I $(KGZIP) -c $(RCS_TAR_IGNORE) -f $(2).tar.gz \
+	--transform 's:^:$(2)/:S' $(TAR_CONTENT) $(3)
+
+# tarball compression
+# ---------------------------------------------------------------------------
+
+%.tar.gz: %.tar
+	$(call cmd,gzip)
+
+%.tar.bz2: %.tar
+	$(call cmd,bzip2)
+
+%.tar.xz: %.tar
+	$(call cmd,xzmisc)
+
+%.tar.zst: %.tar
+	$(call cmd,zstd)
+
+# Git
+# ---------------------------------------------------------------------------
+
+filechk_HEAD = git -C $(srctree) rev-parse --verify HEAD 2>/dev/null
+
+.tmp_HEAD: check-git FORCE
+	$(call filechk,HEAD)
+
+PHONY += check-git
+check-git:
+	@if ! $(srctree)/scripts/check-git; then \
+		echo >&2 "error: creating source package requires git repository"; \
+		false; \
+	fi
+
+# Linux source tarball
+# ---------------------------------------------------------------------------
+
+quiet_cmd_archive_linux = ARCHIVE $@
+      cmd_archive_linux = \
+	git -C $(srctree) archive --output=$$(realpath $@) --prefix=$(basename $@)/ $$(cat $<)
+
+targets += linux.tar
+linux.tar: .tmp_HEAD FORCE
+	$(call if_changed,archive_linux)
+
+# rpm-pkg
+# ---------------------------------------------------------------------------
+PHONY += rpm-pkg
+rpm-pkg: srpm = $(shell rpmspec --srpm --query --queryformat='%{name}-%{VERSION}-%{RELEASE}.src.rpm' kernel.spec)
+rpm-pkg: srcrpm-pkg
+	+rpmbuild $(RPMOPTS) --target $(UTS_MACHINE)-linux -rb $(srpm) \
+	--define='_smp_mflags %{nil}'
+
+# srcrpm-pkg
+# ---------------------------------------------------------------------------
+PHONY += srcrpm-pkg
+srcrpm-pkg: linux.tar.gz
+	$(CONFIG_SHELL) $(MKSPEC) >$(objtree)/kernel.spec
+	+rpmbuild $(RPMOPTS) --target $(UTS_MACHINE)-linux -bs kernel.spec \
+	--define='_smp_mflags %{nil}' --define='_sourcedir rpmbuild/SOURCES' --define='_srcrpmdir .'
+
+# binrpm-pkg
+# ---------------------------------------------------------------------------
+PHONY += binrpm-pkg
+binrpm-pkg:
+	$(MAKE) -f $(srctree)/Makefile
+	$(CONFIG_SHELL) $(MKSPEC) prebuilt > $(objtree)/binkernel.spec
+	+rpmbuild $(RPMOPTS) --define "_builddir $(objtree)" --target \
+		$(UTS_MACHINE)-linux -bb $(objtree)/binkernel.spec
+
+quiet_cmd_debianize = GEN     $@
+      cmd_debianize = $(srctree)/scripts/package/mkdebian
+
+debian: FORCE
+	$(call cmd,debianize)
+
+PHONY += debian-orig
+debian-orig: private source = $(shell dpkg-parsechangelog -S Source)
+debian-orig: private version = $(shell dpkg-parsechangelog -S Version | sed 's/-[^-]*$$//')
+debian-orig: private orig-name = $(source)_$(version).orig.tar.gz
+debian-orig: linux.tar.gz debian
+	$(Q)if [ "$(df  --output=target .. 2>/dev/null)" = "$(df --output=target $< 2>/dev/null)" ]; then \
+		ln -f $< ../$(orig-name); \
+	else \
+		cp $< ../$(orig-name); \
+	fi
+
+PHONY += deb-pkg
+deb-pkg: debian-orig
+	+dpkg-buildpackage -r$(KBUILD_PKG_ROOTCMD) -a$$(cat debian/arch) $(DPKG_FLAGS) \
+		--build=source,binary -nc -us -uc
+
+PHONY += bindeb-pkg
+bindeb-pkg: debian
+	+dpkg-buildpackage -r$(KBUILD_PKG_ROOTCMD) -a$$(cat debian/arch) $(DPKG_FLAGS) -b -nc -uc
+
+PHONY += intdeb-pkg
+intdeb-pkg:
+	+$(CONFIG_SHELL) $(srctree)/scripts/package/builddeb
+
+# snap-pkg
+# ---------------------------------------------------------------------------
+PHONY += snap-pkg
+snap-pkg:
+	rm -rf $(objtree)/snap
+	mkdir $(objtree)/snap
+	$(MAKE) clean
+	$(call cmd,src_tar,$(KERNELPATH))
+	sed "s@KERNELRELEASE@$(KERNELRELEASE)@; \
+		s@SRCTREE@$(shell realpath $(KERNELPATH).tar.gz)@" \
+		$(srctree)/scripts/package/snapcraft.template > \
+		$(objtree)/snap/snapcraft.yaml
+	cd $(objtree)/snap && \
+	snapcraft --target-arch=$(UTS_MACHINE)
+
+# dir-pkg tar*-pkg - tarball targets
+# ---------------------------------------------------------------------------
+
+tar-install: FORCE
+	$(Q)$(MAKE) -f $(srctree)/Makefile
+	+$(Q)$(srctree)/scripts/package/buildtar $@
+
+quiet_cmd_tar = TAR     $@
+      cmd_tar = cd $<; tar cf ../$@ --owner=root --group=root --sort=name *
+
+linux-$(KERNELRELEASE)-$(ARCH).tar: tar-install
+	$(call cmd,tar)
+
+PHONY += dir-pkg
+dir-pkg: tar-install
+	@echo "Kernel tree successfully created in $<"
+
+PHONY += tar-pkg
+tar-pkg: linux-$(KERNELRELEASE)-$(ARCH).tar
+	@:
+
+tar%-pkg: linux-$(KERNELRELEASE)-$(ARCH).tar.% FORCE
+	@:
+
+# perf-tar*-src-pkg - generate a source tarball with perf source
+# ---------------------------------------------------------------------------
+
+.tmp_perf:
+	$(Q)mkdir .tmp_perf
+
+.tmp_perf/HEAD: .tmp_HEAD | .tmp_perf
+	$(call cmd,copy)
+
+quiet_cmd_perf_version_file = GEN     $@
+      cmd_perf_version_file = cd $(srctree)/tools/perf; util/PERF-VERSION-GEN $(dir $(abspath $@))
+
+# PERF-VERSION-FILE and .tmp_HEAD are independent, but this avoids updating the
+# timestamp of PERF-VERSION-FILE.
+# The best is to fix tools/perf/util/PERF-VERSION-GEN.
+.tmp_perf/PERF-VERSION-FILE: .tmp_HEAD $(srctree)/tools/perf/util/PERF-VERSION-GEN | .tmp_perf
+	$(call cmd,perf_version_file)
+
+quiet_cmd_archive_perf = ARCHIVE $@
+      cmd_archive_perf = \
+	git -C $(srctree) archive --output=$$(realpath $@) --prefix=$(basename $@)/ \
+	--add-file=$$(realpath $(word 2, $^)) \
+	--add-file=$$(realpath $(word 3, $^)) \
+	$$(cat $(word 2, $^))^{tree} $$(cat $<)
+
+targets += perf-$(KERNELVERSION).tar
+perf-$(KERNELVERSION).tar: tools/perf/MANIFEST .tmp_perf/HEAD .tmp_perf/PERF-VERSION-FILE FORCE
+	$(call if_changed,archive_perf)
+
+PHONY += perf-tar-src-pkg
+perf-tar-src-pkg: perf-$(KERNELVERSION).tar
+	@:
+
+perf-tar%-src-pkg: perf-$(KERNELVERSION).tar.% FORCE
+	@:
+
+# Help text displayed when executing 'make help'
+# ---------------------------------------------------------------------------
+PHONY += help
+help:
+	@echo '  rpm-pkg             - Build both source and binary RPM kernel packages'
+	@echo '  srcrpm-pkg          - Build only the source kernel RPM package'
+	@echo '  binrpm-pkg          - Build only the binary kernel RPM package'
+	@echo '  deb-pkg             - Build both source and binary deb kernel packages'
+	@echo '  bindeb-pkg          - Build only the binary kernel deb package'
+	@echo '  snap-pkg            - Build only the binary kernel snap package'
+	@echo '                        (will connect to external hosts)'
+	@echo '  dir-pkg             - Build the kernel as a plain directory structure'
+	@echo '  tar-pkg             - Build the kernel as an uncompressed tarball'
+	@echo '  targz-pkg           - Build the kernel as a gzip compressed tarball'
+	@echo '  tarbz2-pkg          - Build the kernel as a bzip2 compressed tarball'
+	@echo '  tarxz-pkg           - Build the kernel as a xz compressed tarball'
+	@echo '  tarzst-pkg          - Build the kernel as a zstd compressed tarball'
+	@echo '  perf-tar-src-pkg    - Build the perf source tarball with no compression'
+	@echo '  perf-targz-src-pkg  - Build the perf source tarball with gzip compression'
+	@echo '  perf-tarbz2-src-pkg - Build the perf source tarball with bz2 compression'
+	@echo '  perf-tarxz-src-pkg  - Build the perf source tarball with xz compression'
+	@echo '  perf-tarzst-src-pkg - Build the perf source tarball with zst compression'
+
+PHONY += FORCE
+FORCE:
+
+# Read all saved command lines and dependencies for the $(targets) we
+# may be building above, using $(if_changed{,_dep}). As an
+# optimization, we don't need to read them if the target does not
+# exist, we will rebuild anyway in that case.
+
+existing-targets := $(wildcard $(sort $(targets)))
+
+-include $(foreach f,$(existing-targets),$(dir $(f)).$(notdir $(f)).cmd)
+
+.PHONY: $(PHONY)
