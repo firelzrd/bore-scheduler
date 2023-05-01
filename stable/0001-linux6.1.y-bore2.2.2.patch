@@ -1,7 +1,7 @@
 From 5127542ded4aef45015886a6a3f27687553288ee Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Thu, 20 Apr 2023 09:14:29 +0900
-Subject: [PATCH] linux6.1.y-bore2.2.1
+Subject: [PATCH] linux6.1.y-bore2.2.2
 
 ---
  include/linux/sched.h   |  10 +++
@@ -149,7 +149,7 @@ index 9ebfd4841..28d3c1d23 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.2.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.2.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -265,8 +265,8 @@ index 88821ab00..7d46d0eed 100644
 +}
 +
 +static inline u32 __calc_burst_score(u32 bits10, u32 offset) {
-+	u32 val10 = max((s32)0, (s32)bits10 - (s32)(offset << 10));
-+	return min((u32)39, val10 * sched_burst_penalty_scale >> 20);
++	u32 val10 = max(0, (s32)bits10 - (s32)(offset << 10));
++	return min(39U, val10 * sched_burst_penalty_scale >> 20);
 +}
 +
 +static void update_burst_score(struct sched_entity *se) {
@@ -281,7 +281,7 @@ index 88821ab00..7d46d0eed 100644
 +static inline u64 preempt_scale(
 +	u64 delta, struct sched_entity *curr, struct sched_entity *se) {
 +
-+	u32 score = max(0, (s32)se->penalty_score - (s32)curr->penalty_score) >> 1;
++	s32 score = max(0, (s32)se->penalty_score - (s32)curr->penalty_score) >> 1;
 +	return mul_u64_u32_shr(delta, sched_prio_to_wmult[min(39, 20 + score)], 22);
 +}
 +
