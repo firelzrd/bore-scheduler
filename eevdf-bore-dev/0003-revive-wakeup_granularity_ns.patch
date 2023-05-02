@@ -1,0 +1,194 @@
+From 2366ba4f9edf504f7fc0bc859c699360954f2ac2 Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Wed, 3 May 2023 03:40:38 +0900
+Subject: [PATCH] revive wakeup_granularity_ns
+
+---
+ kernel/sched/debug.c |  1 +
+ kernel/sched/fair.c  | 84 +++++++++++++++++++++++++++++++++++++++-----
+ kernel/sched/sched.h |  1 +
+ 3 files changed, 78 insertions(+), 8 deletions(-)
+
+diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
+index 5f903d844..37016e049 100644
+--- a/kernel/sched/debug.c
++++ b/kernel/sched/debug.c
+@@ -309,6 +309,7 @@ static __init int sched_init_debug(void)
+ #endif
+ 
+ 	debugfs_create_u32("base_slice_ns", 0644, debugfs_sched, &sysctl_sched_base_slice);
++	debugfs_create_u32("wakeup_granularity_ns", 0644, debugfs_sched, &sysctl_sched_wakeup_granularity);
+ 
+ 	debugfs_create_u32("latency_warn_ms", 0644, debugfs_sched, &sysctl_resched_latency_warn_ms);
+ 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index a69648593..ed01d6f5b 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -69,17 +69,17 @@
+  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
+  *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
+  *
+- * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
++ * (default SCHED_TUNABLESCALING_NONE = *1)
+  */
+-unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
++unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
+ 
+ /*
+  * Minimal preemption granularity for CPU-bound tasks:
+  *
+- * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
++ * (default: 3 msec * 1, units: nanoseconds)
+  */
+-unsigned int sysctl_sched_base_slice			= 750000ULL;
+-static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
++unsigned int sysctl_sched_base_slice			= 3000000ULL;
++static unsigned int normalized_sysctl_sched_base_slice	= 3000000ULL;
+ 
+ /*
+  * After fork, child runs first. If set to 0 (default) then
+@@ -87,6 +87,18 @@ static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
+  */
+ unsigned int sysctl_sched_child_runs_first __read_mostly;
+ 
++/*
++ * SCHED_OTHER wake-up granularity.
++ *
++ * This option delays the preemption effects of decoupled workloads
++ * and reduces their over-scheduling. Synchronous workloads will still
++ * have immediate wakeup/sleep latencies.
++ *
++ * (default: 9.6 msec * 1, units: nanoseconds)
++ */
++unsigned int sysctl_sched_wakeup_granularity			= 9600000UL;
++static unsigned int normalized_sysctl_sched_wakeup_granularity	= 9600000UL;
++
+ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+ 
+ #ifdef CONFIG_SCHED_BORE
+@@ -329,6 +341,7 @@ static void update_sysctl(void)
+ #define SET_SYSCTL(name) \
+ 	(sysctl_##name = (factor) * normalized_sysctl_##name)
+ 	SET_SYSCTL(sched_base_slice);
++	SET_SYSCTL(sched_wakeup_granularity);
+ #undef SET_SYSCTL
+ }
+ 
+@@ -1051,6 +1064,7 @@ int sched_update_scaling(void)
+ #define WRT_SYSCTL(name) \
+ 	(normalized_sysctl_##name = sysctl_##name / (factor))
+ 	WRT_SYSCTL(sched_base_slice);
++	WRT_SYSCTL(sched_wakeup_granularity);
+ #undef WRT_SYSCTL
+ 
+ 	return 0;
+@@ -5285,6 +5299,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
+ }
+ 
++static int
++wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
++
+ /*
+  * Pick the next process, keeping these things in mind, in this order:
+  * 1) keep things fair between processes/task groups
+@@ -5295,14 +5312,16 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ static struct sched_entity *
+ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
+ {
++	struct sched_entity *candidate = pick_eevdf(cfs_rq);
+ 	/*
+ 	 * Enabling NEXT_BUDDY will affect latency but not fairness.
+ 	 */
+ 	if (sched_feat(NEXT_BUDDY) &&
+-	    cfs_rq->next && entity_eligible(cfs_rq, cfs_rq->next))
++	    cfs_rq->next && entity_eligible(cfs_rq, cfs_rq->next) && 
++			wakeup_preempt_entity(cfs_rq->next, candidate) < 1)
+ 		return cfs_rq->next;
+ 
+-	return pick_eevdf(cfs_rq);
++	return candidate;
+ }
+ 
+ static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq);
+@@ -6531,6 +6550,55 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	hrtick_update(rq);
+ }
+ 
++static unsigned long wakeup_gran(struct sched_entity *se)
++{
++	unsigned long gran = sysctl_sched_wakeup_granularity;
++
++	/*
++	 * Since its curr running now, convert the gran from real-time
++	 * to virtual-time in his units.
++	 *
++	 * By using 'se' instead of 'curr' we penalize light tasks, so
++	 * they get preempted easier. That is, if 'se' < 'curr' then
++	 * the resulting gran will be larger, therefore penalizing the
++	 * lighter, if otoh 'se' > 'curr' then the resulting gran will
++	 * be smaller, again penalizing the lighter task.
++	 *
++	 * This is especially important for buddies when the leftmost
++	 * task is higher priority than the buddy.
++	 */
++	return calc_delta_fair(gran, se);
++}
++
++/*
++ * Should 'se' preempt 'curr'.
++ *
++ *             |s1
++ *        |s2
++ *   |s3
++ *         g
++ *      |<--->|c
++ *
++ *  w(c, s1) = -1
++ *  w(c, s2) =  0
++ *  w(c, s3) =  1
++ *
++ */
++static int
++wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
++{
++	s64 gran, vdiff = curr->vruntime - se->vruntime;
++
++	if (vdiff <= 0)
++		return -1;
++
++	gran = wakeup_gran(se);
++	if (vdiff > gran)
++		return 1;
++
++	return 0;
++}
++
+ static void set_next_buddy(struct sched_entity *se);
+ 
+ /*
+@@ -8005,7 +8073,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+ 	/*
+ 	 * XXX pick_eevdf(cfs_rq) != se ?
+ 	 */
+-	if (pick_eevdf(cfs_rq) == pse)
++	if ((pick_eevdf(cfs_rq) == pse) && (wakeup_preempt_entity(se, pse) == 1))
+ 		goto preempt;
+ 
+ 	return;
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index bfce45b21..c61077166 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -2484,6 +2484,7 @@ extern const_debug unsigned int sysctl_sched_migration_cost;
+ 
+ #ifdef CONFIG_SCHED_DEBUG
+ extern unsigned int sysctl_sched_base_slice;
++extern unsigned int sysctl_sched_wakeup_granularity;
+ extern int sysctl_resched_latency_warn_ms;
+ extern int sysctl_resched_latency_warn_once;
+ 
+-- 
+2.25.1
+
