@@ -1,17 +1,17 @@
-From 62efd7901e7335bb7734b61eca0d17adca5efef2 Mon Sep 17 00:00:00 2001
+From 180ad2dc012bbf1063057cfe13905ceac9febcb2 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 3 May 2023 00:36:02 +0900
-Subject: [PATCH] linux6.3.y-eevdf-bore2.2.4
+Date: Sun, 14 May 2023 06:15:16 +0900
+Subject: [PATCH] linux6.3.y-eevdf-bore2.2.5
 
 ---
  include/linux/sched.h   |  10 +++
  init/Kconfig            |  20 +++++
- kernel/sched/core.c     |  49 ++++++++++
+ kernel/sched/core.c     |  48 ++++++++++++
  kernel/sched/debug.c    |   4 +
- kernel/sched/fair.c     | 195 ++++++++++++++++++++++++++++++++++++++--
+ kernel/sched/fair.c     | 166 ++++++++++++++++++++++++++++++++++++++--
  kernel/sched/features.h |   4 +
  kernel/sched/sched.h    |   1 +
- 7 files changed, 275 insertions(+), 8 deletions(-)
+ 7 files changed, 245 insertions(+), 8 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 6a719374f..17e99b6d6 100644
@@ -73,10 +73,10 @@ index 908d045db..1a828aae9 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index afa2bb27c..bdf82864b 100644
+index afa2bb27c..194efa7c8 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4424,6 +4424,41 @@ int wake_up_state(struct task_struct *p, unsigned int state)
+@@ -4424,6 +4424,40 @@ int wake_up_state(struct task_struct *p, unsigned int state)
  	return try_to_wake_up(p, state, 0);
  }
  
@@ -84,41 +84,40 @@ index afa2bb27c..bdf82864b 100644
 +extern unsigned int sched_burst_cache_lifetime;
 +
 +static inline void update_task_child_burst_time_cache(struct task_struct *p) {
-+	u32 num_children = 0;
++	u32 num_child = 0;
 +	u64 sum_burst_time = 0, avg_burst_time = 0;
 +	struct task_struct *child;
 +
 +	list_for_each_entry(child, &p->children, sibling) {
-+		num_children++;
++		num_child++;
 +		sum_burst_time += child->se.max_burst_time >> 8;
 +	}
 +
-+	if (num_children) avg_burst_time = div_u64(sum_burst_time, num_children) << 8;
++	if (num_child) avg_burst_time = div_u64(sum_burst_time, num_child) << 8;
 +	p->child_burst_cache = max(avg_burst_time, p->se.max_burst_time);
 +}
 +
-+static void update_task_initial_burst_time(struct task_struct *p) {
-+	struct task_struct *parent = p->parent;
++static void update_task_initial_burst_time(struct task_struct *task) {
++	struct sched_entity *se = &task->se;
++	struct task_struct *p = task->parent;
 +	u64 ktime = ktime_to_ns(ktime_get());
 +
-+	if (likely(parent)) {
-+		if (parent->child_burst_last_cached + sched_burst_cache_lifetime < ktime) {
-+			parent->child_burst_last_cached = ktime;
-+			update_task_child_burst_time_cache(parent);
++	if (likely(p)) {
++		if (p->child_burst_last_cached + sched_burst_cache_lifetime < ktime) {
++			p->child_burst_last_cached = ktime;
++			update_task_child_burst_time_cache(p);
 +		}
-+		if (p->se.prev_burst_time < parent->child_burst_cache)
-+			p->se.prev_burst_time = parent->child_burst_cache;
++		se->prev_burst_time = max(se->prev_burst_time, p->child_burst_cache);
 +	}
 +
-+	p->se.burst_time = 0;
-+	p->se.max_burst_time = p->se.prev_burst_time;
++	se->max_burst_time = se->prev_burst_time;
 +}
 +#endif // CONFIG_SCHED_BORE
 +
  /*
   * Perform scheduler related setup for a newly forked process p.
   * p is forked by current.
-@@ -4440,6 +4475,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
+@@ -4440,6 +4474,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
  	p->se.prev_sum_exec_runtime	= 0;
  	p->se.nr_migrations		= 0;
  	p->se.vruntime			= 0;
@@ -128,7 +127,7 @@ index afa2bb27c..bdf82864b 100644
  	p->se.vlag			= 0;
  	INIT_LIST_HEAD(&p->se.group_node);
  
-@@ -4668,6 +4706,9 @@ late_initcall(sched_core_sysctl_init);
+@@ -4668,6 +4705,9 @@ late_initcall(sched_core_sysctl_init);
  int sched_fork(unsigned long clone_flags, struct task_struct *p)
  {
  	__sched_fork(clone_flags, p);
@@ -138,7 +137,7 @@ index afa2bb27c..bdf82864b 100644
  	/*
  	 * We mark the process as NEW here. This guarantees that
  	 * nobody will actually run it, and a signal or other external
-@@ -9159,6 +9200,10 @@ void __init init_idle(struct task_struct *idle, int cpu)
+@@ -9159,6 +9199,10 @@ void __init init_idle(struct task_struct *idle, int cpu)
  
  	idle->__state = TASK_RUNNING;
  	idle->se.exec_start = sched_clock();
@@ -149,12 +148,12 @@ index afa2bb27c..bdf82864b 100644
  	/*
  	 * PF_KTHREAD should already be set at this point; regardless, make it
  	 * look like a proper per-CPU kthread.
-@@ -9826,6 +9871,10 @@ void __init sched_init(void)
+@@ -9826,6 +9870,10 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.2.4 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.2.5 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -183,7 +182,7 @@ index e0d10ac21..37016e049 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 917f0cc10..aa0cd0870 100644
+index 917f0cc10..f5f680ee8 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -260,7 +259,7 @@ index 917f0cc10..aa0cd0870 100644
 +	fixed greed = integer_part | fractional_part;
 +
 +	fixed tolerance = sched_burst_penalty_offset << FIXED_SHIFT;
-+	fixed penalty = greed > tolerance ? greed - tolerance : 0;
++	fixed penalty = max(0, (s32)greed - (s32)tolerance);
 +	fixed scaled_penalty = penalty * sched_burst_penalty_scale >> 10;
 +	
 +	u8 score = min(39U, scaled_penalty >> FIXED_SHIFT);
@@ -366,20 +365,19 @@ index 917f0cc10..aa0cd0870 100644
  #undef WRT_SYSCTL
  
  	return 0;
-@@ -1122,6 +1235,12 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1122,6 +1235,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
 +#ifdef CONFIG_SCHED_BORE
 +	curr->burst_time += delta_exec;
-+	if (curr->max_burst_time < curr->burst_time)
-+		curr->max_burst_time = curr->burst_time;
++	curr->max_burst_time = max(curr->max_burst_time, curr->burst_time);
 +	update_burst_score(curr);
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
-@@ -5184,6 +5303,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -5184,6 +5302,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	se->prev_sum_exec_runtime = se->sum_exec_runtime;
  }
  
@@ -389,7 +387,7 @@ index 917f0cc10..aa0cd0870 100644
  /*
   * Pick the next process, keeping these things in mind, in this order:
   * 1) keep things fair between processes/task groups
-@@ -5194,14 +5316,16 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -5194,14 +5315,16 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
  static struct sched_entity *
  pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
  {
@@ -408,44 +406,16 @@ index 917f0cc10..aa0cd0870 100644
  }
  
  static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq);
-@@ -6430,6 +6554,55 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6430,6 +6553,27 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	hrtick_update(rq);
  }
  
 +static unsigned long wakeup_gran(struct sched_entity *se)
 +{
 +	unsigned long gran = sysctl_sched_wakeup_granularity;
-+
-+	/*
-+	 * Since its curr running now, convert the gran from real-time
-+	 * to virtual-time in his units.
-+	 *
-+	 * By using 'se' instead of 'curr' we penalize light tasks, so
-+	 * they get preempted easier. That is, if 'se' < 'curr' then
-+	 * the resulting gran will be larger, therefore penalizing the
-+	 * lighter, if otoh 'se' > 'curr' then the resulting gran will
-+	 * be smaller, again penalizing the lighter task.
-+	 *
-+	 * This is especially important for buddies when the leftmost
-+	 * task is higher priority than the buddy.
-+	 */
 +	return calc_delta_fair(gran, se);
 +}
 +
-+/*
-+ * Should 'se' preempt 'curr'.
-+ *
-+ *             |s1
-+ *        |s2
-+ *   |s3
-+ *         g
-+ *      |<--->|c
-+ *
-+ *  w(c, s1) = -1
-+ *  w(c, s2) =  0
-+ *  w(c, s3) =  1
-+ *
-+ */
 +static int
 +wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 +{
@@ -464,7 +434,7 @@ index 917f0cc10..aa0cd0870 100644
  static void set_next_buddy(struct sched_entity *se);
  
  /*
-@@ -6448,6 +6621,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6448,6 +6592,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -474,7 +444,7 @@ index 917f0cc10..aa0cd0870 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -7901,7 +8077,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+@@ -7901,7 +8048,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  	/*
  	 * XXX pick_eevdf(cfs_rq) != se ?
  	 */
@@ -483,7 +453,7 @@ index 917f0cc10..aa0cd0870 100644
  		goto preempt;
  
  	return;
-@@ -8114,6 +8290,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8114,6 +8261,9 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
