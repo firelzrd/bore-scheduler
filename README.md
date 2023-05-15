@@ -12,6 +12,8 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 
 ## How it works
 
+![alt Burst time bitcount vs Burst score](https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/burst-time-bitcount-vs-burst-score.png)
+
 * The scheduler tracks each task's burst time, which is the amount of CPU time the task has consumed since it last yielded, slept, or waited for I/O.
 * While a task is active, its burst score is continuously calculated by counting the bit count of its normalized burst time and adjusting it using pre-configured offset and coefficient.
 * The burst score functions similarly to "niceness" and takes a value between 0-39. For each decrease in value by 1, the task can consume approximately 1.25x longer timeslice.
@@ -21,12 +23,12 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 * The burst score of newly-spawned processes is calculated in a unique way to prevent tasks like "make" from overwhelming interactive tasks by forking many CPU-hungry children.
 * The final effect is an equilibrium between opposing greedy and weak tasks (usually CPU-bound batch tasks) and modest and strong tasks (usually I/O-bound interactive tasks), providing a more responsive user experience under the coexistence of various types of workloads.
 
+![alt Relationships between each variables and related functions chart](https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/relationships-between-each-variables-and-related-functions-chart.png)
+
 ## Tunables
 
 ### Example
 `$ sudo sysctl -w kernel.sched_bore=1`
-
-![alt Burst time bitcount vs Burst score](https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/burst-time-bitcount-vs-burst-score.png)
 
 ### sched_bore (range: 0 - 3, default: 3 in CFS version. range: 0 - 1, default: 1 in EEVDF version.)
 
