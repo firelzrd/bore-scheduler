@@ -1,7 +1,14 @@
 # BORE (Burst-Oriented Response Enhancer) CPU Scheduler
 
-BORE (Burst-Oriented Response Enhancer) is a modification to the Completely Fair Scheduler (CFS), which is the default CPU scheduler for Linux.  
-BORE aims to improve the responsiveness of various desktop applications by redefining scheduling fairness as "fair for same burstiness." It discriminates between tasks of different interactiveness by using a unique scoring method based on the tasks' "burstiness."
+BORE (Burst-Oriented Response Enhancer) is an enhanced version of CFS (Completely Fair Scheduler), the default CPU scheduler in Linux
+Developed with the aim of maintaining CFS's high throughput performance while delivering heightened responsiveness to user input under as wide load scenario as possible.
+
+To achieve this, BORE introduces a dimension of flexibility known as "burstiness" for each individual tasks, partially departing from CFS's inherent "complete fairness" principle.
+Burstiness refers to the score derived from the accumulated CPU time a task consumes after explicitly relinquishing it, either by entering sleep, IO-waiting, or yielding.
+This score represents a broad range of temporal characteristics, spanning from nanoseconds to hundreds of seconds, varying across different tasks.
+
+Leveraging this burstiness metric, BORE dynamically adjusts scheduling properties such as weights and delays for each task.
+Consequently, in systems experiencing diverse types of loads, BORE prioritizes tasks requiring high responsiveness, thereby improving overall system responsiveness and enhancing the user experience.
 
 ## How it works
 
@@ -13,7 +20,6 @@ BORE aims to improve the responsiveness of various desktop applications by redef
 * As a result, less "greedy" tasks are given more timeslice and wakeup preemption aggressiveness, while greedier tasks that yield their timeslice less frequently are weighted less.
 * The burst score of newly-spawned processes is calculated in a unique way to prevent tasks like "make" from overwhelming interactive tasks by forking many CPU-hungry children.
 * The final effect is an equilibrium between opposing greedy and weak tasks (usually CPU-bound batch tasks) and modest and strong tasks (usually I/O-bound interactive tasks), providing a more responsive user experience under the coexistence of various types of workloads.
-
 
 ## Tunables
 
@@ -29,7 +35,7 @@ sched_bore & 0x2 = wakeup preemption scaling (only CFS version, not in EEVDF ver
 
 setting sched_bore=0 makes the scheduler behave as pseudo CFS.
 
-### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 50000000)
+### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 6000000)
 
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
