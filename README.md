@@ -37,7 +37,7 @@ sched_bore & 0x2 = wakeup preemption scaling (only CFS version, not in EEVDF ver
 
 setting sched_bore=0 makes the scheduler behave as pseudo CFS.
 
-### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 6000000)
+### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 15000000)
 
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
