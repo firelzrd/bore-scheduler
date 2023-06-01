@@ -1,17 +1,17 @@
-From 6e85d258439c12f20d0a0550288b1979d3dafbb2 Mon Sep 17 00:00:00 2001
+From 3fe2515cfb235c173c1348757136616b1231069b Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 23 May 2023 12:46:15 +0900
-Subject: [PATCH] linux6.3.y-eevdf-bore2.2.8
+Date: Fri, 2 Jun 2023 02:37:01 +0900
+Subject: [PATCH] linux6.3.y-eevdf-bore2.3.0
 
 ---
  include/linux/sched.h   |  10 +++
  init/Kconfig            |  20 +++++
- kernel/sched/core.c     |  62 +++++++++++++++
+ kernel/sched/core.c     |  62 ++++++++++++++
  kernel/sched/debug.c    |   4 +
- kernel/sched/fair.c     | 165 ++++++++++++++++++++++++++++++++++++++--
+ kernel/sched/fair.c     | 173 +++++++++++++++++++++++++++++++++++++---
  kernel/sched/features.h |   4 +
  kernel/sched/sched.h    |   1 +
- 7 files changed, 258 insertions(+), 8 deletions(-)
+ 7 files changed, 265 insertions(+), 9 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 6a719374f..17e99b6d6 100644
@@ -73,7 +73,7 @@ index 908d045db..1a828aae9 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index afa2bb27c..397369619 100644
+index afa2bb27c..0e99d2e51 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4424,6 +4424,57 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -160,7 +160,7 @@ index afa2bb27c..397369619 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.2.8 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.3.0 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -189,7 +189,7 @@ index e0d10ac21..37016e049 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 5b0978176..a4f9645f8 100644
+index 5b0978176..c154ddcca 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -351,19 +351,39 @@ index 5b0978176..a4f9645f8 100644
  #undef SET_SYSCTL
  }
  
-@@ -313,6 +419,11 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
+@@ -308,11 +414,22 @@ static u64 __calc_delta(u64 delta_exec, unsigned long weight, struct load_weight
+ /*
+  * delta /= w
+  */
++#ifdef CONFIG_SCHED_BORE
++#define calc_delta_fair(delta, se) __calc_delta_fair(delta, se, true)
++#define calc_delta_fair_unscaled(delta, se) __calc_delta_fair(delta, se, false)
++
++static inline u64 
++__calc_delta_fair(u64 delta, struct sched_entity *se, bool bscale)
++#else // CONFIG_SCHED_BORE
+ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
++#endif // CONFIG_SCHED_BORE
+ {
  	if (unlikely(se->load.weight != NICE_0_LOAD))
  		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
  
 +#ifdef CONFIG_SCHED_BORE
-+	if (sched_bore)
-+		return penalty_scale(delta, se);
-+	else
++	if (bscale && sched_bore) delta = penalty_scale(delta, se);
 +#endif // CONFIG_SCHED_BORE
  	return delta;
  }
  
-@@ -955,6 +1066,7 @@ int sched_update_scaling(void)
+@@ -708,7 +825,7 @@ void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 	SCHED_WARN_ON(!se->on_rq);
+ 	lag = avg_vruntime(cfs_rq) - se->vruntime;
+ 
+-	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
++	limit = calc_delta_fair_unscaled(max_t(u64, 2*se->slice, TICK_NSEC), se);
+ 	se->vlag = clamp(lag, -limit, limit);
+ }
+ 
+@@ -955,6 +1072,7 @@ int sched_update_scaling(void)
  #define WRT_SYSCTL(name) \
  	(normalized_sysctl_##name = sysctl_##name / (factor))
  	WRT_SYSCTL(sched_base_slice);
@@ -371,7 +391,7 @@ index 5b0978176..a4f9645f8 100644
  #undef WRT_SYSCTL
  
  	return 0;
-@@ -1122,6 +1234,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1122,6 +1240,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -383,7 +403,7 @@ index 5b0978176..a4f9645f8 100644
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
-@@ -5184,6 +5301,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -5184,6 +5307,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	se->prev_sum_exec_runtime = se->sum_exec_runtime;
  }
  
@@ -393,7 +413,7 @@ index 5b0978176..a4f9645f8 100644
  /*
   * Pick the next process, keeping these things in mind, in this order:
   * 1) keep things fair between processes/task groups
-@@ -5194,14 +5314,16 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -5194,14 +5320,16 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
  static struct sched_entity *
  pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
  {
@@ -412,7 +432,7 @@ index 5b0978176..a4f9645f8 100644
  }
  
  static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq);
-@@ -6430,6 +6552,27 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6430,6 +6558,27 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	hrtick_update(rq);
  }
  
@@ -440,7 +460,7 @@ index 5b0978176..a4f9645f8 100644
  static void set_next_buddy(struct sched_entity *se);
  
  /*
-@@ -6448,6 +6591,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6448,6 +6597,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -450,7 +470,7 @@ index 5b0978176..a4f9645f8 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -7901,7 +8047,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+@@ -7901,7 +8053,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  	/*
  	 * XXX pick_eevdf(cfs_rq) != se ?
  	 */
@@ -459,7 +479,7 @@ index 5b0978176..a4f9645f8 100644
  		goto preempt;
  
  	return;
-@@ -8114,6 +8260,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8114,6 +8266,9 @@ static void yield_task_fair(struct rq *rq)
  	struct task_struct *curr = rq->curr;
  	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
  	struct sched_entity *se = &curr->se;
