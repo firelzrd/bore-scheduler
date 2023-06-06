@@ -1,7 +1,7 @@
 From 3fe2515cfb235c173c1348757136616b1231069b Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Fri, 2 Jun 2023 02:37:01 +0900
-Subject: [PATCH] linux6.3.y-eevdf-bore2.3.0
+Subject: [PATCH] linux6.3.y-eevdf-bore2.3.1
 
 ---
  include/linux/sched.h   |  10 +++
@@ -439,7 +439,7 @@ index 5b0978176..c154ddcca 100644
 +static unsigned long wakeup_gran(struct sched_entity *se)
 +{
 +	unsigned long gran = sysctl_sched_wakeup_granularity;
-+	return calc_delta_fair(gran, se);
++	return calc_delta_fair_unscaled(gran, se);
 +}
 +
 +static int
