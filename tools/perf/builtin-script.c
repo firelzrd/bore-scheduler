@@ -2318,8 +2318,8 @@ static void setup_scripting(void)
 {
 #ifdef HAVE_LIBTRACEEVENT
 	setup_perl_scripting();
-	setup_python_scripting();
 #endif
+	setup_python_scripting();
 }
 
 static int flush_scripting(void)
@@ -3652,6 +3652,13 @@ static int process_stat_config_event(struct perf_session *session __maybe_unused
 				     union perf_event *event)
 {
 	perf_event__read_stat_config(&stat_config, &event->stat_config);
+
+	/*
+	 * Aggregation modes are not used since post-processing scripts are
+	 * supposed to take care of such requirements
+	 */
+	stat_config.aggr_mode = AGGR_NONE;
+
 	return 0;
 }
 

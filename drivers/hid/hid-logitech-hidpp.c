@@ -283,7 +283,7 @@ static int hidpp_send_message_sync(struct hidpp_device *hidpp,
 	struct hidpp_report *message,
 	struct hidpp_report *response)
 {
-	int ret;
+	int ret = -1;
 	int max_retries = 3;
 
 	mutex_lock(&hidpp->send_mutex);
@@ -297,13 +297,13 @@ static int hidpp_send_message_sync(struct hidpp_device *hidpp,
 	 */
 	*response = *message;
 
-	for (; max_retries != 0; max_retries--) {
+	for (; max_retries != 0 && ret; max_retries--) {
 		ret = __hidpp_send_report(hidpp->hid_dev, message);
 
 		if (ret) {
 			dbg_hid("__hidpp_send_report returned err: %d\n", ret);
 			memset(response, 0, sizeof(struct hidpp_report));
-			goto exit;
+			break;
 		}
 
 		if (!wait_event_timeout(hidpp->wait, hidpp->answer_available,
@@ -311,13 +311,14 @@ static int hidpp_send_message_sync(struct hidpp_device *hidpp,
 			dbg_hid("%s:timeout waiting for response\n", __func__);
 			memset(response, 0, sizeof(struct hidpp_report));
 			ret = -ETIMEDOUT;
+			break;
 		}
 
 		if (response->report_id == REPORT_ID_HIDPP_SHORT &&
 		    response->rap.sub_id == HIDPP_ERROR) {
 			ret = response->rap.params[1];
 			dbg_hid("%s:got hidpp error %02X\n", __func__, ret);
-			goto exit;
+			break;
 		}
 
 		if ((response->report_id == REPORT_ID_HIDPP_LONG ||
@@ -326,13 +327,12 @@ static int hidpp_send_message_sync(struct hidpp_device *hidpp,
 			ret = response->fap.params[1];
 			if (ret != HIDPP20_ERROR_BUSY) {
 				dbg_hid("%s:got hidpp 2.0 error %02X\n", __func__, ret);
-				goto exit;
+				break;
 			}
 			dbg_hid("%s:got busy hidpp 2.0 error %02X, retrying\n", __func__, ret);
 		}
 	}
 
-exit:
 	mutex_unlock(&hidpp->send_mutex);
 	return ret;
 
@@ -853,8 +853,7 @@ static int hidpp_unifying_init(struct hidpp_device *hidpp)
 	if (ret)
 		return ret;
 
-	snprintf(hdev->uniq, sizeof(hdev->uniq), "%04x-%4phD",
-		 hdev->product, &serial);
+	snprintf(hdev->uniq, sizeof(hdev->uniq), "%4phD", &serial);
 	dbg_hid("HID++ Unifying: Got serial: %s\n", hdev->uniq);
 
 	name = hidpp_unifying_get_name(hidpp);
@@ -944,6 +943,54 @@ static int hidpp_root_get_protocol_version(struct hidpp_device *hidpp)
 print_version:
 	hid_info(hidpp->hid_dev, "HID++ %u.%u device connected.\n",
 		 hidpp->protocol_major, hidpp->protocol_minor);
+	return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0x0003: Device Information                                                 */
+/* -------------------------------------------------------------------------- */
+
+#define HIDPP_PAGE_DEVICE_INFORMATION			0x0003
+
+#define CMD_GET_DEVICE_INFO				0x00
+
+static int hidpp_get_serial(struct hidpp_device *hidpp, u32 *serial)
+{
+	struct hidpp_report response;
+	u8 feature_type;
+	u8 feature_index;
+	int ret;
+
+	ret = hidpp_root_get_feature(hidpp, HIDPP_PAGE_DEVICE_INFORMATION,
+				     &feature_index,
+				     &feature_type);
+	if (ret)
+		return ret;
+
+	ret = hidpp_send_fap_command_sync(hidpp, feature_index,
+					  CMD_GET_DEVICE_INFO,
+					  NULL, 0, &response);
+	if (ret)
+		return ret;
+
+	/* See hidpp_unifying_get_serial() */
+	*serial = *((u32 *)&response.rap.params[1]);
+	return 0;
+}
+
+static int hidpp_serial_init(struct hidpp_device *hidpp)
+{
+	struct hid_device *hdev = hidpp->hid_dev;
+	u32 serial;
+	int ret;
+
+	ret = hidpp_get_serial(hidpp, &serial);
+	if (ret)
+		return ret;
+
+	snprintf(hdev->uniq, sizeof(hdev->uniq), "%4phD", &serial);
+	dbg_hid("HID++ DeviceInformation: Got serial: %s\n", hdev->uniq);
+
 	return 0;
 }
 
@@ -4210,6 +4257,8 @@ static int hidpp_probe(struct hid_device *hdev, const struct hid_device_id *id)
 
 	if (hidpp->quirks & HIDPP_QUIRK_UNIFYING)
 		hidpp_unifying_init(hidpp);
+	else if (hid_is_usb(hidpp->hid_dev))
+		hidpp_serial_init(hidpp);
 
 	connected = hidpp_root_get_protocol_version(hidpp) == 0;
 	atomic_set(&hidpp->connected, connected);

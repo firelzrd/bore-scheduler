@@ -826,7 +826,11 @@ out:
 	    !btrfs_test_opt(info, CLEAR_CACHE)) {
 		btrfs_err(info, "cannot disable free space tree");
 		ret = -EINVAL;
-
+	}
+	if (btrfs_fs_compat_ro(info, BLOCK_GROUP_TREE) &&
+	     !btrfs_test_opt(info, FREE_SPACE_TREE)) {
+		btrfs_err(info, "cannot disable free space tree with block-group-tree feature");
+		ret = -EINVAL;
 	}
 	if (!ret)
 		ret = btrfs_check_mountopts_zoned(info);
@@ -1836,6 +1840,12 @@ static int btrfs_remount(struct super_block *sb, int *flags, char *data)
 		btrfs_clear_sb_rdonly(sb);
 
 		set_bit(BTRFS_FS_OPEN, &fs_info->flags);
+
+		/*
+		 * If we've gone from readonly -> read/write, we need to get
+		 * our sync/async discard lists in the right state.
+		 */
+		btrfs_discard_resume(fs_info);
 	}
 out:
 	/*

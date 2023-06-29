@@ -211,8 +211,7 @@ static int create_acp63_platform_devs(struct pci_dev *pci, struct acp63_dev_data
 	case ACP63_PDM_DEV_MASK:
 		adata->pdm_dev_index  = 0;
 		acp63_fill_platform_dev_info(&pdevinfo[0], parent, NULL, "acp_ps_pdm_dma",
-					     0, adata->res, 1, &adata->acp_lock,
-					     sizeof(adata->acp_lock));
+					     0, adata->res, 1, NULL, 0);
 		acp63_fill_platform_dev_info(&pdevinfo[1], parent, NULL, "dmic-codec",
 					     0, NULL, 0, NULL, 0);
 		acp63_fill_platform_dev_info(&pdevinfo[2], parent, NULL, "acp_ps_mach",
@@ -247,11 +246,17 @@ static int snd_acp63_probe(struct pci_dev *pci,
 {
 	struct acp63_dev_data *adata;
 	u32 addr;
-	u32 irqflags;
+	u32 irqflags, flag;
 	int val;
 	int ret;
 
 	irqflags = IRQF_SHARED;
+
+	/* Return if acp config flag is defined */
+	flag = snd_amd_acp_find_config(pci);
+	if (flag)
+		return -ENODEV;
+
 	/* Pink Sardine device check */
 	switch (pci->revision) {
 	case 0x63:

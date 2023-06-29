@@ -53,7 +53,6 @@
 #include "link_encoder.h"
 #include "link_enc_cfg.h"
 
-#include "dc_link.h"
 #include "link.h"
 #include "dm_helpers.h"
 #include "mem_input.h"
@@ -73,6 +72,8 @@
 #include "dce/dmub_hw_lock_mgr.h"
 
 #include "dc_trace.h"
+
+#include "hw_sequencer_private.h"
 
 #include "dce/dmub_outbox.h"
 
@@ -1057,6 +1058,45 @@ static void apply_ctx_interdependent_lock(struct dc *dc, struct dc_state *contex
 	}
 }
 
+static void phantom_pipe_blank(
+		struct dc *dc,
+		struct timing_generator *tg,
+		int width,
+		int height)
+{
+	struct dce_hwseq *hws = dc->hwseq;
+	enum dc_color_space color_space;
+	struct tg_color black_color = {0};
+	struct output_pixel_processor *opp = NULL;
+	uint32_t num_opps, opp_id_src0, opp_id_src1;
+	uint32_t otg_active_width, otg_active_height;
+
+	/* program opp dpg blank color */
+	color_space = COLOR_SPACE_SRGB;
+	color_space_to_black_color(dc, color_space, &black_color);
+
+	otg_active_width = width;
+	otg_active_height = height;
+
+	/* get the OPTC source */
+	tg->funcs->get_optc_source(tg, &num_opps, &opp_id_src0, &opp_id_src1);
+	ASSERT(opp_id_src0 < dc->res_pool->res_cap->num_opp);
+	opp = dc->res_pool->opps[opp_id_src0];
+
+	opp->funcs->opp_set_disp_pattern_generator(
+			opp,
+			CONTROLLER_DP_TEST_PATTERN_SOLID_COLOR,
+			CONTROLLER_DP_COLOR_SPACE_UDEFINED,
+			COLOR_DEPTH_UNDEFINED,
+			&black_color,
+			otg_active_width,
+			otg_active_height,
+			0);
+
+	if (tg->funcs->is_tg_enabled(tg))
+		hws->funcs.wait_for_blank_complete(opp);
+}
+
 static void disable_dangling_plane(struct dc *dc, struct dc_state *context)
 {
 	int i, j;
@@ -1115,8 +1155,14 @@ static void disable_dangling_plane(struct dc *dc, struct dc_state *context)
 			 * again for different use.
 			 */
 			if (old_stream->mall_stream_config.type == SUBVP_PHANTOM) {
-				if (tg->funcs->enable_crtc)
+				if (tg->funcs->enable_crtc) {
+					int main_pipe_width, main_pipe_height;
+
+					main_pipe_width = old_stream->mall_stream_config.paired_stream->dst.width;
+					main_pipe_height = old_stream->mall_stream_config.paired_stream->dst.height;
+					phantom_pipe_blank(dc, tg, main_pipe_width, main_pipe_height);
 					tg->funcs->enable_crtc(tg);
+				}
 			}
 			dc_rem_all_planes_for_stream(dc, old_stream, dangling_context);
 			disable_all_writeback_pipes_for_stream(dc, old_stream, dangling_context);
@@ -1298,7 +1344,7 @@ static void detect_edp_presence(struct dc *dc)
 	int i;
 	int edp_num;
 
-	get_edp_links(dc, edp_links, &edp_num);
+	dc_get_edp_links(dc, edp_links, &edp_num);
 	if (!edp_num)
 		return;
 
@@ -1916,6 +1962,9 @@ static enum dc_status dc_commit_state_no_check(struct dc *dc, struct dc_state *c
 	return result;
 }
 
+static bool commit_minimal_transition_state(struct dc *dc,
+		struct dc_state *transition_base_context);
+
 /**
  * dc_commit_streams - Commit current stream state
  *
@@ -1937,6 +1986,8 @@ enum dc_status dc_commit_streams(struct dc *dc,
 	struct dc_state *context;
 	enum dc_status res = DC_OK;
 	struct dc_validation_set set[MAX_STREAMS] = {0};
+	struct pipe_ctx *pipe;
+	bool handle_exit_odm2to1 = false;
 
 	if (dc->ctx->dce_environment == DCE_ENV_VIRTUAL_HW)
 		return res;
@@ -1960,6 +2011,22 @@ enum dc_status dc_commit_streams(struct dc *dc,
 				set[i].plane_states[j] = status->plane_states[j];
 		}
 	}
+
+	/* Check for case where we are going from odm 2:1 to max
+	 *  pipe scenario.  For these cases, we will call
+	 *  commit_minimal_transition_state() to exit out of odm 2:1
+	 *  first before processing new streams
+	 */
+	if (stream_count == dc->res_pool->pipe_count) {
+		for (i = 0; i < dc->res_pool->pipe_count; i++) {
+			pipe = &dc->current_state->res_ctx.pipe_ctx[i];
+			if (pipe->next_odm_pipe)
+				handle_exit_odm2to1 = true;
+		}
+	}
+
+	if (handle_exit_odm2to1)
+		res = commit_minimal_transition_state(dc, dc->current_state);
 
 	context = dc_create_state(dc);
 	if (!context)
@@ -3869,6 +3936,7 @@ static bool commit_minimal_transition_state(struct dc *dc,
 	unsigned int i, j;
 	unsigned int pipe_in_use = 0;
 	bool subvp_in_use = false;
+	bool odm_in_use = false;
 
 	if (!transition_context)
 		return false;
@@ -3897,6 +3965,18 @@ static bool commit_minimal_transition_state(struct dc *dc,
 		}
 	}
 
+	/* If ODM is enabled and we are adding or removing planes from any ODM
+	 * pipe, we must use the minimal transition.
+	 */
+	for (i = 0; i < dc->res_pool->pipe_count; i++) {
+		struct pipe_ctx *pipe = &dc->current_state->res_ctx.pipe_ctx[i];
+
+		if (pipe->stream && pipe->next_odm_pipe) {
+			odm_in_use = true;
+			break;
+		}
+	}
+
 	/* When the OS add a new surface if we have been used all of pipes with odm combine
 	 * and mpc split feature, it need use commit_minimal_transition_state to transition safely.
 	 * After OS exit MPO, it will back to use odm and mpc split with all of pipes, we need
@@ -3905,7 +3985,7 @@ static bool commit_minimal_transition_state(struct dc *dc,
 	 * Reduce the scenarios to use dc_commit_state_no_check in the stage of flip. Especially
 	 * enter/exit MPO when DCN still have enough resources.
 	 */
-	if (pipe_in_use != dc->res_pool->pipe_count && !subvp_in_use) {
+	if (pipe_in_use != dc->res_pool->pipe_count && !subvp_in_use && !odm_in_use) {
 		dc_release_state(transition_context);
 		return true;
 	}
@@ -4315,157 +4395,6 @@ bool dc_is_dmcu_initialized(struct dc *dc)
 	if (dmcu)
 		return dmcu->funcs->is_dmcu_initialized(dmcu);
 	return false;
-}
-
-bool dc_is_oem_i2c_device_present(
-	struct dc *dc,
-	size_t slave_address)
-{
-	if (dc->res_pool->oem_device)
-		return dce_i2c_oem_device_present(
-			dc->res_pool,
-			dc->res_pool->oem_device,
-			slave_address);
-
-	return false;
-}
-
-bool dc_submit_i2c(
-		struct dc *dc,
-		uint32_t link_index,
-		struct i2c_command *cmd)
-{
-
-	struct dc_link *link = dc->links[link_index];
-	struct ddc_service *ddc = link->ddc;
-	return dce_i2c_submit_command(
-		dc->res_pool,
-		ddc->ddc_pin,
-		cmd);
-}
-
-bool dc_submit_i2c_oem(
-		struct dc *dc,
-		struct i2c_command *cmd)
-{
-	struct ddc_service *ddc = dc->res_pool->oem_device;
-	if (ddc)
-		return dce_i2c_submit_command(
-			dc->res_pool,
-			ddc->ddc_pin,
-			cmd);
-
-	return false;
-}
-
-static bool link_add_remote_sink_helper(struct dc_link *dc_link, struct dc_sink *sink)
-{
-	if (dc_link->sink_count >= MAX_SINKS_PER_LINK) {
-		BREAK_TO_DEBUGGER();
-		return false;
-	}
-
-	dc_sink_retain(sink);
-
-	dc_link->remote_sinks[dc_link->sink_count] = sink;
-	dc_link->sink_count++;
-
-	return true;
-}
-
-/*
- * dc_link_add_remote_sink() - Create a sink and attach it to an existing link
- *
- * EDID length is in bytes
- */
-struct dc_sink *dc_link_add_remote_sink(
-		struct dc_link *link,
-		const uint8_t *edid,
-		int len,
-		struct dc_sink_init_data *init_data)
-{
-	struct dc_sink *dc_sink;
-	enum dc_edid_status edid_status;
-
-	if (len > DC_MAX_EDID_BUFFER_SIZE) {
-		dm_error("Max EDID buffer size breached!\n");
-		return NULL;
-	}
-
-	if (!init_data) {
-		BREAK_TO_DEBUGGER();
-		return NULL;
-	}
-
-	if (!init_data->link) {
-		BREAK_TO_DEBUGGER();
-		return NULL;
-	}
-
-	dc_sink = dc_sink_create(init_data);
-
-	if (!dc_sink)
-		return NULL;
-
-	memmove(dc_sink->dc_edid.raw_edid, edid, len);
-	dc_sink->dc_edid.length = len;
-
-	if (!link_add_remote_sink_helper(
-			link,
-			dc_sink))
-		goto fail_add_sink;
-
-	edid_status = dm_helpers_parse_edid_caps(
-			link,
-			&dc_sink->dc_edid,
-			&dc_sink->edid_caps);
-
-	/*
-	 * Treat device as no EDID device if EDID
-	 * parsing fails
-	 */
-	if (edid_status != EDID_OK && edid_status != EDID_PARTIAL_VALID) {
-		dc_sink->dc_edid.length = 0;
-		dm_error("Bad EDID, status%d!\n", edid_status);
-	}
-
-	return dc_sink;
-
-fail_add_sink:
-	dc_sink_release(dc_sink);
-	return NULL;
-}
-
-/*
- * dc_link_remove_remote_sink() - Remove a remote sink from a dc_link
- *
- * Note that this just removes the struct dc_sink - it doesn't
- * program hardware or alter other members of dc_link
- */
-void dc_link_remove_remote_sink(struct dc_link *link, struct dc_sink *sink)
-{
-	int i;
-
-	if (!link->sink_count) {
-		BREAK_TO_DEBUGGER();
-		return;
-	}
-
-	for (i = 0; i < link->sink_count; i++) {
-		if (link->remote_sinks[i] == sink) {
-			dc_sink_release(sink);
-			link->remote_sinks[i] = NULL;
-
-			/* shrink array to remove empty place */
-			while (i < link->sink_count - 1) {
-				link->remote_sinks[i] = link->remote_sinks[i+1];
-				i++;
-			}
-			link->remote_sinks[i] = NULL;
-			link->sink_count--;
-			return;
-		}
-	}
 }
 
 void get_clock_requirements_for_state(struct dc_state *state, struct AsicStateEx *info)
@@ -4990,7 +4919,7 @@ void dc_notify_vsync_int_state(struct dc *dc, struct dc_stream_state *stream, bo
 		return;
 	}
 
-	get_edp_links(dc, edp_links, &edp_num);
+	dc_get_edp_links(dc, edp_links, &edp_num);
 
 	/* Determine panel inst */
 	for (i = 0; i < edp_num; i++) {
