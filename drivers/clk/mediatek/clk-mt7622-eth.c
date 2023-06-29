@@ -77,6 +77,7 @@ static const struct of_device_id of_match_clk_mt7622_eth[] = {
 	{ .compatible = "mediatek,mt7622-sgmiisys", .data = &sgmii_desc },
 	{ /* sentinel */ }
 };
+MODULE_DEVICE_TABLE(of, of_match_clk_mt7622_eth);
 
 static struct platform_driver clk_mt7622_eth_drv = {
 	.probe = mtk_clk_simple_probe,
@@ -86,5 +87,5 @@ static struct platform_driver clk_mt7622_eth_drv = {
 		.of_match_table = of_match_clk_mt7622_eth,
 	},
 };
-
-builtin_platform_driver(clk_mt7622_eth_drv);
+module_platform_driver(clk_mt7622_eth_drv);
+MODULE_LICENSE("GPL");

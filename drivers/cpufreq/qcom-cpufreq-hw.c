@@ -11,8 +11,8 @@
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_address.h>
-#include <linux/of_platform.h>
+#include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/pm_opp.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -27,6 +27,8 @@
 #define LUT_TURBO_IND			1
 
 #define GT_IRQ_STATUS			BIT(2)
+
+#define MAX_FREQ_DOMAINS		3
 
 struct qcom_cpufreq_soc_data {
 	u32 reg_enable;
@@ -632,10 +634,9 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
 	struct clk_hw_onecell_data *clk_data;
 	struct device *dev = &pdev->dev;
-	struct device_node *soc_node;
 	struct device *cpu_dev;
 	struct clk *clk;
-	int ret, i, num_domains, reg_sz;
+	int ret, i, num_domains;
 
 	clk = clk_get(dev, "xo");
 	if (IS_ERR(clk))
@@ -662,24 +663,9 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	/* Allocate qcom_cpufreq_data based on the available frequency domains in DT */
-	soc_node = of_get_parent(dev->of_node);
-	if (!soc_node)
-		return -EINVAL;
-
-	ret = of_property_read_u32(soc_node, "#address-cells", &reg_sz);
-	if (ret)
-		goto of_exit;
-
-	ret = of_property_read_u32(soc_node, "#size-cells", &i);
-	if (ret)
-		goto of_exit;
-
-	reg_sz += i;
-
-	num_domains = of_property_count_elems_of_size(dev->of_node, "reg", sizeof(u32) * reg_sz);
-	if (num_domains <= 0)
-		return num_domains;
+	for (num_domains = 0; num_domains < MAX_FREQ_DOMAINS; num_domains++)
+		if (!platform_get_resource(pdev, IORESOURCE_MEM, num_domains))
+			break;
 
 	qcom_cpufreq.data = devm_kzalloc(dev, sizeof(struct qcom_cpufreq_data) * num_domains,
 					 GFP_KERNEL);
@@ -740,9 +726,6 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 		dev_err(dev, "CPUFreq HW driver failed to register\n");
 	else
 		dev_dbg(dev, "QCOM CPUFreq HW driver initialized\n");
-
-of_exit:
-	of_node_put(soc_node);
 
 	return ret;
 }

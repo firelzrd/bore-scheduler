@@ -175,6 +175,7 @@ static struct platform_driver stm32_pwr_driver = {
 	.probe = stm32_pwr_regulator_probe,
 	.driver = {
 		.name  = "stm32-pwr-regulator",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = of_match_ptr(stm32_pwr_of_match),
 	},
 };
@@ -182,4 +183,3 @@ module_platform_driver(stm32_pwr_driver);
 
 MODULE_DESCRIPTION("STM32MP1 PWR voltage regulator driver");
 MODULE_AUTHOR("Pascal Paillet <p.paillet@st.com>");
-MODULE_LICENSE("GPL v2");

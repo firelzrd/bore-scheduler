@@ -145,10 +145,10 @@ static void fsl_spi_grlib_set_shifts(u32 *rx_shift, u32 *tx_shift,
 	}
 }
 
-static int mspi_apply_cpu_mode_quirks(struct spi_mpc8xxx_cs *cs,
-				struct spi_device *spi,
-				struct mpc8xxx_spi *mpc8xxx_spi,
-				int bits_per_word)
+static void mspi_apply_cpu_mode_quirks(struct spi_mpc8xxx_cs *cs,
+				       struct spi_device *spi,
+				       struct mpc8xxx_spi *mpc8xxx_spi,
+				       int bits_per_word)
 {
 	cs->rx_shift = 0;
 	cs->tx_shift = 0;
@@ -161,8 +161,7 @@ static int mspi_apply_cpu_mode_quirks(struct spi_mpc8xxx_cs *cs,
 	} else if (bits_per_word <= 32) {
 		cs->get_rx = mpc8xxx_spi_rx_buf_u32;
 		cs->get_tx = mpc8xxx_spi_tx_buf_u32;
-	} else
-		return -EINVAL;
+	}
 
 	if (mpc8xxx_spi->set_shifts)
 		mpc8xxx_spi->set_shifts(&cs->rx_shift, &cs->tx_shift,
@@ -173,8 +172,6 @@ static int mspi_apply_cpu_mode_quirks(struct spi_mpc8xxx_cs *cs,
 	mpc8xxx_spi->tx_shift = cs->tx_shift;
 	mpc8xxx_spi->get_rx = cs->get_rx;
 	mpc8xxx_spi->get_tx = cs->get_tx;
-
-	return bits_per_word;
 }
 
 static int fsl_spi_setup_transfer(struct spi_device *spi,
@@ -201,12 +198,7 @@ static int fsl_spi_setup_transfer(struct spi_device *spi,
 		hz = spi->max_speed_hz;
 
 	if (!(mpc8xxx_spi->flags & SPI_CPM_MODE))
-		bits_per_word = mspi_apply_cpu_mode_quirks(cs, spi,
-							   mpc8xxx_spi,
-							   bits_per_word);
-
-	if (bits_per_word < 0)
-		return bits_per_word;
+		mspi_apply_cpu_mode_quirks(cs, spi, mpc8xxx_spi, bits_per_word);
 
 	if (bits_per_word == 32)
 		bits_per_word = 0;
@@ -271,18 +263,10 @@ static int fsl_spi_bufs(struct spi_device *spi, struct spi_transfer *t,
 	if (t->bits_per_word)
 		bits_per_word = t->bits_per_word;
 
-	if (bits_per_word > 8) {
-		/* invalid length? */
-		if (len & 1)
-			return -EINVAL;
+	if (bits_per_word > 8)
 		len /= 2;
-	}
-	if (bits_per_word > 16) {
-		/* invalid length? */
-		if (len & 1)
-			return -EINVAL;
+	if (bits_per_word > 16)
 		len /= 2;
-	}
 
 	mpc8xxx_spi->tx = t->tx_buf;
 	mpc8xxx_spi->rx = t->rx_buf;
@@ -498,7 +482,7 @@ static void fsl_spi_grlib_cs_control(struct spi_device *spi, bool on)
 	struct mpc8xxx_spi *mpc8xxx_spi = spi_master_get_devdata(spi->master);
 	struct fsl_spi_reg __iomem *reg_base = mpc8xxx_spi->reg_base;
 	u32 slvsel;
-	u16 cs = spi->chip_select;
+	u16 cs = spi_get_chipselect(spi, 0);
 
 	if (cs < mpc8xxx_spi->native_chipselects) {
 		slvsel = mpc8xxx_spi_read_reg(&reg_base->slvsel);
@@ -717,13 +701,12 @@ unmap_out:
 	return ret;
 }
 
-static int of_fsl_spi_remove(struct platform_device *ofdev)
+static void of_fsl_spi_remove(struct platform_device *ofdev)
 {
 	struct spi_master *master = platform_get_drvdata(ofdev);
 	struct mpc8xxx_spi *mpc8xxx_spi = spi_master_get_devdata(master);
 
 	fsl_spi_cpm_free(mpc8xxx_spi);
-	return 0;
 }
 
 static struct platform_driver of_fsl_spi_driver = {
@@ -732,7 +715,7 @@ static struct platform_driver of_fsl_spi_driver = {
 		.of_match_table = of_fsl_spi_match,
 	},
 	.probe		= of_fsl_spi_probe,
-	.remove		= of_fsl_spi_remove,
+	.remove_new	= of_fsl_spi_remove,
 };
 
 #ifdef CONFIG_MPC832x_RDB
@@ -764,20 +747,18 @@ static int plat_mpc8xxx_spi_probe(struct platform_device *pdev)
 	return PTR_ERR_OR_ZERO(master);
 }
 
-static int plat_mpc8xxx_spi_remove(struct platform_device *pdev)
+static void plat_mpc8xxx_spi_remove(struct platform_device *pdev)
 {
 	struct spi_master *master = platform_get_drvdata(pdev);
 	struct mpc8xxx_spi *mpc8xxx_spi = spi_master_get_devdata(master);
 
 	fsl_spi_cpm_free(mpc8xxx_spi);
-
-	return 0;
 }
 
 MODULE_ALIAS("platform:mpc8xxx_spi");
 static struct platform_driver mpc8xxx_spi_driver = {
 	.probe = plat_mpc8xxx_spi_probe,
-	.remove = plat_mpc8xxx_spi_remove,
+	.remove_new = plat_mpc8xxx_spi_remove,
 	.driver = {
 		.name = "mpc8xxx_spi",
 	},

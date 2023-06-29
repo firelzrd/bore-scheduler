@@ -668,23 +668,6 @@ out:
 	nvmet_req_complete(req, status);
 }
 
-static bool nvmet_handle_identify_desclist(struct nvmet_req *req)
-{
-	switch (req->cmd->identify.csi) {
-	case NVME_CSI_NVM:
-		nvmet_execute_identify_desclist(req);
-		return true;
-	case NVME_CSI_ZNS:
-		if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
-			nvmet_execute_identify_desclist(req);
-			return true;
-		}
-		return false;
-	default:
-		return false;
-	}
-}
-
 static void nvmet_execute_identify_ctrl_nvm(struct nvmet_req *req)
 {
 	/* Not supported: return zeroes */
@@ -701,19 +684,28 @@ static void nvmet_execute_identify(struct nvmet_req *req)
 	case NVME_ID_CNS_NS:
 		nvmet_execute_identify_ns(req);
 		return;
-	case NVME_ID_CNS_CS_NS:
-		if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
-			switch (req->cmd->identify.csi) {
-			case NVME_CSI_ZNS:
-				return nvmet_execute_identify_cns_cs_ns(req);
-			default:
-				break;
-			}
-		}
-		break;
 	case NVME_ID_CNS_CTRL:
 		nvmet_execute_identify_ctrl(req);
 		return;
+	case NVME_ID_CNS_NS_ACTIVE_LIST:
+		nvmet_execute_identify_nslist(req);
+		return;
+	case NVME_ID_CNS_NS_DESC_LIST:
+		nvmet_execute_identify_desclist(req);
+		return;
+	case NVME_ID_CNS_CS_NS:
+		switch (req->cmd->identify.csi) {
+		case NVME_CSI_NVM:
+			/* Not supported */
+			break;
+		case NVME_CSI_ZNS:
+			if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+				nvmet_execute_identify_ns_zns(req);
+				return;
+			}
+			break;
+		}
+		break;
 	case NVME_ID_CNS_CS_CTRL:
 		switch (req->cmd->identify.csi) {
 		case NVME_CSI_NVM:
@@ -727,16 +719,12 @@ static void nvmet_execute_identify(struct nvmet_req *req)
 			break;
 		}
 		break;
-	case NVME_ID_CNS_NS_ACTIVE_LIST:
-		nvmet_execute_identify_nslist(req);
-		return;
-	case NVME_ID_CNS_NS_DESC_LIST:
-		if (nvmet_handle_identify_desclist(req) == true)
-			return;
-		break;
 	}
 
-	nvmet_req_cns_error_complete(req);
+	pr_debug("unhandled identify cns %d on qid %d\n",
+	       req->cmd->identify.cns, req->sq->qid);
+	req->error_loc = offsetof(struct nvme_identify, cns);
+	nvmet_req_complete(req, NVME_SC_INVALID_FIELD | NVME_SC_DNR);
 }
 
 /*

@@ -68,13 +68,13 @@ python_perf_so := $(shell $(MAKE) python_perf_target|grep "Target is:"|awk '{pri
 make_clean_all      := clean all
 make_python_perf_so := $(python_perf_so)
 make_debug          := DEBUG=1
+make_nondistro      := BUILD_NONDISTRO=1
 make_no_libperl     := NO_LIBPERL=1
 make_no_libpython   := NO_LIBPYTHON=1
 make_no_scripts     := NO_LIBPYTHON=1 NO_LIBPERL=1
-make_no_newt        := NO_NEWT=1
 make_no_slang       := NO_SLANG=1
 make_no_gtk2        := NO_GTK2=1
-make_no_ui          := NO_NEWT=1 NO_SLANG=1 NO_GTK2=1
+make_no_ui          := NO_SLANG=1 NO_GTK2=1
 make_no_demangle    := NO_DEMANGLE=1
 make_no_libelf      := NO_LIBELF=1
 make_no_libunwind   := NO_LIBUNWIND=1
@@ -93,8 +93,9 @@ make_with_coresight := CORESIGHT=1
 make_no_sdt	    := NO_SDT=1
 make_no_syscall_tbl := NO_SYSCALL_TABLE=1
 make_with_clangllvm := LIBCLANGLLVM=1
-make_with_libpfm4   := LIBPFM4=1
+make_no_libpfm4     := NO_LIBPFM4=1
 make_with_gtk2      := GTK2=1
+make_refcnt_check   := EXTRA_CFLAGS="-DREFCNT_CHECKING=1"
 make_tags           := tags
 make_cscope         := cscope
 make_help           := help
@@ -111,10 +112,10 @@ make_install_info   := install-info
 make_install_pdf    := install-pdf
 make_install_prefix       := install prefix=/tmp/krava
 make_install_prefix_slash := install prefix=/tmp/krava/
-make_static         := LDFLAGS=-static NO_PERF_READ_VDSO32=1 NO_PERF_READ_VDSOX32=1 NO_JVMTI=1
+make_static         := LDFLAGS=-static NO_PERF_READ_VDSO32=1 NO_PERF_READ_VDSOX32=1 NO_JVMTI=1 NO_LIBTRACEEVENT=1 NO_LIBELF=1
 
 # all the NO_* variable combined
-make_minimal        := NO_LIBPERL=1 NO_LIBPYTHON=1 NO_NEWT=1 NO_GTK2=1
+make_minimal        := NO_LIBPERL=1 NO_LIBPYTHON=1 NO_GTK2=1
 make_minimal        += NO_DEMANGLE=1 NO_LIBELF=1 NO_LIBUNWIND=1 NO_BACKTRACE=1
 make_minimal        += NO_LIBNUMA=1 NO_LIBAUDIT=1 NO_LIBBIONIC=1
 make_minimal        += NO_LIBDW_DWARF_UNWIND=1 NO_AUXTRACE=1 NO_LIBBPF=1
@@ -134,10 +135,10 @@ MAKE_F := $(MAKE) -f $(MK)
 endif
 run += make_python_perf_so
 run += make_debug
+run += make_nondistro
 run += make_no_libperl
 run += make_no_libpython
 run += make_no_scripts
-run += make_no_newt
 run += make_no_slang
 run += make_no_gtk2
 run += make_no_ui
@@ -151,7 +152,6 @@ run += make_no_libaudit
 run += make_no_libbionic
 run += make_no_auxtrace
 run += make_no_libbpf
-run += make_libbpf_dynamic
 run += make_no_libbpf_DEBUG
 run += make_no_libcrypto
 run += make_no_sdt
@@ -159,7 +159,8 @@ run += make_no_syscall_tbl
 run += make_with_babeltrace
 run += make_with_coresight
 run += make_with_clangllvm
-run += make_with_libpfm4
+run += make_no_libpfm4
+run += make_refcnt_check
 run += make_help
 run += make_doc
 run += make_perf_o
@@ -176,6 +177,12 @@ run += make_install_prefix_slash
 # run += make_install_info
 # run += make_install_pdf
 run += make_minimal
+
+old_libbpf := $(shell echo '\#include <bpf/libbpf.h>' | $(CC) -E -dM -x c -| egrep -q "define[[:space:]]+LIBBPF_MAJOR_VERSION[[:space:]]+0{1}")
+
+ifneq ($(old_libbpf),)
+run += make_libbpf_dynamic
+endif
 
 ifneq ($(call has,ctags),)
 run += make_tags

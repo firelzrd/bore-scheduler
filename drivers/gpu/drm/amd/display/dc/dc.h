@@ -29,9 +29,7 @@
 #include "dc_types.h"
 #include "grph_object_defs.h"
 #include "logger_types.h"
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
-#include "hdcp_types.h"
-#endif
+#include "hdcp_msg_types.h"
 #include "gpio_types.h"
 #include "link_service_types.h"
 #include "grph_object_ctrl_defs.h"
@@ -47,7 +45,7 @@ struct aux_payload;
 struct set_config_cmd_payload;
 struct dmub_notification;
 
-#define DC_VER "3.2.223"
+#define DC_VER "3.2.230"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -84,8 +82,6 @@ enum det_size {
 
 struct dc_plane_cap {
 	enum dc_plane_type type;
-	uint32_t blends_with_above : 1;
-	uint32_t blends_with_below : 1;
 	uint32_t per_pixel_alpha : 1;
 	struct {
 		uint32_t argb8888 : 1;
@@ -409,6 +405,7 @@ struct dc_config {
 	bool force_bios_enable_lttpr;
 	uint8_t force_bios_fixed_vs;
 	int sdpif_request_limit_words_per_umc;
+	bool use_old_fixed_vs_sequence;
 	bool disable_subvp_drr;
 };
 
@@ -716,6 +713,7 @@ struct dc_bounding_box_overrides {
 struct dc_state;
 struct resource_pool;
 struct dce_hwseq;
+struct link_service;
 
 /**
  * struct dc_debug_options - DC debug struct
@@ -875,6 +873,12 @@ struct dc_debug_options {
 	bool disable_unbounded_requesting;
 	bool dig_fifo_off_in_blank;
 	bool temp_mst_deallocation_sequence;
+	bool override_dispclk_programming;
+	bool disable_fpo_optimizations;
+	bool support_eDP1_5;
+	uint32_t fpo_vactive_margin_us;
+	bool disable_fpo_vactive;
+	bool disable_boot_optimizations;
 };
 
 struct gpu_info_soc_bounding_box_v1_0;
@@ -891,6 +895,7 @@ struct dc {
 
 	uint8_t link_count;
 	struct dc_link *links[MAX_PIPES * 2];
+	struct link_service *link_srv;
 
 	struct dc_state *current_state;
 	struct resource_pool *res_pool;
@@ -992,11 +997,7 @@ struct dc_init_data {
 };
 
 struct dc_callback_init {
-#ifdef CONFIG_DRM_AMD_DC_HDCP
 	struct cp_psp cp_psp;
-#else
-	uint8_t reserved;
-#endif
 };
 
 struct dc *dc_create(const struct dc_init_data *init_params);
@@ -1363,10 +1364,6 @@ enum dc_status dc_commit_streams(struct dc *dc,
 				 struct dc_stream_state *streams[],
 				 uint8_t stream_count);
 
-/* TODO: When the transition to the new commit sequence is done, remove this
- * function in favor of dc_commit_streams. */
-bool dc_commit_state(struct dc *dc, struct dc_state *context);
-
 struct dc_state *dc_create_state(struct dc *dc);
 struct dc_state *dc_copy_state(struct dc_state *src_ctx);
 void dc_retain_state(struct dc_state *context);
@@ -1378,6 +1375,11 @@ struct dc_plane_state *dc_get_surface_for_mpcc(struct dc *dc,
 
 
 uint32_t dc_get_opp_for_plane(struct dc *dc, struct dc_plane_state *plane);
+
+/* The function returns minimum bandwidth required to drive a given timing
+ * return - minimum required timing bandwidth in kbps.
+ */
+uint32_t dc_bandwidth_in_kbps_from_timing(const struct dc_crtc_timing *timing);
 
 /* Link Interfaces */
 /*
@@ -1452,6 +1454,7 @@ struct dc_link {
 
 	struct ddc_service *ddc;
 
+	enum dp_panel_mode panel_mode;
 	bool aux_mode;
 
 	/* Private to DC core */
@@ -1474,9 +1477,7 @@ struct dc_link {
 	uint32_t dongle_max_pix_clk;
 	unsigned short chip_caps;
 	unsigned int dpcd_sink_count;
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 	struct hdcp_caps hdcp_caps;
-#endif
 	enum edp_revision edp_revision;
 	union dpcd_sink_ext_caps dpcd_sink_ext_caps;
 
@@ -1605,7 +1606,7 @@ bool dc_link_detect_connection_type(struct dc_link *link,
  * return - true HPD is asserted (HPD high), false otherwise (HPD low)
  *
  */
-bool dc_link_get_hpd_state(struct dc_link *dc_link);
+bool dc_link_get_hpd_state(struct dc_link *link);
 
 /* Getter for cached link status from given link */
 const struct dc_link_status *dc_link_get_status(const struct dc_link *link);
@@ -1660,12 +1661,9 @@ bool dc_is_oem_i2c_device_present(
 	size_t slave_address
 );
 
-#ifdef CONFIG_DRM_AMD_DC_HDCP
-
 /* return true if the connected receiver supports the hdcp version */
 bool dc_link_is_hdcp14(struct dc_link *link, enum signal_type signal);
 bool dc_link_is_hdcp22(struct dc_link *link, enum signal_type signal);
-#endif
 
 /* Notify DC about DP RX Interrupt (aka DP IRQ_HPD).
  *
@@ -1738,12 +1736,6 @@ uint32_t dc_link_bandwidth_kbps(
 	const struct dc_link *link,
 	const struct dc_link_settings *link_setting);
 
-/* The function returns minimum bandwidth required to drive a given timing
- * return - minimum required timing bandwidth in kbps.
- */
-uint32_t dc_bandwidth_in_kbps_from_timing(
-	const struct dc_crtc_timing *timing);
-
 /* The function takes a snapshot of current link resource allocation state
  * @dc: pointer to dc of the dm calling this
  * @map: a dc link resource snapshot defined internally to dc.
@@ -1783,7 +1775,7 @@ void dc_restore_link_res_map(const struct dc *dc, uint32_t *map);
 bool dc_link_update_dsc_config(struct pipe_ctx *pipe_ctx);
 
 /* translate a raw link rate data to bandwidth in kbps */
-uint32_t dc_link_bw_kbps_from_raw_frl_link_rate_data(uint8_t bw);
+uint32_t dc_link_bw_kbps_from_raw_frl_link_rate_data(const struct dc *dc, uint8_t bw);
 
 /* determine the optimal bandwidth given link and required bw.
  * @link - current detected link
@@ -1838,7 +1830,7 @@ bool dc_link_is_dp_sink_present(struct dc_link *link);
  */
 void dc_link_set_drive_settings(struct dc *dc,
 				struct link_training_settings *lt_settings,
-				const struct dc_link *link);
+				struct dc_link *link);
 
 /* Enable a test pattern in Link or PHY layer in an active link for compliance
  * test or debugging purpose. The test pattern will remain until next un-plug.
@@ -1996,7 +1988,7 @@ unsigned long long dc_dp_trace_get_lt_end_timestamp(struct dc_link *link,
  * training in detection sequence. false to get link training count of last link
  * training in commit (dpms) sequence
  */
-struct dp_trace_lt_counts *dc_dp_trace_get_lt_counts(struct dc_link *link,
+const struct dp_trace_lt_counts *dc_dp_trace_get_lt_counts(struct dc_link *link,
 		bool in_detection);
 
 /* Get how many link loss has happened since last link training attempts */
@@ -2043,6 +2035,19 @@ void dc_link_handle_usb4_bw_alloc_response(struct dc_link *link,
 int dc_link_dp_dpia_handle_usb4_bandwidth_allocation_for_link(
 		struct dc_link *link, int peak_bw);
 
+/*
+ * Validate the BW of all the valid DPIA links to make sure it doesn't exceed
+ * available BW for each host router
+ *
+ * @dc: pointer to dc struct
+ * @stream: pointer to all possible streams
+ * @num_streams: number of valid DPIA streams
+ *
+ * return: TRUE if bw used by DPIAs doesn't exceed available BW else return FALSE
+ */
+bool dc_link_validate(struct dc *dc, const struct dc_stream_state *streams,
+		const unsigned int count);
+
 /* Sink Interfaces - A sink corresponds to a display output device */
 
 struct dc_container_id {
@@ -2061,7 +2066,7 @@ struct dc_sink_dsc_caps {
 	// 'true' if these are virtual DPCD's DSC caps (immediately upstream of sink in MST topology),
 	// 'false' if they are sink's DSC caps
 	bool is_virtual_dpcd_dsc;
-#if defined(CONFIG_DRM_AMD_DC_DCN)
+#if defined(CONFIG_DRM_AMD_DC_FP)
 	// 'true' if MST topology supports DSC passthrough for sink
 	// 'false' if MST topology does not support DSC passthrough
 	bool is_dsc_passthrough_supported;
@@ -2153,7 +2158,6 @@ void dc_resume(struct dc *dc);
 
 void dc_power_down_on_boot(struct dc *dc);
 
-#if defined(CONFIG_DRM_AMD_DC_HDCP)
 /*
  * HDCP Interfaces
  */
@@ -2161,7 +2165,6 @@ enum hdcp_message_status dc_process_hdcp_msg(
 		enum signal_type signal,
 		struct dc_link *link,
 		struct hdcp_protection_message *message_info);
-#endif
 bool dc_is_dmcu_initialized(struct dc *dc);
 
 enum dc_status dc_set_clock(struct dc *dc, enum dc_clock_type clock_type, uint32_t clk_khz, uint32_t stepping);

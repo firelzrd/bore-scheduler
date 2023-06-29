@@ -533,10 +533,21 @@ static int hisi_sas_queue_command(struct sas_task *task, gfp_t gfp_flags)
 			dq_index = blk_mq_unique_tag_to_hwq(blk_tag);
 			dq = &hisi_hba->dq[dq_index];
 		} else {
-			struct Scsi_Host *shost = hisi_hba->shost;
-			struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
-			int queue = qmap->mq_map[raw_smp_processor_id()];
+			int queue;
 
+			if (hisi_hba->iopoll_q_cnt) {
+				/*
+				 * Use interrupt queue (queue 0) to deliver and complete
+				 * internal IOs of libsas or libata when there is at least
+				 * one iopoll queue
+				 */
+				queue = 0;
+			} else {
+				struct Scsi_Host *shost = hisi_hba->shost;
+				struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
+
+				queue = qmap->mq_map[raw_smp_processor_id()];
+			}
 			dq = &hisi_hba->dq[queue];
 		}
 		break;
@@ -676,6 +687,55 @@ static struct hisi_sas_device *hisi_sas_alloc_dev(struct domain_device *device)
 	return sas_dev;
 }
 
+static void hisi_sas_sync_poll_cq(struct hisi_sas_cq *cq)
+{
+	/* make sure CQ entries being processed are processed to completion */
+	spin_lock(&cq->poll_lock);
+	spin_unlock(&cq->poll_lock);
+}
+
+static bool hisi_sas_queue_is_poll(struct hisi_sas_cq *cq)
+{
+	struct hisi_hba *hisi_hba = cq->hisi_hba;
+
+	if (cq->id < hisi_hba->queue_count - hisi_hba->iopoll_q_cnt)
+		return false;
+	return true;
+}
+
+static void hisi_sas_sync_cq(struct hisi_sas_cq *cq)
+{
+	if (hisi_sas_queue_is_poll(cq))
+		hisi_sas_sync_poll_cq(cq);
+	else
+		synchronize_irq(cq->irq_no);
+}
+
+void hisi_sas_sync_poll_cqs(struct hisi_hba *hisi_hba)
+{
+	int i;
+
+	for (i = 0; i < hisi_hba->queue_count; i++) {
+		struct hisi_sas_cq *cq = &hisi_hba->cq[i];
+
+		if (hisi_sas_queue_is_poll(cq))
+			hisi_sas_sync_poll_cq(cq);
+	}
+}
+EXPORT_SYMBOL_GPL(hisi_sas_sync_poll_cqs);
+
+void hisi_sas_sync_cqs(struct hisi_hba *hisi_hba)
+{
+	int i;
+
+	for (i = 0; i < hisi_hba->queue_count; i++) {
+		struct hisi_sas_cq *cq = &hisi_hba->cq[i];
+
+		hisi_sas_sync_cq(cq);
+	}
+}
+EXPORT_SYMBOL_GPL(hisi_sas_sync_cqs);
+
 static void hisi_sas_tmf_aborted(struct sas_task *task)
 {
 	struct hisi_sas_slot *slot = task->lldd_task;
@@ -687,10 +747,10 @@ static void hisi_sas_tmf_aborted(struct sas_task *task)
 		struct hisi_sas_cq *cq =
 			   &hisi_hba->cq[slot->dlvry_queue];
 		/*
-		 * sync irq to avoid free'ing task
+		 * sync irq or poll queue to avoid free'ing task
 		 * before using task in IO completion
 		 */
-		synchronize_irq(cq->irq_no);
+		hisi_sas_sync_cq(cq);
 		slot->task = NULL;
 	}
 }
@@ -1460,13 +1520,41 @@ void hisi_sas_controller_reset_prepare(struct hisi_hba *hisi_hba)
 }
 EXPORT_SYMBOL_GPL(hisi_sas_controller_reset_prepare);
 
+static void hisi_sas_async_init_wait_phyup(void *data, async_cookie_t cookie)
+{
+	struct hisi_sas_phy *phy = data;
+	struct hisi_hba *hisi_hba = phy->hisi_hba;
+	struct device *dev = hisi_hba->dev;
+	DECLARE_COMPLETION_ONSTACK(completion);
+	int phy_no = phy->sas_phy.id;
+
+	phy->reset_completion = &completion;
+	hisi_sas_phy_enable(hisi_hba, phy_no, 1);
+	if (!wait_for_completion_timeout(&completion,
+					 HISI_SAS_WAIT_PHYUP_TIMEOUT))
+		dev_warn(dev, "phy%d wait phyup timed out\n", phy_no);
+
+	phy->reset_completion = NULL;
+}
+
 void hisi_sas_controller_reset_done(struct hisi_hba *hisi_hba)
 {
 	struct Scsi_Host *shost = hisi_hba->shost;
+	ASYNC_DOMAIN_EXCLUSIVE(async);
+	int phy_no;
 
 	/* Init and wait for PHYs to come up and all libsas event finished. */
-	hisi_hba->hw->phys_init(hisi_hba);
-	msleep(1000);
+	for (phy_no = 0; phy_no < hisi_hba->n_phy; phy_no++) {
+		struct hisi_sas_phy *phy = &hisi_hba->phy[phy_no];
+
+		if (!(hisi_hba->phy_state & BIT(phy_no)))
+			continue;
+
+		async_schedule_domain(hisi_sas_async_init_wait_phyup,
+				      phy, &async);
+	}
+
+	async_synchronize_full_domain(&async);
 	hisi_sas_refresh_port_id(hisi_hba);
 	clear_bit(HISI_SAS_REJECT_CMD_BIT, &hisi_hba->flags);
 
@@ -1547,11 +1635,11 @@ static int hisi_sas_abort_task(struct sas_task *task)
 
 		if (slot) {
 			/*
-			 * sync irq to avoid free'ing task
+			 * sync irq or poll queue to avoid free'ing task
 			 * before using task in IO completion
 			 */
 			cq = &hisi_hba->cq[slot->dlvry_queue];
-			synchronize_irq(cq->irq_no);
+			hisi_sas_sync_cq(cq);
 		}
 		spin_unlock_irqrestore(&task->task_state_lock, flags);
 		rc = TMF_RESP_FUNC_COMPLETE;
@@ -1618,10 +1706,10 @@ static int hisi_sas_abort_task(struct sas_task *task)
 		if (((rc < 0) || (rc == TMF_RESP_FUNC_FAILED)) &&
 					task->lldd_task) {
 			/*
-			 * sync irq to avoid free'ing task
+			 * sync irq or poll queue to avoid free'ing task
 			 * before using task in IO completion
 			 */
-			synchronize_irq(cq->irq_no);
+			hisi_sas_sync_cq(cq);
 			slot->task = NULL;
 		}
 	}
@@ -1892,10 +1980,10 @@ static bool hisi_sas_internal_abort_timeout(struct sas_task *task,
 			struct hisi_sas_cq *cq =
 				&hisi_hba->cq[slot->dlvry_queue];
 			/*
-			 * sync irq to avoid free'ing task
+			 * sync irq or poll queue to avoid free'ing task
 			 * before using task in IO completion
 			 */
-			synchronize_irq(cq->irq_no);
+			hisi_sas_sync_cq(cq);
 			slot->task = NULL;
 		}
 
@@ -1999,18 +2087,6 @@ void hisi_sas_phy_bcast(struct hisi_sas_phy *phy)
 }
 EXPORT_SYMBOL_GPL(hisi_sas_phy_bcast);
 
-void hisi_sas_sync_irqs(struct hisi_hba *hisi_hba)
-{
-	int i;
-
-	for (i = 0; i < hisi_hba->cq_nvecs; i++) {
-		struct hisi_sas_cq *cq = &hisi_hba->cq[i];
-
-		synchronize_irq(cq->irq_no);
-	}
-}
-EXPORT_SYMBOL_GPL(hisi_sas_sync_irqs);
-
 int hisi_sas_host_reset(struct Scsi_Host *shost, int reset_type)
 {
 	struct hisi_hba *hisi_hba = shost_priv(shost);
@@ -2108,6 +2184,7 @@ int hisi_sas_alloc(struct hisi_hba *hisi_hba)
 		/* Completion queue structure */
 		cq->id = i;
 		cq->hisi_hba = hisi_hba;
+		spin_lock_init(&cq->poll_lock);
 
 		/* Delivery queue structure */
 		spin_lock_init(&dq->lock);

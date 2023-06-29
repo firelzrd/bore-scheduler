@@ -41,6 +41,7 @@ static const struct of_device_id of_match_clk_mt6765_vcodec[] = {
 		/* sentinel */
 	}
 };
+MODULE_DEVICE_TABLE(of, of_match_clk_mt6765_vcodec);
 
 static struct platform_driver clk_mt6765_vcodec_drv = {
 	.probe = mtk_clk_simple_probe,
@@ -50,5 +51,5 @@ static struct platform_driver clk_mt6765_vcodec_drv = {
 		.of_match_table = of_match_clk_mt6765_vcodec,
 	},
 };
-
-builtin_platform_driver(clk_mt6765_vcodec_drv);
+module_platform_driver(clk_mt6765_vcodec_drv);
+MODULE_LICENSE("GPL");

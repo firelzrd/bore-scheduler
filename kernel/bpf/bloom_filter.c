@@ -16,13 +16,6 @@ struct bpf_bloom_filter {
 	struct bpf_map map;
 	u32 bitset_mask;
 	u32 hash_seed;
-	/* If the size of the values in the bloom filter is u32 aligned,
-	 * then it is more performant to use jhash2 as the underlying hash
-	 * function, else we use jhash. This tracks the number of u32s
-	 * in an u32-aligned value size. If the value size is not u32 aligned,
-	 * this will be 0.
-	 */
-	u32 aligned_u32_count;
 	u32 nr_hash_funcs;
 	unsigned long bitset[];
 };
@@ -32,9 +25,8 @@ static u32 hash(struct bpf_bloom_filter *bloom, void *value,
 {
 	u32 h;
 
-	if (bloom->aligned_u32_count)
-		h = jhash2(value, bloom->aligned_u32_count,
-			   bloom->hash_seed + index);
+	if (likely(value_size % 4 == 0))
+		h = jhash2(value, value_size / 4, bloom->hash_seed + index);
 	else
 		h = jhash(value, value_size, bloom->hash_seed + index);
 
@@ -152,11 +144,6 @@ static struct bpf_map *bloom_map_alloc(union bpf_attr *attr)
 	bloom->nr_hash_funcs = nr_hash_funcs;
 	bloom->bitset_mask = bitset_mask;
 
-	/* Check whether the value size is u32-aligned */
-	if ((attr->value_size & (sizeof(u32) - 1)) == 0)
-		bloom->aligned_u32_count =
-			attr->value_size / sizeof(u32);
-
 	if (!(attr->map_flags & BPF_F_ZERO_SEED))
 		bloom->hash_seed = get_random_u32();
 
@@ -193,6 +180,17 @@ static int bloom_map_check_btf(const struct bpf_map *map,
 	return btf_type_is_void(key_type) ? 0 : -EINVAL;
 }
 
+static u64 bloom_map_mem_usage(const struct bpf_map *map)
+{
+	struct bpf_bloom_filter *bloom;
+	u64 bitset_bytes;
+
+	bloom = container_of(map, struct bpf_bloom_filter, map);
+	bitset_bytes = BITS_TO_BYTES((u64)bloom->bitset_mask + 1);
+	bitset_bytes = roundup(bitset_bytes, sizeof(unsigned long));
+	return sizeof(*bloom) + bitset_bytes;
+}
+
 BTF_ID_LIST_SINGLE(bpf_bloom_map_btf_ids, struct, bpf_bloom_filter)
 const struct bpf_map_ops bloom_filter_map_ops = {
 	.map_meta_equal = bpf_map_meta_equal,
@@ -206,5 +204,6 @@ const struct bpf_map_ops bloom_filter_map_ops = {
 	.map_update_elem = bloom_map_update_elem,
 	.map_delete_elem = bloom_map_delete_elem,
 	.map_check_btf = bloom_map_check_btf,
+	.map_mem_usage = bloom_map_mem_usage,
 	.map_btf_id = &bpf_bloom_map_btf_ids[0],
 };

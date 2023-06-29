@@ -44,6 +44,20 @@ static bool wait_for_tpm_stat_cond(struct tpm_chip *chip, u8 mask,
 	return false;
 }
 
+static u8 tpm_tis_filter_sts_mask(u8 int_mask, u8 sts_mask)
+{
+	if (!(int_mask & TPM_INTF_STS_VALID_INT))
+		sts_mask &= ~TPM_STS_VALID;
+
+	if (!(int_mask & TPM_INTF_DATA_AVAIL_INT))
+		sts_mask &= ~TPM_STS_DATA_AVAIL;
+
+	if (!(int_mask & TPM_INTF_CMD_READY_INT))
+		sts_mask &= ~TPM_STS_COMMAND_READY;
+
+	return sts_mask;
+}
+
 static int wait_for_tpm_stat(struct tpm_chip *chip, u8 mask,
 		unsigned long timeout, wait_queue_head_t *queue,
 		bool check_cancel)
@@ -53,7 +67,7 @@ static int wait_for_tpm_stat(struct tpm_chip *chip, u8 mask,
 	long rc;
 	u8 status;
 	bool canceled = false;
-	u8 sts_mask = 0;
+	u8 sts_mask;
 	int ret = 0;
 
 	/* check current status */
@@ -61,17 +75,10 @@ static int wait_for_tpm_stat(struct tpm_chip *chip, u8 mask,
 	if ((status & mask) == mask)
 		return 0;
 
+	sts_mask = mask & (TPM_STS_VALID | TPM_STS_DATA_AVAIL |
+			   TPM_STS_COMMAND_READY);
 	/* check what status changes can be handled by irqs */
-	if (priv->int_mask & TPM_INTF_STS_VALID_INT)
-		sts_mask |= TPM_STS_VALID;
-
-	if (priv->int_mask & TPM_INTF_DATA_AVAIL_INT)
-		sts_mask |= TPM_STS_DATA_AVAIL;
-
-	if (priv->int_mask & TPM_INTF_CMD_READY_INT)
-		sts_mask |= TPM_STS_COMMAND_READY;
-
-	sts_mask &= mask;
+	sts_mask = tpm_tis_filter_sts_mask(priv->int_mask, sts_mask);
 
 	stop = jiffies + timeout;
 	/* process status changes with irq support */
@@ -750,7 +757,7 @@ static irqreturn_t tis_int_handler(int dummy, void *dev_id)
 	struct tpm_chip *chip = dev_id;
 	struct tpm_tis_data *priv = dev_get_drvdata(&chip->dev);
 	u32 interrupt;
-	int i, rc;
+	int rc;
 
 	rc = tpm_tis_read32(priv, TPM_INT_STATUS(priv->locality), &interrupt);
 	if (rc < 0)
@@ -762,17 +769,16 @@ static irqreturn_t tis_int_handler(int dummy, void *dev_id)
 	set_bit(TPM_TIS_IRQ_TESTED, &priv->flags);
 	if (interrupt & TPM_INTF_DATA_AVAIL_INT)
 		wake_up_interruptible(&priv->read_queue);
-	if (interrupt & TPM_INTF_LOCALITY_CHANGE_INT)
-		for (i = 0; i < 5; i++)
-			if (check_locality(chip, i))
-				break;
+
 	if (interrupt &
 	    (TPM_INTF_LOCALITY_CHANGE_INT | TPM_INTF_STS_VALID_INT |
 	     TPM_INTF_CMD_READY_INT))
 		wake_up_interruptible(&priv->int_queue);
 
 	/* Clear interrupts handled with TPM_EOI */
+	tpm_tis_request_locality(chip, 0);
 	rc = tpm_tis_write32(priv, TPM_INT_STATUS(priv->locality), interrupt);
+	tpm_tis_relinquish_locality(chip, 0);
 	if (rc < 0)
 		return IRQ_NONE;
 
@@ -787,10 +793,15 @@ static void tpm_tis_gen_interrupt(struct tpm_chip *chip)
 	cap_t cap;
 	int ret;
 
+	chip->flags |= TPM_CHIP_FLAG_IRQ;
+
 	if (chip->flags & TPM_CHIP_FLAG_TPM2)
 		ret = tpm2_get_tpm_pt(chip, 0x100, &cap2, desc);
 	else
 		ret = tpm1_getcap(chip, TPM_CAP_PROP_TIS_TIMEOUT, &cap, desc, 0);
+
+	if (ret)
+		chip->flags &= ~TPM_CHIP_FLAG_IRQ;
 }
 
 /* Register the IRQ and issue a command that will cause an interrupt. If an

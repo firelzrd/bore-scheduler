@@ -46,6 +46,7 @@ static const struct of_device_id of_match_clk_mt2701_hif[] = {
 	{ .compatible = "mediatek,mt2701-hifsys", .data = &hif_desc },
 	{ /* sentinel */ }
 };
+MODULE_DEVICE_TABLE(of, of_match_clk_mt2701_hif);
 
 static struct platform_driver clk_mt2701_hif_drv = {
 	.probe = mtk_clk_simple_probe,
@@ -55,5 +56,5 @@ static struct platform_driver clk_mt2701_hif_drv = {
 		.of_match_table = of_match_clk_mt2701_hif,
 	},
 };
-
-builtin_platform_driver(clk_mt2701_hif_drv);
+module_platform_driver(clk_mt2701_hif_drv);
+MODULE_LICENSE("GPL");

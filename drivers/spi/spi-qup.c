@@ -1003,8 +1003,7 @@ static int spi_qup_probe(struct platform_device *pdev)
 	int ret, irq, size;
 
 	dev = &pdev->dev;
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(dev, res);
+	base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
@@ -1270,7 +1269,7 @@ disable_clk:
 }
 #endif /* CONFIG_PM_SLEEP */
 
-static int spi_qup_remove(struct platform_device *pdev)
+static void spi_qup_remove(struct platform_device *pdev)
 {
 	struct spi_master *master = dev_get_drvdata(&pdev->dev);
 	struct spi_qup *controller = spi_master_get_devdata(master);
@@ -1295,8 +1294,6 @@ static int spi_qup_remove(struct platform_device *pdev)
 
 	pm_runtime_put_noidle(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
-
-	return 0;
 }
 
 static const struct of_device_id spi_qup_dt_match[] = {
@@ -1321,7 +1318,7 @@ static struct platform_driver spi_qup_driver = {
 		.of_match_table = spi_qup_dt_match,
 	},
 	.probe = spi_qup_probe,
-	.remove = spi_qup_remove,
+	.remove_new = spi_qup_remove,
 };
 module_platform_driver(spi_qup_driver);
 

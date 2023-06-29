@@ -40,4 +40,7 @@ else:
     import linux.clk
     import linux.genpd
     import linux.device
+    import linux.vfs
     import linux.mm
+    import linux.radixtree
+    import linux.interrupts

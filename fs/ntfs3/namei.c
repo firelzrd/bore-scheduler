@@ -433,8 +433,8 @@ static int ntfs_atomic_open(struct inode *dir, struct dentry *dentry,
 
 	inode = ntfs_create_inode(&nop_mnt_idmap, dir, dentry, uni, mode, 0,
 				  NULL, 0, fnd);
-	err = IS_ERR(inode) ? PTR_ERR(inode)
-			    : finish_open(file, dentry, ntfs_file_open);
+	err = IS_ERR(inode) ? PTR_ERR(inode) :
+				    finish_open(file, dentry, ntfs_file_open);
 	dput(d);
 
 out2:
@@ -607,8 +607,7 @@ const struct inode_operations ntfs_dir_inode_operations = {
 	.rmdir		= ntfs_rmdir,
 	.mknod		= ntfs_mknod,
 	.rename		= ntfs_rename,
-	.permission	= ntfs_permission,
-	.get_inode_acl	= ntfs_get_acl,
+	.get_acl	= ntfs_get_acl,
 	.set_acl	= ntfs_set_acl,
 	.setattr	= ntfs3_setattr,
 	.getattr	= ntfs_getattr,
@@ -621,7 +620,7 @@ const struct inode_operations ntfs_special_inode_operations = {
 	.setattr	= ntfs3_setattr,
 	.getattr	= ntfs_getattr,
 	.listxattr	= ntfs_listxattr,
-	.get_inode_acl	= ntfs_get_acl,
+	.get_acl	= ntfs_get_acl,
 	.set_acl	= ntfs_set_acl,
 };
 

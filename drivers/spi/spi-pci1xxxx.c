@@ -117,7 +117,7 @@ static void pci1xxxx_spi_set_cs(struct spi_device *spi, bool enable)
 	if (!enable) {
 		regval |= SPI_FORCE_CE;
 		regval &= ~SPI_MST_CTL_DEVSEL_MASK;
-		regval |= (spi->chip_select << 25);
+		regval |= (spi_get_chipselect(spi, 0) << 25);
 	} else {
 		regval &= ~SPI_FORCE_CE;
 	}

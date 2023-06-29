@@ -1281,11 +1281,8 @@ static void ssif_remove(struct i2c_client *client)
 	struct ssif_info *ssif_info = i2c_get_clientdata(client);
 	struct ssif_addr_info *addr_info;
 
-	if (!ssif_info)
-		return;
-
 	/*
-	 * After this point, we won't deliver anything asychronously
+	 * After this point, we won't deliver anything asynchronously
 	 * to the message handler.  We can unregister ourself.
 	 */
 	ipmi_unregister_smi(ssif_info->intf);
@@ -2072,9 +2069,6 @@ static int ssif_platform_probe(struct platform_device *dev)
 static int ssif_platform_remove(struct platform_device *dev)
 {
 	struct ssif_addr_info *addr_info = dev_get_drvdata(&dev->dev);
-
-	if (!addr_info)
-		return 0;
 
 	mutex_lock(&ssif_infos_mutex);
 	list_del(&addr_info->link);
