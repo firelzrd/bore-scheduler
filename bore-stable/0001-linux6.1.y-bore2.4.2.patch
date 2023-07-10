@@ -116,11 +116,11 @@ index 9ebfd4841..8d050203f 100644
 +static void update_task_initial_burst_time(struct task_struct *task) {
 +	struct sched_entity *se = &task->se;
 +	struct task_struct *par = task->real_parent;
-+	u64 ktime = ktime_to_ns(ktime_get());
++	u64 now = ktime_get_ns();
 +
 +	if (likely(par)) {
-+		if (par->child_burst_last_cached + sched_burst_cache_lifetime < ktime) {
-+			par->child_burst_last_cached = ktime;
++		if (par->child_burst_last_cached + sched_burst_cache_lifetime < now) {
++			par->child_burst_last_cached = now;
 +			update_task_child_burst_time_cache(par);
 +		}
 +		se->prev_burst_time = max(se->prev_burst_time, par->child_burst_cache);
@@ -159,7 +159,7 @@ index 9ebfd4841..8d050203f 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.4.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.4.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -200,7 +200,7 @@ index 88821ab00..b7a116888 100644
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int __read_mostly sched_bore                 = 1;
 +unsigned int __read_mostly sched_burst_cache_lifetime = 15000000;
-+unsigned int __read_mostly sched_burst_penalty_offset = 12;
++unsigned int __read_mostly sched_burst_penalty_offset = 18;
 +unsigned int __read_mostly sched_burst_penalty_scale  = 1292;
 +unsigned int __read_mostly sched_burst_smoothness     = 1;
 +static int three          = 3;
