@@ -39,7 +39,7 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
 
-### sched_burst_penalty_offset (range: 0 - 64, default: 12)
+### sched_burst_penalty_offset (range: 0 - 64, default: 18)
 
 How many bits to reduce from burst time bit count when calculating burst score.  
 Increasing this value prevents tasks of shorter burst time from being too strong.  
