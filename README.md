@@ -34,10 +34,14 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 1 Enables the BORE mechanism.  
 0 Disables the BORE mechanism.
 
-### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 15000000)
+### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 60000000)
 
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
+
+### sched_burst_fork_atavistic (range: 0 - 1, default: 1)
+
+Enables atavistic inheritance of average child burst time from ancestor process. It may further improve system responsiveness under massive process-forking situations.
 
 ### sched_burst_penalty_offset (range: 0 - 64, default: 12)
 
