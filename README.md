@@ -39,9 +39,11 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
 
-### sched_burst_fork_atavistic (range: 0 - 1, default: 1)
+### sched_burst_fork_atavistic (range: 0 - 3, default: 2)
 
-Enables atavistic inheritance of average child burst time from ancestor process. It may further improve system responsiveness under massive process-forking situations.
+0: Disables atavistic inheritance of average child burst time from ancestor process.  
+1-3: Enables atavistic inheritance of average child burst time from ancestor process, and the value represents how many hub (child process count >= 2) nodes update_child_burst_cache digs down recursively for each direct child.  
+Enabling this feature may further improve system responsiveness under massive process-forking situations, such as kernel builds.
 
 ### sched_burst_penalty_offset (range: 0 - 64, default: 12)
 
