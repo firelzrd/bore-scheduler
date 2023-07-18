@@ -41,9 +41,10 @@ Increasing this value results in less frequent re-calculation of average burst t
 
 ### sched_burst_fork_atavistic (range: 0 - 3, default: 2)
 
-0: Disables atavistic inheritance of average child burst time from ancestor process.  
-1-3: Enables atavistic inheritance of average child burst time from ancestor process, and the value represents how many hub (child process count >= 2) nodes update_child_burst_cache digs down recursively for each direct child.  
-Enabling this feature may further improve system responsiveness under massive process-forking situations, such as kernel builds.
+0: Disables the inheritance of the average child burst time from ancestor processes.  
+1-3: Enables the inheritance of the average child burst time from ancestor processes using a topological hub/stub style hierarchy tree, rather than the traditional parent-to-child style.  
+When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
+Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.
 
 ### sched_burst_penalty_offset (range: 0 - 64, default: 12)
 
