@@ -58,10 +58,10 @@ How strongly tasks are discriminated accordingly to their burst time ratio, scal
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness (range: 0 - 3, default: 1)
+### sched_burst_smoothness (range: 0 - 3, default: 2)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
-Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_score / (2 ^ burst_smoothness) into it. burst_smoothness=0 means no smoothening.
+Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time / (2 ^ burst_smoothness) into prev_burst_time. but this mixing occurs only when prev_burst_time increases. burst_smoothness=0 means no smoothening.
 
 ## Special thanks
 
