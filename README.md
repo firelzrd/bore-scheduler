@@ -71,3 +71,4 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 * Piotr Górski a.k.a. "sir_lucjan" from the CachyOS community, for hosting BORE-powered CachyOS kernels for Fedora, as well as helping me shoot some bugs.
 * And many whom I haven't added here yet.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
