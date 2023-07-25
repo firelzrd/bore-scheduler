@@ -1,7 +1,7 @@
 From bd60cc9f9933aa338a1ff86bf2e6f3a2ae0151f3 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sun, 23 Jul 2023 06:33:34 +0900
-Subject: [PATCH] linux6.3.y-eevdf-bore2.5.3
+Subject: [PATCH] linux6.3.y-eevdf-bore2.5.4
 
 ---
  include/linux/sched.h   |  10 ++
@@ -215,7 +215,7 @@ index 172574767..5d5b257bf 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.5.3 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 2.5.4 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -291,17 +291,17 @@ index eb98f2362..0f7a5d0cb 100644
 + * and reduces their over-scheduling. Synchronous workloads will still
 + * have immediate wakeup/sleep latencies.
 + *
-+ * (default: 3.2 msec * 1, units: nanoseconds)
++ * (default: 1.6 msec * 1, units: nanoseconds)
 + */
-+unsigned int sysctl_sched_wakeup_granularity			= 3200000UL;
-+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 3200000UL;
++unsigned int sysctl_sched_wakeup_granularity			= 1600000UL;
++static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1600000UL;
 +
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
  
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int __read_mostly sched_bore                 = 1;
 +unsigned int __read_mostly sched_burst_cache_lifetime = 60000000;
-+unsigned int __read_mostly sched_burst_penalty_offset = 12;
++unsigned int __read_mostly sched_burst_penalty_offset = 18;
 +unsigned int __read_mostly sched_burst_penalty_scale  = 1292;
 +unsigned int __read_mostly sched_burst_smoothness     = 2;
 +unsigned int __read_mostly sched_burst_fork_atavistic = 2;
