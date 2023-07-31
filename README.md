@@ -46,7 +46,7 @@ Increasing this value results in less frequent re-calculation of average burst t
 When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
 Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.
 
-### sched_burst_penalty_offset (range: 0 - 64, default: 12[CFS variant] 18[EEVDF variant])
+### sched_burst_penalty_offset (range: 0 - 64, default: 18)
 
 How many bits to reduce from burst time bit count when calculating burst score.  
 Increasing this value prevents tasks of shorter burst time from being too strong.  
@@ -58,7 +58,8 @@ How strongly tasks are discriminated accordingly to their burst time ratio, scal
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness (range: 0 - 3, default: 2)
+### sched_burst_smoothness_up (range: 0 - 3, default: 1)
+### sched_burst_smoothness_down (range: 0 - 3, default: 0)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
 Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time / (2 ^ burst_smoothness) into prev_burst_time. but this mixing occurs only when prev_burst_time increases. burst_smoothness=0 means no smoothening.
@@ -69,6 +70,7 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 * Peter "ptr1337" Jung, the founder of CachyOS high-performance linux distribution, also being the admin of its development community. His continuous support, sharp analysis and dedicated tests and advice helped me shoot many problems.
 * Ching-Chun "jserv" Huang from National Cheng Kung University of Taiwan, and Hui Chun "foxhoundsk" Feng from National Taiwan Ocean University, for detailed analysis and explanation of the scheduler in their excellent treatise.
 * Piotr Górski a.k.a. "sir_lucjan" from the CachyOS community, for hosting BORE-powered CachyOS kernels for Fedora, as well as helping me shoot some bugs.
+* dim-geo, for assisting me with optimization hints.
 * And many whom I haven't added here yet.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
