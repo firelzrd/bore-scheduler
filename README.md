@@ -46,13 +46,13 @@ Increasing this value results in less frequent re-calculation of average burst t
 When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
 Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.
 
-### sched_burst_penalty_offset (range: 0 - 64, default: 18)
+### sched_burst_penalty_offset (range: 0 - 64, default: 22)
 
 How many bits to reduce from burst time bit count when calculating burst score.  
 Increasing this value prevents tasks of shorter burst time from being too strong.  
 Increasing this value also lengthens the effective burst time range.
 
-### sched_burst_penalty_scale (range: 0 - 4095, default: 1292)
+### sched_burst_penalty_scale (range: 0 - 4095, default: 1366)
 
 How strongly tasks are discriminated accordingly to their burst time ratio, scaled in 1/1024 of its precursor value.  
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
