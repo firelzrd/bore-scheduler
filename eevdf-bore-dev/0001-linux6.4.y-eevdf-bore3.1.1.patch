@@ -1,7 +1,7 @@
 From bc669c4e9b5f5ae93547c97051cf228bedbce61b Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 5 Aug 2023 23:26:17 +0900
-Subject: [PATCH] linux6.4.y-eevdf-bore3.1.0
+Subject: [PATCH] linux6.4.y-eevdf-bore3.1.1
 
 ---
  include/linux/sched.h |  29 ++++++
@@ -245,7 +245,7 @@ index 5ed250706..cf53c87ce 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -340,7 +340,7 @@ index cd7f6126b..66aa766b0 100644
 +static int sixty_four     = 64;
 +static int maxval_12_bits = 4095;
 +
-+#define MAX_BURST_PENALTY ((40UL << 8) - 1)
++#define MAX_BURST_PENALTY ((40U << 8) - 1)
 +
 +static inline u32 log2plus1_u64_u32f8(u64 v) {
 +	x32 result;
@@ -512,7 +512,7 @@ index cd7f6126b..66aa766b0 100644
 +	curr->burst_time += delta_exec;
 +	update_burst_penalty(curr);
 +#endif // CONFIG_SCHED_BORE
-+	curr->vruntime += max(1, calc_delta_fair(delta_exec, curr));
++	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
