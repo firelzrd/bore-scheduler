@@ -127,6 +127,69 @@ unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost = 500000UL;
 
+#ifdef CONFIG_SCHED_BORE
+unsigned int __read_mostly sched_bore                  = 1;
+unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
+unsigned int __read_mostly sched_burst_penalty_offset  = 22;
+unsigned int __read_mostly sched_burst_penalty_scale   = 1366;
+unsigned int __read_mostly sched_burst_smoothness_up   = 1;
+unsigned int __read_mostly sched_burst_smoothness_down = 0;
+unsigned int __read_mostly sched_burst_fork_atavistic  = 2;
+
+#define MAX_BURST_PENALTY ((40U << 8) - 1)
+
+static inline u32 log2plus1_u64_u32f8(u64 v) {
+	x32 result;
+	int msb = fls64(v);
+	int excess_bits = msb - 9;
+	result.u8[0] = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	result.u8[1] = msb;
+	return result.u32;
+}
+
+static inline u32 calc_burst_penalty(u64 burst_time) {
+	u32 greed, tolerance, penalty, scaled_penalty;
+	
+	greed = log2plus1_u64_u32f8(burst_time);
+	tolerance = sched_burst_penalty_offset << 8;
+	penalty = max(0, (s32)greed - (s32)tolerance);
+	scaled_penalty = penalty * sched_burst_penalty_scale >> 10;
+
+	return min(MAX_BURST_PENALTY, scaled_penalty);
+}
+
+static void update_burst_penalty(struct sched_entity *se) {
+	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
+	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
+}
+
+static inline u64 penalty_scale(u64 delta, struct sched_entity *se, bool half) {
+	u32 score = ((x16*)&se->burst_penalty)->u8[1];
+	if (half) score >>= 1;
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
+}
+
+static inline u32 binary_smooth(u32 new, u32 old) {
+  int increment = new - old;
+  return (0 <= increment)?
+    old + ( increment >> sched_burst_smoothness_up):
+    old - (-increment >> sched_burst_smoothness_down);
+}
+
+static void restart_burst(struct sched_entity *se) {
+	se->burst_penalty = se->prev_burst_penalty =
+		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
+	se->curr_burst_penalty = 0;
+	se->burst_time = 0;
+}
+
+static inline void vruntime_backstep(s64 *vdiff, struct sched_entity *se) {
+	u64 delta_exec = se->sum_exec_runtime - se->prev_sum_exec_runtime;
+	*vdiff += delta_exec - penalty_scale(delta_exec, se, false);
+}
+#endif // CONFIG_SCHED_BORE
+
+#ifdef CONFIG_SMP
 /*
  * The exponential sliding  window over which load is averaged for shares
  * distribution.
