@@ -18,6 +18,9 @@
  *
  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
+ *
+ *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
+ *  Copyright (C) 2021-2023 Masahito Suzuki <firelzrd@gmail.com>
  */
 
 #include <linux/latencytop.h>
@@ -624,11 +627,20 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
 /*
  * delta /= w
  */
+#ifdef CONFIG_SCHED_BORE
+#define calc_delta_fair_half(delta, se) __calc_delta_fair(delta, se, true)
+#define calc_delta_fair(delta, se) __calc_delta_fair(delta, se, false)
+static inline u64 __calc_delta_fair(u64 delta, struct sched_entity *se, bool half)
+#else // CONFIG_SCHED_BORE
 static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
+#endif // CONFIG_SCHED_BORE
 {
 	if (unlikely(se->load.weight != NICE_0_LOAD))
 		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
 
+#ifdef CONFIG_SCHED_BORE
+	if (likely(sched_bore)) delta = penalty_scale(delta, se, half);
+#endif // CONFIG_SCHED_BORE
 	return delta;
 }
 
@@ -683,7 +695,7 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
  */
 static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	return calc_delta_fair(sched_slice(cfs_rq, se), se);
+	return calc_delta_fair_half(sched_slice(cfs_rq, se), se);
 }
 
 #ifdef CONFIG_SMP
@@ -748,7 +760,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq, exec_clock, delta_exec);
 
-	curr->vruntime += calc_delta_fair(delta_exec, curr);
+#ifdef CONFIG_SCHED_BORE
+	curr->burst_time += delta_exec;
+	update_burst_penalty(curr);
+#endif // CONFIG_SCHED_BORE
+	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
@@ -4352,6 +4368,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 
 	for_each_sched_entity(se) {
+#ifdef CONFIG_SCHED_BORE
+		if (task_sleep) restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
 
@@ -5242,6 +5261,9 @@ static int
 wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 {
 	s64 gran, vdiff = curr->vruntime - se->vruntime;
+#ifdef CONFIG_SCHED_BORE
+	if (likely(sched_bore)) vruntime_backstep(&vdiff, curr);
+#endif // CONFIG_SCHED_BORE
 
 	if (vdiff <= 0)
 		return -1;
@@ -5522,8 +5544,12 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Are we the only task in the tree?
 	 */
-	if (unlikely(rq->nr_running == 1))
+	if (unlikely(rq->nr_running == 1)) {
+#ifdef CONFIG_SCHED_BORE
+		restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 		return;
+	}
 
 	clear_buddies(cfs_rq, se);
 
@@ -5533,6 +5559,9 @@ static void yield_task_fair(struct rq *rq)
 		 * Update run-time statistics of the 'current'.
 		 */
 		update_curr(cfs_rq);
+#ifdef CONFIG_SCHED_BORE
+		restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 		/*
 		 * Tell update_rq_clock() that we've just updated,
 		 * so we don't do microscopic update in schedule()

@@ -2101,6 +2101,117 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 	return try_to_wake_up(p, state, 0);
 }
 
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sched_burst_cache_lifetime;
+extern unsigned int sched_bore;
+extern unsigned int sched_burst_fork_atavistic;
+
+void __init sched_init_bore(void) {
+	init_task.child_burst_cache = 0;
+	init_task.child_burst_count_cache = 0;
+	init_task.child_burst_last_cached = 0;
+	init_task.se.burst_time = 0;
+	init_task.se.prev_burst_penalty = 0;
+	init_task.se.curr_burst_penalty = 0;
+	init_task.se.burst_penalty = 0;
+}
+
+void inline sched_fork_bore(struct task_struct *p) {
+	p->child_burst_cache = 0;
+	p->child_burst_count_cache = 0;
+	p->child_burst_last_cached = 0;
+	p->se.burst_time = 0;
+	p->se.curr_burst_penalty = 0;
+}
+
+static u32 count_child_tasks(struct task_struct *p) {
+	struct task_struct *child;
+	u32 cnt = 0;
+	list_for_each_entry(child, &p->children, sibling) {cnt++;}
+	return cnt;
+}
+
+static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
+	return (p->child_burst_last_cached + sched_burst_cache_lifetime < now);
+}
+
+static void __update_child_burst_cache(
+	struct task_struct *p, u32 cnt, u32 sum, u64 now) {
+	u16 avg = 0;
+	if (cnt) avg = DIV_ROUND_CLOSEST(sum, cnt);
+	p->child_burst_cache = max(avg, p->se.burst_penalty);
+	p->child_burst_count_cache = cnt;
+	p->child_burst_last_cached = now;
+}
+
+static void update_child_burst_cache(struct task_struct *p, u64 now) {
+	struct task_struct *child;
+	u32 cnt = 0;
+	u32 sum = 0;
+
+	list_for_each_entry(child, &p->children, sibling) {
+		cnt++;
+		sum += child->se.burst_penalty;
+	}
+
+	__update_child_burst_cache(p, cnt, sum, now);
+}
+
+static void update_child_burst_cache_atavistic(
+	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
+	struct task_struct *child, *dec;
+	u32 cnt = 0, dcnt = 0;
+	u32 sum = 0;
+
+	list_for_each_entry(child, &p->children, sibling) {
+		dec = child;
+		while ((dcnt = count_child_tasks(dec)) == 1)
+			dec = list_first_entry(&dec->children, struct task_struct, sibling);
+		
+		if (!dcnt || !depth) {
+			cnt++;
+			sum += dec->se.burst_penalty;
+		} else {
+			if (child_burst_cache_expired(dec, now))
+				update_child_burst_cache_atavistic(dec, now, depth - 1, &cnt, &sum);
+			else {
+				cnt += dec->child_burst_count_cache;
+				sum += (u32)dec->child_burst_cache * dec->child_burst_count_cache;
+			}
+		}
+	}
+
+	__update_child_burst_cache(p, cnt, sum, now);
+	*acnt += cnt;
+	*asum += sum;
+}
+
+static void fork_burst_penalty(struct task_struct *p) {
+	struct sched_entity *se = &p->se;
+	struct task_struct *anc = p->real_parent;
+	u64 now = ktime_get_ns();
+	u32 cnt = 0;
+	u32 sum = 0;
+
+	read_lock(&tasklist_lock);
+	
+	if (likely(sched_bore) && likely(sched_burst_fork_atavistic)) {
+		while ((anc->real_parent != anc) && (count_child_tasks(anc) == 1))
+			anc = anc->real_parent;
+		if (child_burst_cache_expired(anc, now))
+			update_child_burst_cache_atavistic(
+				anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
+	} else
+		if (child_burst_cache_expired(anc, now))
+			update_child_burst_cache(anc, now);
+
+	read_unlock(&tasklist_lock);
+
+	se->burst_penalty = se->prev_burst_penalty =
+		max(se->prev_burst_penalty, anc->child_burst_cache);
+}
+#endif // CONFIG_SCHED_BORE
+
 /*
  * This function clears the sched_dl_entity static params.
  */
@@ -2136,6 +2247,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+#ifdef CONFIG_SCHED_BORE
+	sched_fork_bore(p);
+#endif // CONFIG_SCHED_BORE
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_SCHEDSTATS
@@ -7455,6 +7569,11 @@ void __init sched_init(void)
 {
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
+
+#ifdef CONFIG_SCHED_BORE
+	sched_init_bore();
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.2 by Masahito Suzuki");
+#endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	alloc_size += 2 * nr_cpu_ids * sizeof(void **);
