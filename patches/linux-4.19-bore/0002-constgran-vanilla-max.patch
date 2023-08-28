@@ -1,20 +1,20 @@
-From 6758adc6a354f18a32b704e8f8ef1f6021515e51 Mon Sep 17 00:00:00 2001
+From 450ae08bcaad08e37b99b8f048a562606ca67686 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 28 Apr 2023 01:07:13 +0900
-Subject: [PATCH] constgran v4 sched: Make latency / granularity constant
- tunable_scaling = 1 (logarithmic) -> 0 (constant) latency_ns = variable
- 6-24ms -> constant 12.8ms min_granularity_ns = variable 0.75-3ms -> constant
- 1.6ms wakeup_granularity_ns = variable 1-4ms -> constant 6.4ms
+Date: Mon, 15 May 2023 06:00:52 +0900
+Subject: [PATCH] constgran vanilla-max sched: Make latency / granularity
+ constant tunable_scaling = 1 (logarithmic) -> 0 (constant) latency_ns =
+ variable 6-24ms -> constant 24ms min_granularity_ns = variable 0.75-3ms ->
+ constant 3ms wakeup_granularity_ns = variable 1-4ms -> constant 4ms
 
 ---
- kernel/sched/fair.c | 31 +++++++++++++++++++++++++++----
- 1 file changed, 27 insertions(+), 4 deletions(-)
+ kernel/sched/fair.c | 34 ++++++++++++++++++++++++++++------
+ 1 file changed, 28 insertions(+), 6 deletions(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index f8f1efa5f..87923da0f 100644
+index ce672197f4..2c0d435d76 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -70,10 +70,16 @@
+@@ -38,8 +38,13 @@
   * (to see the precise effective timeslice length of your workload,
   *  run vmstat and monitor the context-switches (cs) field)
   *
@@ -27,12 +27,9 @@ index f8f1efa5f..87923da0f 100644
 +static unsigned int normalized_sysctl_sched_latency	= 24000000ULL;
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_latency			= 6000000ULL;
- static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
-+#endif // CONFIG_SCHED_BORE
+ unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
  
- /*
-  * The initial- and re-scaling of tunables is configurable
-@@ -84,17 +90,28 @@ static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
+@@ -52,17 +57,28 @@ unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
   *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
   *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
   *
@@ -41,9 +38,9 @@ index f8f1efa5f..87923da0f 100644
 + * (CFS  default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
   */
 +#ifdef CONFIG_SCHED_BORE
-+unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
++enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 +#else // CONFIG_SCHED_BORE
- unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
+ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
 +#endif // CONFIG_SCHED_BORE
  
  /*
@@ -53,17 +50,18 @@ index f8f1efa5f..87923da0f 100644
 + * (BORE default: 3 msec constant, units: nanoseconds)
 + * (CFS  default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
   */
+-unsigned int sysctl_sched_min_granularity		= 750000ULL;
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int sysctl_sched_min_granularity			= 3000000ULL;
-+static unsigned int normalized_sysctl_sched_min_granularity	= 3000000ULL;
++unsigned int normalized_sysctl_sched_min_granularity	= 3000000ULL;
 +#else // CONFIG_SCHED_BORE
- unsigned int sysctl_sched_min_granularity			= 750000ULL;
- static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
++unsigned int sysctl_sched_min_granularity			= 750000ULL;
+ unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
 +#endif // CONFIG_SCHED_BORE
  
  /*
-  * Minimal preemption granularity for CPU-bound SCHED_IDLE tasks.
-@@ -122,10 +139,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
+  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
+@@ -82,10 +98,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
   * and reduces their over-scheduling. Synchronous workloads will still
   * have immediate wakeup/sleep latencies.
   *
@@ -71,12 +69,13 @@ index f8f1efa5f..87923da0f 100644
 + * (BORE default: 4 msec constant, units: nanoseconds)
 + * (CFS  default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
   */
+-unsigned int sysctl_sched_wakeup_granularity		= 1000000UL;
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int sysctl_sched_wakeup_granularity			= 4000000UL;
-+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 4000000UL;
++unsigned int normalized_sysctl_sched_wakeup_granularity	= 4000000UL;
 +#else // CONFIG_SCHED_BORE
- unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
- static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
++unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
+ unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 +#endif // CONFIG_SCHED_BORE
  
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
