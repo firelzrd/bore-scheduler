@@ -71,14 +71,6 @@
 
 u32 elf_hwcap2 __read_mostly;
 
-/* all of these masks are initialized in setup_cpu_local_masks() */
-cpumask_var_t cpu_initialized_mask;
-cpumask_var_t cpu_callout_mask;
-cpumask_var_t cpu_callin_mask;
-
-/* representing cpus for which sibling maps can be computed */
-cpumask_var_t cpu_sibling_setup_mask;
-
 /* Number of siblings per CPU package */
 int smp_num_siblings = 1;
 EXPORT_SYMBOL(smp_num_siblings);
@@ -171,15 +163,6 @@ static void ppin_init(struct cpuinfo_x86 *c)
 
 clear_ppin:
 	clear_cpu_cap(c, info->feature);
-}
-
-/* correctly size the local cpu masks */
-void __init setup_cpu_local_masks(void)
-{
-	alloc_bootmem_cpumask_var(&cpu_initialized_mask);
-	alloc_bootmem_cpumask_var(&cpu_callin_mask);
-	alloc_bootmem_cpumask_var(&cpu_callout_mask);
-	alloc_bootmem_cpumask_var(&cpu_sibling_setup_mask);
 }
 
 static void default_init(struct cpuinfo_x86 *c)
@@ -1430,6 +1413,11 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 	if (cpu_matches(cpu_vuln_blacklist, SMT_RSB))
 		setup_force_cpu_bug(X86_BUG_SMT_RSB);
 
+	if (!cpu_has(c, X86_FEATURE_SRSO_NO)) {
+		if (cpu_matches(cpu_vuln_blacklist, SRSO))
+			setup_force_cpu_bug(X86_BUG_SRSO);
+	}
+
 	/*
 	 * Check if CPU is vulnerable to GDS. If running in a virtual machine on
 	 * an affected processor, the VMM may have disabled the use of GATHER by
@@ -1439,11 +1427,6 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 	if (cpu_matches(cpu_vuln_blacklist, GDS) && !(ia32_cap & ARCH_CAP_GDS_NO) &&
 	    boot_cpu_has(X86_FEATURE_AVX))
 		setup_force_cpu_bug(X86_BUG_GDS);
-
-	if (!cpu_has(c, X86_FEATURE_SRSO_NO)) {
-		if (cpu_matches(cpu_vuln_blacklist, SRSO))
-			setup_force_cpu_bug(X86_BUG_SRSO);
-	}
 
 	if (cpu_matches(cpu_vuln_whitelist, NO_MELTDOWN))
 		return;
@@ -1528,12 +1511,10 @@ static void __init cpu_parse_early_param(void)
 		if (!kstrtouint(opt, 10, &bit)) {
 			if (bit < NCAPINTS * 32) {
 
-#ifdef CONFIG_X86_FEATURE_NAMES
 				/* empty-string, i.e., ""-defined feature flags */
 				if (!x86_cap_flags[bit])
 					pr_cont(" " X86_CAP_FMT_NUM, x86_cap_flag_num(bit));
 				else
-#endif
 					pr_cont(" " X86_CAP_FMT, x86_cap_flag(bit));
 
 				setup_clear_cpu_cap(bit);
@@ -1546,7 +1527,6 @@ static void __init cpu_parse_early_param(void)
 			continue;
 		}
 
-#ifdef CONFIG_X86_FEATURE_NAMES
 		for (bit = 0; bit < 32 * NCAPINTS; bit++) {
 			if (!x86_cap_flag(bit))
 				continue;
@@ -1563,7 +1543,6 @@ static void __init cpu_parse_early_param(void)
 
 		if (!found)
 			pr_cont(" (unknown: %s)", opt);
-#endif
 	}
 	pr_cont("\n");
 
@@ -2147,19 +2126,6 @@ static void dbg_restore_debug_regs(void)
 #define dbg_restore_debug_regs()
 #endif /* ! CONFIG_KGDB */
 
-static void wait_for_master_cpu(int cpu)
-{
-#ifdef CONFIG_SMP
-	/*
-	 * wait for ACK from master CPU before continuing
-	 * with AP initialization
-	 */
-	WARN_ON(cpumask_test_and_set_cpu(cpu, cpu_initialized_mask));
-	while (!cpumask_test_cpu(cpu, cpu_callout_mask))
-		cpu_relax();
-#endif
-}
-
 static inline void setup_getcpu(int cpu)
 {
 	unsigned long cpudata = vdso_encode_cpunode(cpu, early_cpu_to_node(cpu));
@@ -2182,11 +2148,7 @@ static inline void setup_getcpu(int cpu)
 }
 
 #ifdef CONFIG_X86_64
-static inline void ucode_cpu_init(int cpu)
-{
-	if (cpu)
-		load_ucode_ap();
-}
+static inline void ucode_cpu_init(int cpu) { }
 
 static inline void tss_setup_ist(struct tss_struct *tss)
 {
@@ -2263,8 +2225,6 @@ void cpu_init(void)
 	struct task_struct *cur = current;
 	int cpu = raw_smp_processor_id();
 
-	wait_for_master_cpu(cpu);
-
 	ucode_cpu_init(cpu);
 
 #ifdef CONFIG_NUMA
@@ -2314,19 +2274,6 @@ void cpu_init(void)
 
 	load_fixmap_gdt(cpu);
 }
-
-#ifdef CONFIG_SMP
-void cpu_init_secondary(void)
-{
-	/*
-	 * Relies on the BP having set-up the IDT tables, which are loaded
-	 * on this CPU in cpu_init_exception_handling().
-	 */
-	cpu_init_exception_handling();
-	cpu_init();
-	fpu__init_cpu();
-}
-#endif
 
 #ifdef CONFIG_MICROCODE_LATE_LOADING
 /**

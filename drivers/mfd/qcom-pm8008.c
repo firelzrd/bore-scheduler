@@ -206,9 +206,8 @@ static struct i2c_driver pm8008_mfd_driver = {
 		.name = "pm8008",
 		.of_match_table = pm8008_match,
 	},
-	.probe_new = pm8008_probe,
+	.probe = pm8008_probe,
 };
 module_i2c_driver(pm8008_mfd_driver);
 
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("i2c:qcom-pm8008");

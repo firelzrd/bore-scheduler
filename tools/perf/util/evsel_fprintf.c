@@ -117,6 +117,7 @@ int sample__fprintf_callchain(struct perf_sample *sample, int left_alignment,
 	int print_ip = print_opts & EVSEL__PRINT_IP;
 	int print_sym = print_opts & EVSEL__PRINT_SYM;
 	int print_dso = print_opts & EVSEL__PRINT_DSO;
+	int print_dsoff = print_opts & EVSEL__PRINT_DSOFF;
 	int print_symoffset = print_opts & EVSEL__PRINT_SYMOFFSET;
 	int print_oneline = print_opts & EVSEL__PRINT_ONELINE;
 	int print_srcline = print_opts & EVSEL__PRINT_SRCLINE;
@@ -126,9 +127,10 @@ int sample__fprintf_callchain(struct perf_sample *sample, int left_alignment,
 	char s = print_oneline ? ' ' : '\t';
 	bool first = true;
 
-	if (sample->callchain) {
-		struct addr_location node_al;
+	if (cursor == NULL)
+		return fprintf(fp, "<not enough memory for the callchain cursor>%s", print_oneline ? "" : "\n");
 
+	if (sample->callchain) {
 		callchain_cursor_commit(cursor);
 
 		while (1) {
@@ -158,9 +160,12 @@ int sample__fprintf_callchain(struct perf_sample *sample, int left_alignment,
 				printed += fprintf(fp, "%c%16" PRIx64, s, node->ip);
 
 			if (print_sym) {
+				struct addr_location node_al;
+
+				addr_location__init(&node_al);
 				printed += fprintf(fp, " ");
 				node_al.addr = addr;
-				node_al.map  = map;
+				node_al.map  = map__get(map);
 
 				if (print_symoffset) {
 					printed += __symbol__fprintf_symname_offs(sym, &node_al,
@@ -170,13 +175,11 @@ int sample__fprintf_callchain(struct perf_sample *sample, int left_alignment,
 					printed += __symbol__fprintf_symname(sym, &node_al,
 									     print_unknown_as_addr, fp);
 				}
+				addr_location__exit(&node_al);
 			}
 
-			if (print_dso && (!sym || !sym->inlined)) {
-				printed += fprintf(fp, " (");
-				printed += map__fprintf_dsoname(map, fp);
-				printed += fprintf(fp, ")");
-			}
+			if (print_dso && (!sym || !sym->inlined))
+				printed += map__fprintf_dsoname_dsoff(map, print_dsoff, addr, fp);
 
 			if (print_srcline)
 				printed += map__fprintf_srcline(map, addr, "\n  ", fp);
@@ -210,6 +213,7 @@ int sample__fprintf_sym(struct perf_sample *sample, struct addr_location *al,
 	int print_ip = print_opts & EVSEL__PRINT_IP;
 	int print_sym = print_opts & EVSEL__PRINT_SYM;
 	int print_dso = print_opts & EVSEL__PRINT_DSO;
+	int print_dsoff = print_opts & EVSEL__PRINT_DSOFF;
 	int print_symoffset = print_opts & EVSEL__PRINT_SYMOFFSET;
 	int print_srcline = print_opts & EVSEL__PRINT_SRCLINE;
 	int print_unknown_as_addr = print_opts & EVSEL__PRINT_UNKNOWN_AS_ADDR;
@@ -235,11 +239,8 @@ int sample__fprintf_sym(struct perf_sample *sample, struct addr_location *al,
 			}
 		}
 
-		if (print_dso) {
-			printed += fprintf(fp, " (");
-			printed += map__fprintf_dsoname(al->map, fp);
-			printed += fprintf(fp, ")");
-		}
+		if (print_dso)
+			printed += map__fprintf_dsoname_dsoff(al->map, print_dsoff, al->addr, fp);
 
 		if (print_srcline)
 			printed += map__fprintf_srcline(al->map, al->addr, "\n  ", fp);

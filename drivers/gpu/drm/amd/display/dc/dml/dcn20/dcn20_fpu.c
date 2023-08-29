@@ -1042,7 +1042,7 @@ void dcn20_calculate_dlg_params(struct dc *dc,
 				int pipe_cnt,
 				int vlevel)
 {
-	int i, pipe_idx;
+	int i, pipe_idx, active_hubp_count = 0;
 
 	dc_assert_fp_enabled();
 
@@ -1078,6 +1078,8 @@ void dcn20_calculate_dlg_params(struct dc *dc,
 	for (i = 0, pipe_idx = 0; i < dc->res_pool->pipe_count; i++) {
 		if (!context->res_ctx.pipe_ctx[i].stream)
 			continue;
+		if (context->res_ctx.pipe_ctx[i].plane_state)
+			active_hubp_count++;
 		pipes[pipe_idx].pipe.dest.vstartup_start = get_vstartup(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
 		pipes[pipe_idx].pipe.dest.vupdate_offset = get_vupdate_offset(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
 		pipes[pipe_idx].pipe.dest.vupdate_width = get_vupdate_width(&context->bw_ctx.dml, pipes, pipe_cnt, pipe_idx);
@@ -1099,6 +1101,10 @@ void dcn20_calculate_dlg_params(struct dc *dc,
 		context->res_ctx.pipe_ctx[i].pipe_dlg_param = pipes[pipe_idx].pipe.dest;
 
 		pipe_idx++;
+	}
+	/* If DCN isn't making memory requests we can allow pstate change */
+	if (!active_hubp_count) {
+		context->bw_ctx.bw.dcn.clk.p_state_change_support = true;
 	}
 	/*save a original dppclock copy*/
 	context->bw_ctx.bw.dcn.clk.bw_dppclk_khz = context->bw_ctx.bw.dcn.clk.dppclk_khz;
@@ -1880,6 +1886,17 @@ void dcn20_patch_bounding_box(struct dc *dc, struct _vcs_dpi_soc_bounding_box_st
 				dc->bb_overrides.sr_enter_plus_exit_time_ns / 1000.0;
 	}
 
+	if ((int)(bb->sr_exit_z8_time_us * 1000)
+				!= dc->bb_overrides.sr_exit_z8_time_ns
+			&& dc->bb_overrides.sr_exit_z8_time_ns) {
+		bb->sr_exit_z8_time_us = dc->bb_overrides.sr_exit_z8_time_ns / 1000.0;
+	}
+
+	if ((int)(bb->sr_enter_plus_exit_z8_time_us * 1000)
+				!= dc->bb_overrides.sr_enter_plus_exit_z8_time_ns
+			&& dc->bb_overrides.sr_enter_plus_exit_z8_time_ns) {
+		bb->sr_enter_plus_exit_z8_time_us = dc->bb_overrides.sr_enter_plus_exit_z8_time_ns / 1000.0;
+	}
 	if ((int)(bb->urgent_latency_us * 1000) != dc->bb_overrides.urgent_latency_ns
 			&& dc->bb_overrides.urgent_latency_ns) {
 		bb->urgent_latency_us = dc->bb_overrides.urgent_latency_ns / 1000.0;

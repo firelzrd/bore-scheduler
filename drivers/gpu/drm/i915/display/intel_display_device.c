@@ -5,7 +5,12 @@
 
 #include <drm/i915_pciids.h>
 #include <drm/drm_color_mgmt.h>
+#include <linux/pci.h>
 
+#include "i915_drv.h"
+#include "i915_reg.h"
+#include "intel_de.h"
+#include "intel_display.h"
 #include "intel_display_device.h"
 #include "intel_display_power.h"
 #include "intel_display_reg_defs.h"
@@ -657,10 +662,24 @@ static const struct intel_display_device_info xe_lpdp_display = {
 		BIT(TRANSCODER_C) | BIT(TRANSCODER_D),
 };
 
+/*
+ * Separate detection for no display cases to keep the display id array simple.
+ *
+ * IVB Q requires subvendor and subdevice matching to differentiate from IVB D
+ * GT2 server.
+ */
+static bool has_no_display(struct pci_dev *pdev)
+{
+	static const struct pci_device_id ids[] = {
+		INTEL_IVB_Q_IDS(0),
+		{}
+	};
+
+	return pci_match_id(ids, pdev);
+}
+
 #undef INTEL_VGA_DEVICE
-#undef INTEL_QUANTA_VGA_DEVICE
 #define INTEL_VGA_DEVICE(id, info) { id, info }
-#define INTEL_QUANTA_VGA_DEVICE(info) { 0x16a, info }
 
 static const struct {
 	u32 devid;
@@ -685,7 +704,6 @@ static const struct {
 	INTEL_IRONLAKE_M_IDS(&ilk_m_display),
 	INTEL_SNB_D_IDS(&snb_display),
 	INTEL_SNB_M_IDS(&snb_display),
-	INTEL_IVB_Q_IDS(NULL),		/* must be first IVB in list */
 	INTEL_IVB_M_IDS(&ivb_display),
 	INTEL_IVB_D_IDS(&ivb_display),
 	INTEL_HSW_IDS(&hsw_display),
@@ -710,19 +728,203 @@ static const struct {
 	INTEL_RPLP_IDS(&xe_lpd_display),
 	INTEL_DG2_IDS(&xe_hpd_display),
 
-	/* FIXME: Replace this with a GMD_ID lookup */
-	INTEL_MTL_IDS(&xe_lpdp_display),
+	/*
+	 * Do not add any GMD_ID-based platforms to this list.  They will
+	 * be probed automatically based on the IP version reported by
+	 * the hardware.
+	 */
 };
 
-const struct intel_display_device_info *
-intel_display_device_probe(u16 pci_devid)
+static const struct {
+	u16 ver;
+	u16 rel;
+	const struct intel_display_device_info *display;
+} gmdid_display_map[] = {
+	{ 14,  0, &xe_lpdp_display },
+};
+
+static const struct intel_display_device_info *
+probe_gmdid_display(struct drm_i915_private *i915, u16 *ver, u16 *rel, u16 *step)
 {
+	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
+	void __iomem *addr;
+	u32 val;
 	int i;
 
+	addr = pci_iomap_range(pdev, 0, i915_mmio_reg_offset(GMD_ID_DISPLAY), sizeof(u32));
+	if (!addr) {
+		drm_err(&i915->drm, "Cannot map MMIO BAR to read display GMD_ID\n");
+		return &no_display;
+	}
+
+	val = ioread32(addr);
+	pci_iounmap(pdev, addr);
+
+	if (val == 0)
+		/* Platform doesn't have display */
+		return &no_display;
+
+	*ver = REG_FIELD_GET(GMD_ID_ARCH_MASK, val);
+	*rel = REG_FIELD_GET(GMD_ID_RELEASE_MASK, val);
+	*step = REG_FIELD_GET(GMD_ID_STEP, val);
+
+	for (i = 0; i < ARRAY_SIZE(gmdid_display_map); i++)
+		if (*ver == gmdid_display_map[i].ver &&
+		    *rel == gmdid_display_map[i].rel)
+			return gmdid_display_map[i].display;
+
+	drm_err(&i915->drm, "Unrecognized display IP version %d.%02d; disabling display.\n",
+		*ver, *rel);
+	return &no_display;
+}
+
+const struct intel_display_device_info *
+intel_display_device_probe(struct drm_i915_private *i915, bool has_gmdid,
+			   u16 *gmdid_ver, u16 *gmdid_rel, u16 *gmdid_step)
+{
+	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
+	int i;
+
+	if (has_gmdid)
+		return probe_gmdid_display(i915, gmdid_ver, gmdid_rel, gmdid_step);
+
+	if (has_no_display(pdev)) {
+		drm_dbg_kms(&i915->drm, "Device doesn't have display\n");
+		return &no_display;
+	}
+
 	for (i = 0; i < ARRAY_SIZE(intel_display_ids); i++) {
-		if (intel_display_ids[i].devid == pci_devid)
+		if (intel_display_ids[i].devid == pdev->device)
 			return intel_display_ids[i].info;
 	}
 
+	drm_dbg(&i915->drm, "No display ID found for device ID %04x; disabling display.\n",
+		pdev->device);
+
 	return &no_display;
+}
+
+void intel_display_device_info_runtime_init(struct drm_i915_private *i915)
+{
+	struct intel_display_runtime_info *display_runtime = DISPLAY_RUNTIME_INFO(i915);
+	enum pipe pipe;
+
+	/* Wa_14011765242: adl-s A0,A1 */
+	if (IS_ADLS_DISPLAY_STEP(i915, STEP_A0, STEP_A2))
+		for_each_pipe(i915, pipe)
+			display_runtime->num_scalers[pipe] = 0;
+	else if (DISPLAY_VER(i915) >= 11) {
+		for_each_pipe(i915, pipe)
+			display_runtime->num_scalers[pipe] = 2;
+	} else if (DISPLAY_VER(i915) >= 9) {
+		display_runtime->num_scalers[PIPE_A] = 2;
+		display_runtime->num_scalers[PIPE_B] = 2;
+		display_runtime->num_scalers[PIPE_C] = 1;
+	}
+
+	if (DISPLAY_VER(i915) >= 13 || HAS_D12_PLANE_MINIMIZATION(i915))
+		for_each_pipe(i915, pipe)
+			display_runtime->num_sprites[pipe] = 4;
+	else if (DISPLAY_VER(i915) >= 11)
+		for_each_pipe(i915, pipe)
+			display_runtime->num_sprites[pipe] = 6;
+	else if (DISPLAY_VER(i915) == 10)
+		for_each_pipe(i915, pipe)
+			display_runtime->num_sprites[pipe] = 3;
+	else if (IS_BROXTON(i915)) {
+		/*
+		 * Skylake and Broxton currently don't expose the topmost plane as its
+		 * use is exclusive with the legacy cursor and we only want to expose
+		 * one of those, not both. Until we can safely expose the topmost plane
+		 * as a DRM_PLANE_TYPE_CURSOR with all the features exposed/supported,
+		 * we don't expose the topmost plane at all to prevent ABI breakage
+		 * down the line.
+		 */
+
+		display_runtime->num_sprites[PIPE_A] = 2;
+		display_runtime->num_sprites[PIPE_B] = 2;
+		display_runtime->num_sprites[PIPE_C] = 1;
+	} else if (IS_VALLEYVIEW(i915) || IS_CHERRYVIEW(i915)) {
+		for_each_pipe(i915, pipe)
+			display_runtime->num_sprites[pipe] = 2;
+	} else if (DISPLAY_VER(i915) >= 5 || IS_G4X(i915)) {
+		for_each_pipe(i915, pipe)
+			display_runtime->num_sprites[pipe] = 1;
+	}
+
+	if ((IS_DGFX(i915) || DISPLAY_VER(i915) >= 14) &&
+	    !(intel_de_read(i915, GU_CNTL_PROTECTED) & DEPRESENT)) {
+		drm_info(&i915->drm, "Display not present, disabling\n");
+		goto display_fused_off;
+	}
+
+	if (IS_GRAPHICS_VER(i915, 7, 8) && HAS_PCH_SPLIT(i915)) {
+		u32 fuse_strap = intel_de_read(i915, FUSE_STRAP);
+		u32 sfuse_strap = intel_de_read(i915, SFUSE_STRAP);
+
+		/*
+		 * SFUSE_STRAP is supposed to have a bit signalling the display
+		 * is fused off. Unfortunately it seems that, at least in
+		 * certain cases, fused off display means that PCH display
+		 * reads don't land anywhere. In that case, we read 0s.
+		 *
+		 * On CPT/PPT, we can detect this case as SFUSE_STRAP_FUSE_LOCK
+		 * should be set when taking over after the firmware.
+		 */
+		if (fuse_strap & ILK_INTERNAL_DISPLAY_DISABLE ||
+		    sfuse_strap & SFUSE_STRAP_DISPLAY_DISABLED ||
+		    (HAS_PCH_CPT(i915) &&
+		     !(sfuse_strap & SFUSE_STRAP_FUSE_LOCK))) {
+			drm_info(&i915->drm,
+				 "Display fused off, disabling\n");
+			goto display_fused_off;
+		} else if (fuse_strap & IVB_PIPE_C_DISABLE) {
+			drm_info(&i915->drm, "PipeC fused off\n");
+			display_runtime->pipe_mask &= ~BIT(PIPE_C);
+			display_runtime->cpu_transcoder_mask &= ~BIT(TRANSCODER_C);
+		}
+	} else if (DISPLAY_VER(i915) >= 9) {
+		u32 dfsm = intel_de_read(i915, SKL_DFSM);
+
+		if (dfsm & SKL_DFSM_PIPE_A_DISABLE) {
+			display_runtime->pipe_mask &= ~BIT(PIPE_A);
+			display_runtime->cpu_transcoder_mask &= ~BIT(TRANSCODER_A);
+			display_runtime->fbc_mask &= ~BIT(INTEL_FBC_A);
+		}
+		if (dfsm & SKL_DFSM_PIPE_B_DISABLE) {
+			display_runtime->pipe_mask &= ~BIT(PIPE_B);
+			display_runtime->cpu_transcoder_mask &= ~BIT(TRANSCODER_B);
+		}
+		if (dfsm & SKL_DFSM_PIPE_C_DISABLE) {
+			display_runtime->pipe_mask &= ~BIT(PIPE_C);
+			display_runtime->cpu_transcoder_mask &= ~BIT(TRANSCODER_C);
+		}
+
+		if (DISPLAY_VER(i915) >= 12 &&
+		    (dfsm & TGL_DFSM_PIPE_D_DISABLE)) {
+			display_runtime->pipe_mask &= ~BIT(PIPE_D);
+			display_runtime->cpu_transcoder_mask &= ~BIT(TRANSCODER_D);
+		}
+
+		if (!display_runtime->pipe_mask)
+			goto display_fused_off;
+
+		if (dfsm & SKL_DFSM_DISPLAY_HDCP_DISABLE)
+			display_runtime->has_hdcp = 0;
+
+		if (dfsm & SKL_DFSM_DISPLAY_PM_DISABLE)
+			display_runtime->fbc_mask = 0;
+
+		if (DISPLAY_VER(i915) >= 11 && (dfsm & ICL_DFSM_DMC_DISABLE))
+			display_runtime->has_dmc = 0;
+
+		if (IS_DISPLAY_VER(i915, 10, 12) &&
+		    (dfsm & GLK_DFSM_DISPLAY_DSC_DISABLE))
+			display_runtime->has_dsc = 0;
+	}
+
+	return;
+
+display_fused_off:
+	memset(display_runtime, 0, sizeof(*display_runtime));
 }

@@ -3173,12 +3173,12 @@ struct ct_sns_gpnft_rsp {
 		uint8_t vendor_unique;
 	};
 	/* Assume the largest number of targets for the union */
-	struct ct_sns_gpn_ft_data {
+	DECLARE_FLEX_ARRAY(struct ct_sns_gpn_ft_data {
 		u8 control_byte;
 		u8 port_id[3];
 		u32 reserved;
 		u8 port_name[8];
-	} entries[1];
+	}, entries);
 };
 
 /* CT command response */
@@ -4462,7 +4462,6 @@ struct qla_hw_data {
 
 	/* n2n */
 	struct fc_els_flogi plogi_els_payld;
-#define LOGIN_TEMPLATE_SIZE (sizeof(struct fc_els_flogi) - 4)
 
 	void            *swl;
 

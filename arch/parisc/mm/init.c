@@ -523,10 +523,6 @@ void mark_rodata_ro(void)
 void *parisc_vmalloc_start __ro_after_init;
 EXPORT_SYMBOL(parisc_vmalloc_start);
 
-#ifdef CONFIG_PA11
-unsigned long pcxl_dma_start __ro_after_init;
-#endif
-
 void __init mem_init(void)
 {
 	/* Do sanity checks on IPC (compat) structures */
@@ -626,12 +622,10 @@ static void __init pagetable_init(void)
 
 	for (range = 0; range < npmem_ranges; range++) {
 		unsigned long start_paddr;
-		unsigned long end_paddr;
 		unsigned long size;
 
 		start_paddr = pmem_ranges[range].start_pfn << PAGE_SHIFT;
 		size = pmem_ranges[range].pages << PAGE_SHIFT;
-		end_paddr = start_paddr + size;
 
 		map_pages((unsigned long)__va(start_paddr), start_paddr,
 			  size, PAGE_KERNEL, 0);

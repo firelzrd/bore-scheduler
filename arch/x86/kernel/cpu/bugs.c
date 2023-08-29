@@ -47,8 +47,8 @@ static void __init taa_select_mitigation(void);
 static void __init mmio_select_mitigation(void);
 static void __init srbds_select_mitigation(void);
 static void __init l1d_flush_select_mitigation(void);
-static void __init gds_select_mitigation(void);
 static void __init srso_select_mitigation(void);
+static void __init gds_select_mitigation(void);
 
 /* The base value of the SPEC_CTRL MSR without task-specific bits set */
 u64 x86_spec_ctrl_base;
@@ -2710,11 +2710,6 @@ static ssize_t retbleed_show_state(char *buf)
 	return sysfs_emit(buf, "%s\n", retbleed_strings[retbleed_mitigation]);
 }
 
-static ssize_t gds_show_state(char *buf)
-{
-	return sysfs_emit(buf, "%s\n", gds_strings[gds_mitigation]);
-}
-
 static ssize_t srso_show_state(char *buf)
 {
 	if (boot_cpu_has(X86_FEATURE_SRSO_NO))
@@ -2723,6 +2718,11 @@ static ssize_t srso_show_state(char *buf)
 	return sysfs_emit(buf, "%s%s\n",
 			  srso_strings[srso_mitigation],
 			  (cpu_has_ibpb_brtype_microcode() ? "" : ", no microcode"));
+}
+
+static ssize_t gds_show_state(char *buf)
+{
+	return sysfs_emit(buf, "%s\n", gds_strings[gds_mitigation]);
 }
 
 static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr,
@@ -2774,11 +2774,11 @@ static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr
 	case X86_BUG_RETBLEED:
 		return retbleed_show_state(buf);
 
-	case X86_BUG_GDS:
-		return gds_show_state(buf);
-
 	case X86_BUG_SRSO:
 		return srso_show_state(buf);
+
+	case X86_BUG_GDS:
+		return gds_show_state(buf);
 
 	default:
 		break;
@@ -2845,13 +2845,13 @@ ssize_t cpu_show_retbleed(struct device *dev, struct device_attribute *attr, cha
 	return cpu_show_common(dev, attr, buf, X86_BUG_RETBLEED);
 }
 
-ssize_t cpu_show_gds(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return cpu_show_common(dev, attr, buf, X86_BUG_GDS);
-}
-
 ssize_t cpu_show_spec_rstack_overflow(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return cpu_show_common(dev, attr, buf, X86_BUG_SRSO);
+}
+
+ssize_t cpu_show_gds(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return cpu_show_common(dev, attr, buf, X86_BUG_GDS);
 }
 #endif

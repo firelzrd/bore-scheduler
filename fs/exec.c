@@ -152,8 +152,6 @@ SYSCALL_DEFINE1(uselib, const char __user *, library)
 			 path_noexec(&file->f_path)))
 		goto exit;
 
-	fsnotify_open(file);
-
 	error = -ENOEXEC;
 
 	read_lock(&binfmt_lock);
@@ -226,7 +224,7 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 	 */
 	ret = get_user_pages_remote(mm, pos, 1,
 			write ? FOLL_WRITE : 0,
-			&page, NULL, NULL);
+			&page, NULL);
 	mmap_read_unlock(mm);
 	if (ret <= 0)
 		return NULL;
@@ -939,9 +937,6 @@ static struct file *do_open_execat(int fd, struct filename *name, int flags)
 	err = deny_write_access(file);
 	if (err)
 		goto exit;
-
-	if (name->name[0] != '\0')
-		fsnotify_open(file);
 
 out:
 	return file;

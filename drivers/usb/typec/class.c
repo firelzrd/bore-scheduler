@@ -2109,7 +2109,7 @@ typec_port_register_altmode(struct typec_port *port,
 	struct typec_mux *mux;
 	struct typec_retimer *retimer;
 
-	mux = typec_mux_get(&port->dev, desc);
+	mux = typec_mux_get(&port->dev);
 	if (IS_ERR(mux))
 		return ERR_CAST(mux);
 
@@ -2273,7 +2273,7 @@ struct typec_port *typec_register_port(struct device *parent,
 		return ERR_PTR(ret);
 	}
 
-	port->mux = typec_mux_get(&port->dev, NULL);
+	port->mux = typec_mux_get(&port->dev);
 	if (IS_ERR(port->mux)) {
 		ret = PTR_ERR(port->mux);
 		put_device(&port->dev);

@@ -1978,6 +1978,11 @@ static int map_freeze(const union bpf_attr *attr)
 		return -ENOTSUPP;
 	}
 
+	if (!(map_get_sys_perms(map, f) & FMODE_CAN_WRITE)) {
+		fdput(f);
+		return -EPERM;
+	}
+
 	mutex_lock(&map->freeze_mutex);
 	if (bpf_map_write_active(map)) {
 		err = -EBUSY;
@@ -1985,10 +1990,6 @@ static int map_freeze(const union bpf_attr *attr)
 	}
 	if (READ_ONCE(map->frozen)) {
 		err = -EBUSY;
-		goto err_put;
-	}
-	if (!bpf_capable()) {
-		err = -EPERM;
 		goto err_put;
 	}
 
@@ -2553,7 +2554,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	struct btf *attach_btf = NULL;
 	int err;
 	char license[128];
-	bool is_gpl;
 
 	if (CHECK_ATTR(BPF_PROG_LOAD))
 		return -EINVAL;
@@ -2571,16 +2571,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 	    (attr->prog_flags & BPF_F_ANY_ALIGNMENT) &&
 	    !bpf_capable())
 		return -EPERM;
-
-	/* copy eBPF program license from user space */
-	if (strncpy_from_bpfptr(license,
-				make_bpfptr(attr->license, uattr.is_kernel),
-				sizeof(license) - 1) < 0)
-		return -EFAULT;
-	license[sizeof(license) - 1] = 0;
-
-	/* eBPF programs must be GPL compatible to use GPL-ed functions */
-	is_gpl = license_is_gpl_compatible(license);
 
 	/* Intent here is for unprivileged_bpf_disabled to block BPF program
 	 * creation for unprivileged users; other actions depend
@@ -2674,12 +2664,20 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr, u32 uattr_size)
 			     make_bpfptr(attr->insns, uattr.is_kernel),
 			     bpf_prog_insn_size(prog)) != 0)
 		goto free_prog_sec;
+	/* copy eBPF program license from user space */
+	if (strncpy_from_bpfptr(license,
+				make_bpfptr(attr->license, uattr.is_kernel),
+				sizeof(license) - 1) < 0)
+		goto free_prog_sec;
+	license[sizeof(license) - 1] = 0;
+
+	/* eBPF programs must be GPL compatible to use GPL-ed functions */
+	prog->gpl_compatible = license_is_gpl_compatible(license) ? 1 : 0;
 
 	prog->orig_prog = NULL;
 	prog->jited = 0;
 
 	atomic64_set(&prog->aux->refcnt, 1);
-	prog->gpl_compatible = is_gpl ? 1 : 0;
 
 	if (bpf_prog_is_dev_bound(prog->aux)) {
 		err = bpf_prog_dev_bound_init(prog, attr);
@@ -2758,23 +2756,38 @@ free_prog:
 	return err;
 }
 
-#define BPF_OBJ_LAST_FIELD file_flags
+#define BPF_OBJ_LAST_FIELD path_fd
 
 static int bpf_obj_pin(const union bpf_attr *attr)
 {
-	if (CHECK_ATTR(BPF_OBJ) || attr->file_flags != 0)
+	int path_fd;
+
+	if (CHECK_ATTR(BPF_OBJ) || attr->file_flags & ~BPF_F_PATH_FD)
 		return -EINVAL;
 
-	return bpf_obj_pin_user(attr->bpf_fd, u64_to_user_ptr(attr->pathname));
+	/* path_fd has to be accompanied by BPF_F_PATH_FD flag */
+	if (!(attr->file_flags & BPF_F_PATH_FD) && attr->path_fd)
+		return -EINVAL;
+
+	path_fd = attr->file_flags & BPF_F_PATH_FD ? attr->path_fd : AT_FDCWD;
+	return bpf_obj_pin_user(attr->bpf_fd, path_fd,
+				u64_to_user_ptr(attr->pathname));
 }
 
 static int bpf_obj_get(const union bpf_attr *attr)
 {
+	int path_fd;
+
 	if (CHECK_ATTR(BPF_OBJ) || attr->bpf_fd != 0 ||
-	    attr->file_flags & ~BPF_OBJ_FLAG_MASK)
+	    attr->file_flags & ~(BPF_OBJ_FLAG_MASK | BPF_F_PATH_FD))
 		return -EINVAL;
 
-	return bpf_obj_get_user(u64_to_user_ptr(attr->pathname),
+	/* path_fd has to be accompanied by BPF_F_PATH_FD flag */
+	if (!(attr->file_flags & BPF_F_PATH_FD) && attr->path_fd)
+		return -EINVAL;
+
+	path_fd = attr->file_flags & BPF_F_PATH_FD ? attr->path_fd : AT_FDCWD;
+	return bpf_obj_get_user(path_fd, u64_to_user_ptr(attr->pathname),
 				attr->file_flags);
 }
 
@@ -2838,28 +2851,31 @@ static void bpf_link_put_deferred(struct work_struct *work)
 	bpf_link_free(link);
 }
 
-/* bpf_link_put can be called from atomic context, but ensures that resources
- * are freed from process context
+/* bpf_link_put might be called from atomic context. It needs to be called
+ * from sleepable context in order to acquire sleeping locks during the process.
  */
 void bpf_link_put(struct bpf_link *link)
 {
 	if (!atomic64_dec_and_test(&link->refcnt))
 		return;
 
-	if (in_atomic()) {
-		INIT_WORK(&link->work, bpf_link_put_deferred);
-		schedule_work(&link->work);
-	} else {
-		bpf_link_free(link);
-	}
+	INIT_WORK(&link->work, bpf_link_put_deferred);
+	schedule_work(&link->work);
 }
 EXPORT_SYMBOL(bpf_link_put);
+
+static void bpf_link_put_direct(struct bpf_link *link)
+{
+	if (!atomic64_dec_and_test(&link->refcnt))
+		return;
+	bpf_link_free(link);
+}
 
 static int bpf_link_release(struct inode *inode, struct file *filp)
 {
 	struct bpf_link *link = filp->private_data;
 
-	bpf_link_put(link);
+	bpf_link_put_direct(link);
 	return 0;
 }
 
@@ -3029,10 +3045,17 @@ static void bpf_tracing_link_show_fdinfo(const struct bpf_link *link,
 {
 	struct bpf_tracing_link *tr_link =
 		container_of(link, struct bpf_tracing_link, link.link);
+	u32 target_btf_id, target_obj_id;
 
+	bpf_trampoline_unpack_key(tr_link->trampoline->key,
+				  &target_obj_id, &target_btf_id);
 	seq_printf(seq,
-		   "attach_type:\t%d\n",
-		   tr_link->attach_type);
+		   "attach_type:\t%d\n"
+		   "target_obj_id:\t%u\n"
+		   "target_btf_id:\t%u\n",
+		   tr_link->attach_type,
+		   target_obj_id,
+		   target_btf_id);
 }
 
 static int bpf_tracing_link_fill_link_info(const struct bpf_link *link,
@@ -4835,7 +4858,7 @@ out_put_progs:
 	if (ret)
 		bpf_prog_put(new_prog);
 out_put_link:
-	bpf_link_put(link);
+	bpf_link_put_direct(link);
 	return ret;
 }
 
@@ -4858,7 +4881,7 @@ static int link_detach(union bpf_attr *attr)
 	else
 		ret = -EOPNOTSUPP;
 
-	bpf_link_put(link);
+	bpf_link_put_direct(link);
 	return ret;
 }
 
@@ -4928,7 +4951,7 @@ static int bpf_link_get_fd_by_id(const union bpf_attr *attr)
 
 	fd = bpf_link_new_fd(link);
 	if (fd < 0)
-		bpf_link_put(link);
+		bpf_link_put_direct(link);
 
 	return fd;
 }
@@ -5005,7 +5028,7 @@ static int bpf_iter_create(union bpf_attr *attr)
 		return PTR_ERR(link);
 
 	err = bpf_iter_new_fd(link);
-	bpf_link_put(link);
+	bpf_link_put_direct(link);
 
 	return err;
 }

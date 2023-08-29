@@ -284,7 +284,7 @@ static int read_powermode(struct w1_slave *sl);
  * trigger_bulk_read() - function to trigger a bulk read on the bus
  * @dev_master: the device master of the bus
  *
- * Send a SKIP ROM follow by a CONVERT T commmand on the bus.
+ * Send a SKIP ROM follow by a CONVERT T command on the bus.
  * It also set the status flag in each slave &struct w1_therm_family_data
  * to signal that a conversion is in progress.
  *
@@ -454,7 +454,7 @@ static const struct hwmon_channel_info w1_temp = {
 	.config = w1_temp_config,
 };
 
-static const struct hwmon_channel_info *w1_info[] = {
+static const struct hwmon_channel_info * const w1_info[] = {
 	&w1_temp,
 	NULL
 };
@@ -1512,7 +1512,7 @@ static int trigger_bulk_read(struct w1_master *dev_master)
 		if (bulk_read_support(sl)) {
 			int t_cur = conversion_time(sl);
 
-			t_conv = t_cur > t_conv ? t_cur : t_conv;
+			t_conv = max(t_cur, t_conv);
 			strong_pullup = strong_pullup ||
 					(w1_strong_pullup == 2 ||
 					(!SLAVE_POWERMODE(sl) &&

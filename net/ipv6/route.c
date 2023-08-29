@@ -3361,6 +3361,7 @@ static int ip6_route_check_nh_onlink(struct net *net,
 static int ip6_route_check_nh(struct net *net,
 			      struct fib6_config *cfg,
 			      struct net_device **_dev,
+			      netdevice_tracker *dev_tracker,
 			      struct inet6_dev **idev)
 {
 	const struct in6_addr *gw_addr = &cfg->fc_gateway;
@@ -3405,7 +3406,7 @@ static int ip6_route_check_nh(struct net *net,
 			err = -EHOSTUNREACH;
 	} else {
 		*_dev = dev = res.nh->fib_nh_dev;
-		dev_hold(dev);
+		netdev_hold(dev, dev_tracker, GFP_ATOMIC);
 		*idev = in6_dev_get(dev);
 	}
 
@@ -3413,7 +3414,9 @@ static int ip6_route_check_nh(struct net *net,
 }
 
 static int ip6_validate_gw(struct net *net, struct fib6_config *cfg,
-			   struct net_device **_dev, struct inet6_dev **idev,
+			   struct net_device **_dev,
+			   netdevice_tracker *dev_tracker,
+			   struct inet6_dev **idev,
 			   struct netlink_ext_ack *extack)
 {
 	const struct in6_addr *gw_addr = &cfg->fc_gateway;
@@ -3454,7 +3457,8 @@ static int ip6_validate_gw(struct net *net, struct fib6_config *cfg,
 		if (cfg->fc_flags & RTNH_F_ONLINK)
 			err = ip6_route_check_nh_onlink(net, cfg, dev, extack);
 		else
-			err = ip6_route_check_nh(net, cfg, _dev, idev);
+			err = ip6_route_check_nh(net, cfg, _dev, dev_tracker,
+						 idev);
 
 		rcu_read_unlock();
 
@@ -3504,6 +3508,7 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 		 struct fib6_config *cfg, gfp_t gfp_flags,
 		 struct netlink_ext_ack *extack)
 {
+	netdevice_tracker *dev_tracker = &fib6_nh->fib_nh_dev_tracker;
 	struct net_device *dev = NULL;
 	struct inet6_dev *idev = NULL;
 	int addr_type;
@@ -3521,7 +3526,8 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 
 	err = -ENODEV;
 	if (cfg->fc_ifindex) {
-		dev = dev_get_by_index(net, cfg->fc_ifindex);
+		dev = netdev_get_by_index(net, cfg->fc_ifindex,
+					  dev_tracker, gfp_flags);
 		if (!dev)
 			goto out;
 		idev = in6_dev_get(dev);
@@ -3555,11 +3561,11 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 		/* hold loopback dev/idev if we haven't done so. */
 		if (dev != net->loopback_dev) {
 			if (dev) {
-				dev_put(dev);
+				netdev_put(dev, dev_tracker);
 				in6_dev_put(idev);
 			}
 			dev = net->loopback_dev;
-			dev_hold(dev);
+			netdev_hold(dev, dev_tracker, gfp_flags);
 			idev = in6_dev_get(dev);
 			if (!idev) {
 				err = -ENODEV;
@@ -3570,7 +3576,8 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 	}
 
 	if (cfg->fc_flags & RTF_GATEWAY) {
-		err = ip6_validate_gw(net, cfg, &dev, &idev, extack);
+		err = ip6_validate_gw(net, cfg, &dev, dev_tracker,
+				      &idev, extack);
 		if (err)
 			goto out;
 
@@ -3611,8 +3618,6 @@ pcpu_alloc:
 	}
 
 	fib6_nh->fib_nh_dev = dev;
-	netdev_tracker_alloc(dev, &fib6_nh->fib_nh_dev_tracker, gfp_flags);
-
 	fib6_nh->fib_nh_oif = dev->ifindex;
 	err = 0;
 out:
@@ -3622,7 +3627,7 @@ out:
 	if (err) {
 		lwtstate_put(fib6_nh->fib_nh_lws);
 		fib6_nh->fib_nh_lws = NULL;
-		dev_put(dev);
+		netdev_put(dev, dev_tracker);
 	}
 
 	return err;

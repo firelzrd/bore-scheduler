@@ -206,6 +206,15 @@ static void tb_retimer_set_inbound_sbtx(struct tb_port *port)
 {
 	int i;
 
+	/*
+	 * When USB4 port is online sideband communications are
+	 * already up.
+	 */
+	if (!usb4_port_device_is_offline(port->usb4))
+		return;
+
+	tb_port_dbg(port, "enabling sideband transactions\n");
+
 	for (i = 1; i <= TB_MAX_RETIMER_INDEX; i++)
 		usb4_port_retimer_set_inbound_sbtx(port, i);
 }
@@ -213,6 +222,16 @@ static void tb_retimer_set_inbound_sbtx(struct tb_port *port)
 static void tb_retimer_unset_inbound_sbtx(struct tb_port *port)
 {
 	int i;
+
+	/*
+	 * When USB4 port is offline we need to keep the sideband
+	 * communications up to make it possible to communicate with
+	 * the connected retimers.
+	 */
+	if (usb4_port_device_is_offline(port->usb4))
+		return;
+
+	tb_port_dbg(port, "disabling sideband transactions\n");
 
 	for (i = TB_MAX_RETIMER_INDEX; i >= 1; i--)
 		usb4_port_retimer_unset_inbound_sbtx(port, i);
@@ -244,6 +263,13 @@ static ssize_t nvm_authenticate_store(struct device *dev,
 	rt->auth_status = 0;
 
 	if (val) {
+		/*
+		 * When NVM authentication starts the retimer is not
+		 * accessible so calling tb_retimer_unset_inbound_sbtx()
+		 * will fail and therefore we do not call it. Exception
+		 * is when the validation fails or we only write the new
+		 * NVM image without authentication.
+		 */
 		tb_retimer_set_inbound_sbtx(rt->port);
 		if (val == AUTHENTICATE_ONLY) {
 			ret = tb_retimer_nvm_authenticate(rt, true);
@@ -264,7 +290,8 @@ static ssize_t nvm_authenticate_store(struct device *dev,
 	}
 
 exit_unlock:
-	tb_retimer_unset_inbound_sbtx(rt->port);
+	if (ret || val == WRITE_ONLY)
+		tb_retimer_unset_inbound_sbtx(rt->port);
 	mutex_unlock(&rt->tb->lock);
 exit_rpm:
 	pm_runtime_mark_last_busy(&rt->dev);
@@ -354,12 +381,6 @@ static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status)
 		if (ret != -ENODEV)
 			tb_port_warn(port, "failed read retimer ProductId: %d\n", ret);
 		return ret;
-	}
-
-	if (vendor != PCI_VENDOR_ID_INTEL && vendor != 0x8087) {
-		tb_port_info(port, "retimer NVM format of vendor %#x is not supported\n",
-			     vendor);
-		return -EOPNOTSUPP;
 	}
 
 	/*

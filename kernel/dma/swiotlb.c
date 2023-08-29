@@ -741,6 +741,15 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 	return -1;
 }
 
+#ifdef CONFIG_DEBUG_FS
+
+static unsigned long mem_used(struct io_tlb_mem *mem)
+{
+	return atomic_long_read(&mem->total_used);
+}
+
+#else /* !CONFIG_DEBUG_FS */
+
 static unsigned long mem_used(struct io_tlb_mem *mem)
 {
 	int i;
@@ -750,6 +759,8 @@ static unsigned long mem_used(struct io_tlb_mem *mem)
 		used += mem->areas[i].used;
 	return used;
 }
+
+#endif /* CONFIG_DEBUG_FS */
 
 phys_addr_t swiotlb_tbl_map_single(struct device *dev, phys_addr_t orig_addr,
 		size_t mapping_size, size_t alloc_size,

@@ -17,7 +17,6 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-#include <linux/of_gpio.h>
 #include <linux/of_graph.h>
 #include <linux/of_platform.h>
 
@@ -2801,7 +2800,7 @@ static struct i2c_driver anx7625_driver = {
 		.of_match_table = anx_match_table,
 		.pm = &anx7625_pm_ops,
 	},
-	.probe_new = anx7625_i2c_probe,
+	.probe = anx7625_i2c_probe,
 	.remove = anx7625_i2c_remove,
 
 	.id_table = anx7625_id,

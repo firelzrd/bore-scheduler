@@ -1232,9 +1232,14 @@ next_pdu:
 			if (mids[i] != NULL) {
 				mids[i]->resp_buf_size = server->pdu_size;
 
-				if (bufs[i] && server->ops->is_network_name_deleted)
-					server->ops->is_network_name_deleted(bufs[i],
-									server);
+				if (bufs[i] != NULL) {
+					if (server->ops->is_network_name_deleted &&
+					    server->ops->is_network_name_deleted(bufs[i],
+										 server)) {
+						cifs_server_dbg(FYI,
+								"Share deleted. Reconnect needed");
+					}
+				}
 
 				if (!mids[i]->multiRsp || mids[i]->multiEnd)
 					mids[i]->callback(mids[i]);
@@ -1837,6 +1842,10 @@ static int match_session(struct cifs_ses *ses, struct smb3_fs_context *ctx)
 			    CIFS_MAX_PASSWORD_LEN))
 			return 0;
 	}
+
+	if (strcmp(ctx->local_nls->charset, ses->local_nls->charset))
+		return 0;
+
 	return 1;
 }
 
@@ -1978,15 +1987,16 @@ void __cifs_put_smb_ses(struct cifs_ses *ses)
 		spin_unlock(&cifs_tcp_ses_lock);
 		return;
 	}
+	spin_lock(&ses->ses_lock);
+	if (ses->ses_status == SES_GOOD)
+		ses->ses_status = SES_EXITING;
+	spin_unlock(&ses->ses_lock);
 	spin_unlock(&cifs_tcp_ses_lock);
 
 	/* ses_count can never go negative */
 	WARN_ON(ses->ses_count < 0);
 
 	spin_lock(&ses->ses_lock);
-	if (ses->ses_status == SES_GOOD)
-		ses->ses_status = SES_EXITING;
-
 	if (ses->ses_status == SES_EXITING && server->ops->logoff) {
 		spin_unlock(&ses->ses_lock);
 		cifs_free_ipc(ses);
@@ -2280,6 +2290,7 @@ cifs_get_smb_ses(struct TCP_Server_Info *server, struct smb3_fs_context *ctx)
 
 	ses->sectype = ctx->sectype;
 	ses->sign = ctx->sign;
+	ses->local_nls = load_nls(ctx->local_nls->charset);
 
 	/* add server as first channel */
 	spin_lock(&ses->chan_lock);
@@ -2788,8 +2799,9 @@ cifs_match_super(struct super_block *sb, void *data)
 	}
 
 	tlink = cifs_get_tlink(cifs_sb_master_tlink(cifs_sb));
-	if (tlink == NULL) {
-		/* can not match superblock if tlink were ever null */
+	if (IS_ERR_OR_NULL(tlink)) {
+		pr_warn_once("%s: skip super matching due to bad tlink(%p)\n",
+			     __func__, tlink);
 		spin_unlock(&cifs_tcp_ses_lock);
 		return 0;
 	}
@@ -2954,11 +2966,11 @@ ip_rfc1001_connect(struct TCP_Server_Info *server)
 static int
 generic_ip_connect(struct TCP_Server_Info *server)
 {
-	int rc = 0;
-	__be16 sport;
-	int slen, sfamily;
-	struct socket *socket = server->ssocket;
 	struct sockaddr *saddr;
+	struct socket *socket;
+	int slen, sfamily;
+	__be16 sport;
+	int rc = 0;
 
 	saddr = (struct sockaddr *) &server->dstaddr;
 
@@ -2980,18 +2992,19 @@ generic_ip_connect(struct TCP_Server_Info *server)
 				ntohs(sport));
 	}
 
-	if (socket == NULL) {
+	if (server->ssocket) {
+		socket = server->ssocket;
+	} else {
 		rc = __sock_create(cifs_net_ns(server), sfamily, SOCK_STREAM,
-				   IPPROTO_TCP, &socket, 1);
+				   IPPROTO_TCP, &server->ssocket, 1);
 		if (rc < 0) {
 			cifs_server_dbg(VFS, "Error %d creating socket\n", rc);
-			server->ssocket = NULL;
 			return rc;
 		}
 
 		/* BB other socket options to set KEEPALIVE, NODELAY? */
 		cifs_dbg(FYI, "Socket created\n");
-		server->ssocket = socket;
+		socket = server->ssocket;
 		socket->sk->sk_allocation = GFP_NOFS;
 		socket->sk->sk_use_task_frag = false;
 		if (sfamily == AF_INET6)

@@ -10,10 +10,13 @@
 #define MTRR_CHANGE_MASK_VARIABLE  0x02
 #define MTRR_CHANGE_MASK_DEFTYPE   0x04
 
+extern bool mtrr_debug;
+#define Dprintk(x...) do { if (mtrr_debug) pr_info(x); } while (0)
+
 extern unsigned int mtrr_usage_table[MTRR_MAX_VAR_RANGES];
 
 struct mtrr_ops {
-	u32	vendor;
+	u32	var_regs;
 	void	(*set)(unsigned int reg, unsigned long base,
 		       unsigned long size, mtrr_type type);
 	void	(*get)(unsigned int reg, unsigned long *base,
@@ -52,8 +55,7 @@ void fill_mtrr_var_range(unsigned int index,
 bool get_mtrr_state(void);
 
 extern const struct mtrr_ops *mtrr_if;
-
-#define is_cpu(vnd)	(mtrr_if && mtrr_if->vendor == X86_VENDOR_##vnd)
+extern struct mutex mtrr_mutex;
 
 extern unsigned int num_var_ranges;
 extern u64 mtrr_tom2;
@@ -63,6 +65,15 @@ extern u32 phys_hi_rsvd;
 void mtrr_state_warn(void);
 const char *mtrr_attrib_to_str(int x);
 void mtrr_wrmsr(unsigned, unsigned, unsigned);
+#ifdef CONFIG_X86_32
+void mtrr_set_if(void);
+void mtrr_register_syscore(void);
+#else
+static inline void mtrr_set_if(void) { }
+static inline void mtrr_register_syscore(void) { }
+#endif
+void mtrr_build_map(void);
+void mtrr_copy_map(void);
 
 /* CPU specific mtrr_ops vectors. */
 extern const struct mtrr_ops amd_mtrr_ops;
@@ -71,3 +82,13 @@ extern const struct mtrr_ops centaur_mtrr_ops;
 
 extern int changed_by_mtrr_cleanup;
 extern int mtrr_cleanup(void);
+
+/*
+ * Must be used by code which uses mtrr_if to call platform-specific
+ * MTRR manipulation functions.
+ */
+static inline bool mtrr_enabled(void)
+{
+	return !!mtrr_if;
+}
+void generic_rebuild_map(void);

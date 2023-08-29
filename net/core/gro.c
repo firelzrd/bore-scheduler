@@ -182,9 +182,7 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 
 		pinfo->nr_frags = nr_frags + 1 + skbinfo->nr_frags;
 
-		__skb_frag_set_page(frag, page);
-		skb_frag_off_set(frag, first_offset);
-		skb_frag_size_set(frag, first_size);
+		skb_frag_fill_page_desc(frag, page, first_offset, first_size);
 
 		memcpy(frag + 1, skbinfo->frags, sizeof(*frag) * skbinfo->nr_frags);
 		/* We dont need to clear skbinfo->nr_frags here */
@@ -306,6 +304,24 @@ void napi_gro_flush(struct napi_struct *napi, bool flush_old)
 }
 EXPORT_SYMBOL(napi_gro_flush);
 
+static unsigned long gro_list_prepare_tc_ext(const struct sk_buff *skb,
+					     const struct sk_buff *p,
+					     unsigned long diffs)
+{
+#if IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
+	struct tc_skb_ext *skb_ext;
+	struct tc_skb_ext *p_ext;
+
+	skb_ext = skb_ext_find(skb, TC_SKB_EXT);
+	p_ext = skb_ext_find(p, TC_SKB_EXT);
+
+	diffs |= (!!p_ext) ^ (!!skb_ext);
+	if (!diffs && unlikely(skb_ext))
+		diffs |= p_ext->chain ^ skb_ext->chain;
+#endif
+	return diffs;
+}
+
 static void gro_list_prepare(const struct list_head *head,
 			     const struct sk_buff *skb)
 {
@@ -340,23 +356,11 @@ static void gro_list_prepare(const struct list_head *head,
 		 * avoid trying too hard to skip each of them individually
 		 */
 		if (!diffs && unlikely(skb->slow_gro | p->slow_gro)) {
-#if IS_ENABLED(CONFIG_SKB_EXTENSIONS) && IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
-			struct tc_skb_ext *skb_ext;
-			struct tc_skb_ext *p_ext;
-#endif
-
 			diffs |= p->sk != skb->sk;
 			diffs |= skb_metadata_dst_cmp(p, skb);
 			diffs |= skb_get_nfct(p) ^ skb_get_nfct(skb);
 
-#if IS_ENABLED(CONFIG_SKB_EXTENSIONS) && IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
-			skb_ext = skb_ext_find(skb, TC_SKB_EXT);
-			p_ext = skb_ext_find(p, TC_SKB_EXT);
-
-			diffs |= (!!p_ext) ^ (!!skb_ext);
-			if (!diffs && unlikely(skb_ext))
-				diffs |= p_ext->chain ^ skb_ext->chain;
-#endif
+			diffs |= gro_list_prepare_tc_ext(skb, p, diffs);
 		}
 
 		NAPI_GRO_CB(p)->same_flow = !diffs;
@@ -403,6 +407,14 @@ static void gro_pull_from_frag0(struct sk_buff *skb, int grow)
 	}
 }
 
+static void gro_try_pull_from_frag0(struct sk_buff *skb)
+{
+	int grow = skb_gro_offset(skb) - skb_headlen(skb);
+
+	if (grow > 0)
+		gro_pull_from_frag0(skb, grow);
+}
+
 static void gro_flush_oldest(struct napi_struct *napi, struct list_head *head)
 {
 	struct sk_buff *oldest;
@@ -432,7 +444,6 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 	struct sk_buff *pp = NULL;
 	enum gro_result ret;
 	int same_flow;
-	int grow;
 
 	if (netif_elide_gro(skb->dev))
 		goto normal;
@@ -507,17 +518,14 @@ found_ptype:
 	else
 		gro_list->count++;
 
+	/* Must be called before setting NAPI_GRO_CB(skb)->{age|last} */
+	gro_try_pull_from_frag0(skb);
 	NAPI_GRO_CB(skb)->age = jiffies;
 	NAPI_GRO_CB(skb)->last = skb;
 	if (!skb_is_gso(skb))
 		skb_shinfo(skb)->gso_size = skb_gro_len(skb);
 	list_add(&skb->list, &gro_list->list);
 	ret = GRO_HELD;
-
-pull:
-	grow = skb_gro_offset(skb) - skb_headlen(skb);
-	if (grow > 0)
-		gro_pull_from_frag0(skb, grow);
 ok:
 	if (gro_list->count) {
 		if (!test_bit(bucket, &napi->gro_bitmask))
@@ -530,7 +538,8 @@ ok:
 
 normal:
 	ret = GRO_NORMAL;
-	goto pull;
+	gro_try_pull_from_frag0(skb);
+	goto ok;
 }
 
 struct packet_offload *gro_find_receive_by_type(__be16 type)

@@ -448,7 +448,7 @@ static struct aa_dfa *unpack_dfa(struct aa_ext *e, int flags)
 /**
  * unpack_trans_table - unpack a profile transition table
  * @e: serialized data extent information  (NOT NULL)
- * @table: str table to unpack to (NOT NULL)
+ * @strs: str table to unpack to (NOT NULL)
  *
  * Returns: true if table successfully unpacked or not present
  */
@@ -1165,7 +1165,7 @@ static int verify_header(struct aa_ext *e, int required, const char **ns)
 }
 
 /**
- * verify_dfa_accept_xindex - verify accept indexes are in range of perms table
+ * verify_dfa_accept_index - verify accept indexes are in range of perms table
  * @dfa: the dfa to check accept indexes are in range
  * table_size: the permission table size the indexes should be within
  */

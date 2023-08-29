@@ -27,7 +27,10 @@ enum chips { adm1075, adm1272, adm1275, adm1276, adm1278, adm1293, adm1294 };
 #define ADM1275_PEAK_IOUT		0xd0
 #define ADM1275_PEAK_VIN		0xd1
 #define ADM1275_PEAK_VOUT		0xd2
+#define ADM1275_PMON_CONTROL		0xd3
 #define ADM1275_PMON_CONFIG		0xd4
+
+#define ADM1275_CONVERT_EN		BIT(0)
 
 #define ADM1275_VIN_VOUT_SELECT		BIT(6)
 #define ADM1275_VRANGE			BIT(5)
@@ -173,8 +176,8 @@ static const struct coefficients adm1293_coefficients[] = {
 	[18] = { 7658, 0, -3 },		/* power, 21V, irange200 */
 };
 
-static int adm1275_read_pmon_config(const struct adm1275_data *data,
-				    struct i2c_client *client, bool is_power)
+static int adm1275_read_samples(const struct adm1275_data *data,
+				struct i2c_client *client, bool is_power)
 {
 	int shift, ret;
 	u16 mask;
@@ -200,8 +203,36 @@ static int adm1275_read_pmon_config(const struct adm1275_data *data,
 }
 
 static int adm1275_write_pmon_config(const struct adm1275_data *data,
-				     struct i2c_client *client,
-				     bool is_power, u16 word)
+				     struct i2c_client *client, u16 word)
+{
+	int ret, ret2;
+
+	ret = i2c_smbus_write_byte_data(client, ADM1275_PMON_CONTROL, 0);
+	if (ret)
+		return ret;
+
+	if (data->have_power_sampling)
+		ret = i2c_smbus_write_word_data(client, ADM1275_PMON_CONFIG,
+						word);
+	else
+		ret = i2c_smbus_write_byte_data(client, ADM1275_PMON_CONFIG,
+						word);
+
+	/*
+	 * We still want to re-enable conversions if writing into
+	 * ADM1275_PMON_CONFIG failed.
+	 */
+	ret2 = i2c_smbus_write_byte_data(client, ADM1275_PMON_CONTROL,
+					 ADM1275_CONVERT_EN);
+	if (!ret)
+		ret = ret2;
+
+	return ret;
+}
+
+static int adm1275_write_samples(const struct adm1275_data *data,
+				 struct i2c_client *client,
+				 bool is_power, u16 word)
 {
 	int shift, ret;
 	u16 mask;
@@ -219,14 +250,8 @@ static int adm1275_write_pmon_config(const struct adm1275_data *data,
 		return ret;
 
 	word = (ret & ~mask) | ((word << shift) & mask);
-	if (data->have_power_sampling)
-		ret = i2c_smbus_write_word_data(client, ADM1275_PMON_CONFIG,
-						word);
-	else
-		ret = i2c_smbus_write_byte_data(client, ADM1275_PMON_CONFIG,
-						word);
 
-	return ret;
+	return adm1275_write_pmon_config(data, client, word);
 }
 
 static int adm1275_read_word_data(struct i2c_client *client, int page,
@@ -321,14 +346,14 @@ static int adm1275_read_word_data(struct i2c_client *client, int page,
 	case PMBUS_VIRT_POWER_SAMPLES:
 		if (!data->have_power_sampling)
 			return -ENXIO;
-		ret = adm1275_read_pmon_config(data, client, true);
+		ret = adm1275_read_samples(data, client, true);
 		if (ret < 0)
 			break;
 		ret = BIT(ret);
 		break;
 	case PMBUS_VIRT_IN_SAMPLES:
 	case PMBUS_VIRT_CURR_SAMPLES:
-		ret = adm1275_read_pmon_config(data, client, false);
+		ret = adm1275_read_samples(data, client, false);
 		if (ret < 0)
 			break;
 		ret = BIT(ret);
@@ -381,14 +406,12 @@ static int adm1275_write_word_data(struct i2c_client *client, int page, int reg,
 		if (!data->have_power_sampling)
 			return -ENXIO;
 		word = clamp_val(word, 1, ADM1275_SAMPLES_AVG_MAX);
-		ret = adm1275_write_pmon_config(data, client, true,
-						ilog2(word));
+		ret = adm1275_write_samples(data, client, true, ilog2(word));
 		break;
 	case PMBUS_VIRT_IN_SAMPLES:
 	case PMBUS_VIRT_CURR_SAMPLES:
 		word = clamp_val(word, 1, ADM1275_SAMPLES_AVG_MAX);
-		ret = adm1275_write_pmon_config(data, client, false,
-						ilog2(word));
+		ret = adm1275_write_samples(data, client, false, ilog2(word));
 		break;
 	default:
 		ret = -ENODATA;
@@ -466,13 +489,14 @@ static const struct i2c_device_id adm1275_id[] = {
 MODULE_DEVICE_TABLE(i2c, adm1275_id);
 
 /* Enable VOUT & TEMP1 if not enabled (disabled by default) */
-static int adm1275_enable_vout_temp(struct i2c_client *client, int config)
+static int adm1275_enable_vout_temp(struct adm1275_data *data,
+				    struct i2c_client *client, int config)
 {
 	int ret;
 
 	if ((config & ADM1278_PMON_DEFCONFIG) != ADM1278_PMON_DEFCONFIG) {
 		config |= ADM1278_PMON_DEFCONFIG;
-		ret = i2c_smbus_write_word_data(client, ADM1275_PMON_CONFIG, config);
+		ret = adm1275_write_pmon_config(data, client, config);
 		if (ret < 0) {
 			dev_err(&client->dev, "Failed to enable VOUT/TEMP1 monitoring\n");
 			return ret;
@@ -634,7 +658,7 @@ static int adm1275_probe(struct i2c_client *client)
 			PMBUS_HAVE_VOUT | PMBUS_HAVE_STATUS_VOUT |
 			PMBUS_HAVE_TEMP | PMBUS_HAVE_STATUS_TEMP;
 
-		ret = adm1275_enable_vout_temp(client, config);
+		ret = adm1275_enable_vout_temp(data, client, config);
 		if (ret)
 			return ret;
 
@@ -694,7 +718,7 @@ static int adm1275_probe(struct i2c_client *client)
 			PMBUS_HAVE_VOUT | PMBUS_HAVE_STATUS_VOUT |
 			PMBUS_HAVE_TEMP | PMBUS_HAVE_STATUS_TEMP;
 
-		ret = adm1275_enable_vout_temp(client, config);
+		ret = adm1275_enable_vout_temp(data, client, config);
 		if (ret)
 			return ret;
 
@@ -766,8 +790,7 @@ static int adm1275_probe(struct i2c_client *client)
 				"Invalid number of power samples");
 			return -EINVAL;
 		}
-		ret = adm1275_write_pmon_config(data, client, true,
-						ilog2(avg));
+		ret = adm1275_write_samples(data, client, true, ilog2(avg));
 		if (ret < 0) {
 			dev_err(&client->dev,
 				"Setting power sample averaging failed with error %d",
@@ -784,8 +807,7 @@ static int adm1275_probe(struct i2c_client *client)
 				"Invalid number of voltage/current samples");
 			return -EINVAL;
 		}
-		ret = adm1275_write_pmon_config(data, client, false,
-						ilog2(avg));
+		ret = adm1275_write_samples(data, client, false, ilog2(avg));
 		if (ret < 0) {
 			dev_err(&client->dev,
 				"Setting voltage and current sample averaging failed with error %d",
@@ -832,7 +854,7 @@ static struct i2c_driver adm1275_driver = {
 	.driver = {
 		   .name = "adm1275",
 		   },
-	.probe_new = adm1275_probe,
+	.probe = adm1275_probe,
 	.id_table = adm1275_id,
 };
 

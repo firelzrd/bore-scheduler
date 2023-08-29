@@ -1289,6 +1289,18 @@ u32 amd_get_highest_perf(void)
 }
 EXPORT_SYMBOL_GPL(amd_get_highest_perf);
 
+static void zenbleed_check_cpu(void *unused)
+{
+	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());
+
+	zenbleed_check(c);
+}
+
+void amd_check_microcode(void)
+{
+	on_each_cpu(zenbleed_check_cpu, NULL, 1);
+}
+
 bool cpu_has_ibpb_brtype_microcode(void)
 {
 	switch (boot_cpu_data.x86) {
@@ -1306,18 +1318,6 @@ bool cpu_has_ibpb_brtype_microcode(void)
 	default:
 		return false;
 	}
-}
-
-static void zenbleed_check_cpu(void *unused)
-{
-	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());
-
-	zenbleed_check(c);
-}
-
-void amd_check_microcode(void)
-{
-	on_each_cpu(zenbleed_check_cpu, NULL, 1);
 }
 
 /*

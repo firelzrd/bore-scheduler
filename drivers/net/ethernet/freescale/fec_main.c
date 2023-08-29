@@ -2840,6 +2840,7 @@ static void fec_enet_get_xdp_stats(struct fec_enet_private *fep, u64 *data)
 
 static void fec_enet_page_pool_stats(struct fec_enet_private *fep, u64 *data)
 {
+#ifdef CONFIG_PAGE_POOL_STATS
 	struct page_pool_stats stats = {};
 	struct fec_enet_priv_rx_q *rxq;
 	int i;
@@ -2854,6 +2855,7 @@ static void fec_enet_page_pool_stats(struct fec_enet_private *fep, u64 *data)
 	}
 
 	page_pool_ethtool_stats_get(data, &stats);
+#endif
 }
 
 static void fec_enet_get_ethtool_stats(struct net_device *dev,
@@ -3790,12 +3792,18 @@ static int fec_enet_bpf(struct net_device *dev, struct netdev_bpf *bpf)
 		if (fep->quirks & FEC_QUIRK_SWAP_FRAME)
 			return -EOPNOTSUPP;
 
+		if (!bpf->prog)
+			xdp_features_clear_redirect_target(dev);
+
 		if (is_run) {
 			napi_disable(&fep->napi);
 			netif_tx_disable(dev);
 		}
 
 		old_prog = xchg(&fep->xdp_prog, bpf->prog);
+		if (old_prog)
+			bpf_prog_put(old_prog);
+
 		fec_restart(dev);
 
 		if (is_run) {
@@ -3803,8 +3811,8 @@ static int fec_enet_bpf(struct net_device *dev, struct netdev_bpf *bpf)
 			netif_tx_start_all_queues(dev);
 		}
 
-		if (old_prog)
-			bpf_prog_put(old_prog);
+		if (bpf->prog)
+			xdp_features_set_redirect_target(dev, false);
 
 		return 0;
 
@@ -3836,8 +3844,8 @@ static int fec_enet_txq_xmit_frame(struct fec_enet_private *fep,
 
 	entries_free = fec_enet_get_free_txdesc_num(txq);
 	if (entries_free < MAX_SKB_FRAGS + 1) {
-		netdev_err(fep->netdev, "NOT enough BD for SG!\n");
-		return NETDEV_TX_BUSY;
+		netdev_err_once(fep->netdev, "NOT enough BD for SG!\n");
+		return -EBUSY;
 	}
 
 	/* Fill in a Tx ring entry */
@@ -3850,7 +3858,7 @@ static int fec_enet_txq_xmit_frame(struct fec_enet_private *fep,
 	dma_addr = dma_map_single(&fep->pdev->dev, frame->data,
 				  frame->len, DMA_TO_DEVICE);
 	if (dma_mapping_error(&fep->pdev->dev, dma_addr))
-		return FEC_ENET_XDP_CONSUMED;
+		return -ENOMEM;
 
 	status |= (BD_ENET_TX_INTR | BD_ENET_TX_LAST);
 	if (fep->bufdesc_ex)
@@ -3919,7 +3927,7 @@ static int fec_enet_xdp_xmit(struct net_device *dev,
 	/* Avoid tx timeout as XDP shares the queue with kernel stack */
 	txq_trans_cond_update(nq);
 	for (i = 0; i < num_frames; i++) {
-		if (fec_enet_txq_xmit_frame(fep, txq, frames[i]) != 0)
+		if (fec_enet_txq_xmit_frame(fep, txq, frames[i]) < 0)
 			break;
 		sent_frames++;
 	}
@@ -4074,6 +4082,10 @@ static int fec_enet_init(struct net_device *ndev)
 	}
 
 	ndev->hw_features = ndev->features;
+
+	if (!(fep->quirks & FEC_QUIRK_SWAP_FRAME))
+		ndev->xdp_features = NETDEV_XDP_ACT_BASIC |
+				     NETDEV_XDP_ACT_REDIRECT;
 
 	fec_restart(ndev);
 

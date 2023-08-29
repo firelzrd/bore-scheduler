@@ -247,7 +247,7 @@ EXPORT_SYMBOL_GPL(hv_ghcb_msr_read);
 static int hv_mark_gpa_visibility(u16 count, const u64 pfn[],
 			   enum hv_mem_host_visibility visibility)
 {
-	struct hv_gpa_range_for_visibility **input_pcpu, *input;
+	struct hv_gpa_range_for_visibility *input;
 	u16 pages_processed;
 	u64 hv_status;
 	unsigned long flags;
@@ -263,9 +263,8 @@ static int hv_mark_gpa_visibility(u16 count, const u64 pfn[],
 	}
 
 	local_irq_save(flags);
-	input_pcpu = (struct hv_gpa_range_for_visibility **)
-			this_cpu_ptr(hyperv_pcpu_input_arg);
-	input = *input_pcpu;
+	input = *this_cpu_ptr(hyperv_pcpu_input_arg);
+
 	if (unlikely(!input)) {
 		local_irq_restore(flags);
 		return -EINVAL;
@@ -365,7 +364,7 @@ void __init hv_vtom_init(void)
 	 * Set it here to indicate a vTOM VM.
 	 */
 	sev_status = MSR_AMD64_SNP_VTOM;
-	cc_set_vendor(CC_VENDOR_AMD);
+	cc_vendor = CC_VENDOR_AMD;
 	cc_set_mask(ms_hyperv.shared_gpa_boundary);
 	physical_mask &= ms_hyperv.shared_gpa_boundary - 1;
 
