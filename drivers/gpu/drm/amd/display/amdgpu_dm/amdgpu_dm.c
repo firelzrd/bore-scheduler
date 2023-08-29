@@ -1630,9 +1630,8 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 		}
 		break;
 	}
-	if (init_data.flags.gpu_vm_support &&
-	    (amdgpu_sg_display == 0))
-		init_data.flags.gpu_vm_support = false;
+	if (init_data.flags.gpu_vm_support)
+		init_data.flags.gpu_vm_support = amdgpu_sg_display_supported(adev);
 
 	if (init_data.flags.gpu_vm_support)
 		adev->mode_info.gpu_vm_support = true;
@@ -1653,11 +1652,6 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 		init_data.flags.allow_lttpr_non_transparent_mode.bits.DP1_4A = true;
 	if (amdgpu_dc_feature_mask & DC_DISABLE_LTTPR_DP2_0)
 		init_data.flags.allow_lttpr_non_transparent_mode.bits.DP2_0 = true;
-
-	/* Disable SubVP + DRR config by default */
-	init_data.flags.disable_subvp_drr = true;
-	if (amdgpu_dc_feature_mask & DC_ENABLE_SUBVP_DRR)
-		init_data.flags.disable_subvp_drr = false;
 
 	init_data.flags.seamless_boot_edp_requested = false;
 

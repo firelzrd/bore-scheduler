@@ -614,12 +614,20 @@ int bnxt_re_destroy_ah(struct ib_ah *ib_ah, u32 flags)
 {
 	struct bnxt_re_ah *ah = container_of(ib_ah, struct bnxt_re_ah, ib_ah);
 	struct bnxt_re_dev *rdev = ah->rdev;
+	bool block = true;
+	int rc = 0;
 
-	bnxt_qplib_destroy_ah(&rdev->qplib_res, &ah->qplib_ah,
-			      !(flags & RDMA_DESTROY_AH_SLEEPABLE));
+	block = !(flags & RDMA_DESTROY_AH_SLEEPABLE);
+	rc = bnxt_qplib_destroy_ah(&rdev->qplib_res, &ah->qplib_ah, block);
+	if (BNXT_RE_CHECK_RC(rc)) {
+		if (rc == -ETIMEDOUT)
+			rc = 0;
+		else
+			goto fail;
+	}
 	atomic_dec(&rdev->ah_count);
-
-	return 0;
+fail:
+	return rc;
 }
 
 static u8 bnxt_re_stack_to_dev_nw_type(enum rdma_network_type ntype)
@@ -797,7 +805,10 @@ fail:
 int bnxt_re_destroy_qp(struct ib_qp *ib_qp, struct ib_udata *udata)
 {
 	struct bnxt_re_qp *qp = container_of(ib_qp, struct bnxt_re_qp, ib_qp);
+	struct bnxt_qplib_qp *qplib_qp = &qp->qplib_qp;
 	struct bnxt_re_dev *rdev = qp->rdev;
+	struct bnxt_qplib_nq *scq_nq = NULL;
+	struct bnxt_qplib_nq *rcq_nq = NULL;
 	unsigned int flags;
 	int rc;
 
@@ -830,6 +841,15 @@ int bnxt_re_destroy_qp(struct ib_qp *ib_qp, struct ib_udata *udata)
 
 	ib_umem_release(qp->rumem);
 	ib_umem_release(qp->sumem);
+
+	/* Flush all the entries of notification queue associated with
+	 * given qp.
+	 */
+	scq_nq = qplib_qp->scq->nq;
+	rcq_nq = qplib_qp->rcq->nq;
+	bnxt_re_synchronize_nq(scq_nq);
+	if (scq_nq != rcq_nq)
+		bnxt_re_synchronize_nq(rcq_nq);
 
 	return 0;
 }

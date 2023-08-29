@@ -51,10 +51,15 @@ DECLARE_KVM_HYP_PER_CPU(unsigned long, kvm_hyp_vector);
 DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
 DECLARE_KVM_NVHE_PER_CPU(struct kvm_nvhe_init_params, kvm_init_params);
 
-static bool vgic_present;
+static bool vgic_present, kvm_arm_initialised;
 
 static DEFINE_PER_CPU(unsigned char, kvm_arm_hardware_enabled);
 DEFINE_STATIC_KEY_FALSE(userspace_irqchip_in_use);
+
+bool is_kvm_arm_initialised(void)
+{
+	return kvm_arm_initialised;
+}
 
 int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
 {
@@ -1795,8 +1800,6 @@ static void _kvm_arch_hardware_enable(void *discard)
 
 int kvm_arch_hardware_enable(void)
 {
-	int was_enabled;
-
 	/*
 	 * Most calls to this function are made with migration
 	 * disabled, but not with preemption disabled. The former is
@@ -1805,13 +1808,10 @@ int kvm_arch_hardware_enable(void)
 	 */
 	preempt_disable();
 
-	was_enabled = __this_cpu_read(kvm_arm_hardware_enabled);
 	_kvm_arch_hardware_enable(NULL);
 
-	if (!was_enabled) {
-		kvm_vgic_cpu_up();
-		kvm_timer_cpu_up();
-	}
+	kvm_vgic_cpu_up();
+	kvm_timer_cpu_up();
 
 	preempt_enable();
 
@@ -1828,10 +1828,8 @@ static void _kvm_arch_hardware_disable(void *discard)
 
 void kvm_arch_hardware_disable(void)
 {
-	if (__this_cpu_read(kvm_arm_hardware_enabled)) {
-		kvm_timer_cpu_down();
-		kvm_vgic_cpu_down();
-	}
+	kvm_timer_cpu_down();
+	kvm_vgic_cpu_down();
 
 	if (!is_protected_kvm_enabled())
 		_kvm_arch_hardware_disable(NULL);
@@ -2395,6 +2393,8 @@ static __init int kvm_arm_init(void)
 	err = kvm_init(sizeof(struct kvm_vcpu), 0, THIS_MODULE);
 	if (err)
 		goto out_subs;
+
+	kvm_arm_initialised = true;
 
 	return 0;
 

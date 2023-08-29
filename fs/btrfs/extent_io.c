@@ -478,6 +478,15 @@ void extent_clear_unlock_delalloc(struct btrfs_inode *inode, u64 start, u64 end,
 			       start, end, page_ops, NULL);
 }
 
+static bool btrfs_verify_page(struct page *page, u64 start)
+{
+	if (!fsverity_active(page->mapping->host) ||
+	    PageError(page) || PageUptodate(page) ||
+	    start >= i_size_read(page->mapping->host))
+		return true;
+	return fsverity_verify_page(page);
+}
+
 static void end_page_read(struct page *page, bool uptodate, u64 start, u32 len)
 {
 	struct btrfs_fs_info *fs_info = btrfs_sb(page->mapping->host->i_sb);
@@ -485,16 +494,8 @@ static void end_page_read(struct page *page, bool uptodate, u64 start, u32 len)
 	ASSERT(page_offset(page) <= start &&
 	       start + len <= page_offset(page) + PAGE_SIZE);
 
-	if (uptodate) {
-		if (fsverity_active(page->mapping->host) &&
-		    !PageError(page) &&
-		    !PageUptodate(page) &&
-		    start < i_size_read(page->mapping->host) &&
-		    !fsverity_verify_page(page)) {
-			btrfs_page_set_error(fs_info, page, start, len);
-		} else {
-			btrfs_page_set_uptodate(fs_info, page, start, len);
-		}
+	if (uptodate && btrfs_verify_page(page, start)) {
+		btrfs_page_set_uptodate(fs_info, page, start, len);
 	} else {
 		btrfs_page_clear_uptodate(fs_info, page, start, len);
 		btrfs_page_set_error(fs_info, page, start, len);
@@ -961,7 +962,30 @@ static void submit_extent_page(struct btrfs_bio_ctrl *bio_ctrl,
 		size -= len;
 		pg_offset += len;
 		disk_bytenr += len;
-		bio_ctrl->len_to_oe_boundary -= len;
+
+		/*
+		 * len_to_oe_boundary defaults to U32_MAX, which isn't page or
+		 * sector aligned.  alloc_new_bio() then sets it to the end of
+		 * our ordered extent for writes into zoned devices.
+		 *
+		 * When len_to_oe_boundary is tracking an ordered extent, we
+		 * trust the ordered extent code to align things properly, and
+		 * the check above to cap our write to the ordered extent
+		 * boundary is correct.
+		 *
+		 * When len_to_oe_boundary is U32_MAX, the cap above would
+		 * result in a 4095 byte IO for the last page right before
+		 * we hit the bio limit of UINT_MAX.  bio_add_page() has all
+		 * the checks required to make sure we don't overflow the bio,
+		 * and we should just ignore len_to_oe_boundary completely
+		 * unless we're using it to track an ordered extent.
+		 *
+		 * It's pretty hard to make a bio sized U32_MAX, but it can
+		 * happen when the page cache is able to feed us contiguous
+		 * pages for large extents.
+		 */
+		if (bio_ctrl->len_to_oe_boundary != U32_MAX)
+			bio_ctrl->len_to_oe_boundary -= len;
 
 		/* Ordered extent boundary: move on to a new bio. */
 		if (bio_ctrl->len_to_oe_boundary == 0)
@@ -2180,11 +2204,12 @@ retry:
 			}
 
 			/*
-			 * the filesystem may choose to bump up nr_to_write.
+			 * The filesystem may choose to bump up nr_to_write.
 			 * We have to make sure to honor the new nr_to_write
-			 * at any time
+			 * at any time.
 			 */
-			nr_to_write_done = wbc->nr_to_write <= 0;
+			nr_to_write_done = (wbc->sync_mode == WB_SYNC_NONE &&
+					    wbc->nr_to_write <= 0);
 		}
 		folio_batch_release(&fbatch);
 		cond_resched();
@@ -2339,6 +2364,12 @@ retry:
 			}
 
 			if (unlikely(folio->mapping != mapping)) {
+				folio_unlock(folio);
+				continue;
+			}
+
+			if (!folio_test_dirty(folio)) {
+				/* Someone wrote it for us. */
 				folio_unlock(folio);
 				continue;
 			}
