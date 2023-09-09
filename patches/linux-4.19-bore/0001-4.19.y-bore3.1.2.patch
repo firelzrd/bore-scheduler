@@ -13,6 +13,18 @@ Subject: [PATCH] linux4.19.y-bore3.1.2
  kernel/sysctl.c       |  77 ++++++++++++++++++++++++++
  7 files changed, 349 insertions(+), 3 deletions(-)
 
+diff --git a/include/linux/sched/task.h b/include/linux/sched/task.h
+index c3d157a37..482294d56 100644
+--- a/include/linux/sched/task.h
++++ b/include/linux/sched/task.h
+@@ -33,6 +33,7 @@ extern asmlinkage void schedule_tail(struct task_struct *prev);
+ extern void init_idle(struct task_struct *idle, int cpu);
+ 
+ extern int sched_fork(unsigned long clone_flags, struct task_struct *p);
++extern void sched_post_fork(struct task_struct *p);
+ extern void sched_dead(struct task_struct *p);
+ 
+ void __noreturn do_task_dead(void);
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index fd48992360..023a58cc87 100644
 --- a/include/linux/sched.h
