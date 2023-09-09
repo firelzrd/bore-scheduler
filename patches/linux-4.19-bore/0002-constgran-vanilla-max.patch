@@ -14,7 +14,7 @@ diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index ce672197f4..2c0d435d76 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -38,8 +38,13 @@
+@@ -38,8 +38,14 @@
   * (to see the precise effective timeslice length of your workload,
   *  run vmstat and monitor the context-switches (cs) field)
   *
@@ -28,7 +28,10 @@ index ce672197f4..2c0d435d76 100644
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_latency			= 6000000ULL;
  unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
++#endif
  
+ /*
+  * The initial- and re-scaling of tunables is configurable
 @@ -52,17 +57,28 @@ unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
   *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
   *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
