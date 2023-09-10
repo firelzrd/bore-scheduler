@@ -1,0 +1,72 @@
+#!/usr/bin/env ruby
+
+def each_sched_debug_block
+	sched_debug = File.read('/sys/kernel/debug/sched/debug')
+	sched_debug.scan(/.*?\R{2}/m) { |block|
+		yield(block.chomp)
+	}
+end
+
+def get_task_table(**options)
+# options[:per_cpu]
+	(cpus = Hash.new)[0] = cpu = Hash.new
+	each_sched_debug_block() { |block|
+		case head = (lines = block.lines).shift
+		when /^cpu#(\d+),/
+			if options[:per_cpu]
+				cpus[cpu_idx = $1.to_i] = cpu = Hash.new
+			end
+		when /^runnable tasks:/
+			tasks = (cpu[:tasks] ||= Array.new)
+			lines[2..].each { |line|
+				state = line[1]
+				name  = line[3..17].strip
+				rest  = line[19..].strip.split(/\s+/)
+				tasks << [state, name, *rest]
+			}
+		end
+	}
+	return cpus
+end
+
+def count_per_burst(task_table)
+	bs_pos = 10
+	bs_pos += 4 if File.exist?('/sys/kernel/debug/sched/base_slice_ns')
+	
+	table = Hash.new
+	task_table[0][:tasks].each { |task|
+		state       = task[ 0]
+		#name        = task[ 1]
+		burst_score = task[bs_pos].to_i
+		
+		table[burst_score] = table.fetch(burst_score, 0) + 1 #if 'RDI'.index(state)
+	}
+	return table
+end
+
+def show_histogram(num_per_burst_score)
+	printf("\033[2J")
+	puts "Score   Tasks"
+	max_count = [1, num_per_burst_score.values.max].max
+	(0..39).each { |burst_score|
+		count = num_per_burst_score[burst_score] || 0
+		puts "#{burst_score}\t#{count}\t#{'|' * (63.to_f * count / max_count).ceil}"
+	}
+end
+
+if !Process.uid.zero?
+	STDERR.puts "Root privilege required."
+	exit
+end
+if !File.exist?('/proc/sys/kernel/sched_bore')
+	STDERR.puts "BORE scheduler not found."
+	exit
+end
+
+loop {
+	task_table = get_task_table(per_cpu: false)
+	num_per_burst_score = count_per_burst(task_table)
+	show_histogram(num_per_burst_score)
+	sleep 0.1
+}
+
