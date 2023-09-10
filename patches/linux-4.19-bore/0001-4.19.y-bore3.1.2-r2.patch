@@ -1,17 +1,18 @@
-From 19e053ee6965670e280efb30a4be26d8315199f9 Mon Sep 17 00:00:00 2001
+From 5f2ccf086348cf7dfd9e2807eaa3409d7a5ce8b8 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 26 Aug 2023 02:46:33 +0900
-Subject: [PATCH] linux4.19.y-bore3.1.2
+Date: Sun, 10 Sep 2023 22:36:17 +0900
+Subject: [PATCH] 4.19.y-bore3.1.2-r2
 
 ---
- include/linux/sched.h |  29 ++++++++++
- init/Kconfig          |  19 +++++++
- kernel/fork.c         |   1 +
- kernel/sched/core.c   | 126 ++++++++++++++++++++++++++++++++++++++++++
- kernel/sched/debug.c  |   3 +
- kernel/sched/fair.c   |  97 +++++++++++++++++++++++++++++++-
- kernel/sysctl.c       |  77 ++++++++++++++++++++++++++
- 7 files changed, 349 insertions(+), 3 deletions(-)
+ include/linux/sched.h      |  29 +++++++++
+ include/linux/sched/task.h |   1 +
+ init/Kconfig               |  19 ++++++
+ kernel/fork.c              |   1 +
+ kernel/sched/core.c        | 126 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/debug.c       |   3 +
+ kernel/sched/fair.c        |  97 +++++++++++++++++++++++++++-
+ kernel/sysctl.c            |  77 +++++++++++++++++++++++
+ 8 files changed, 350 insertions(+), 3 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index fd48992360..023a58cc87 100644
@@ -67,6 +68,18 @@ index fd48992360..023a58cc87 100644
  
  	/*
  	 * 'ptraced' is the list of tasks this task is using ptrace() on.
+diff --git a/include/linux/sched/task.h b/include/linux/sched/task.h
+index 0ee9aab3e3..68358b93ce 100644
+--- a/include/linux/sched/task.h
++++ b/include/linux/sched/task.h
+@@ -33,6 +33,7 @@ extern asmlinkage void schedule_tail(struct task_struct *prev);
+ extern void init_idle(struct task_struct *idle, int cpu);
+ 
+ extern int sched_fork(unsigned long clone_flags, struct task_struct *p);
++extern void sched_post_fork(struct task_struct *p);
+ extern void sched_dead(struct task_struct *p);
+ 
+ void __noreturn do_task_dead(void);
 diff --git a/init/Kconfig b/init/Kconfig
 index 15c02e15d3..0d69c19ce7 100644
 --- a/init/Kconfig
@@ -452,7 +465,7 @@ index 09f82c8447..ce672197f4 100644
  		 * Tell update_rq_clock() that we've just updated,
  		 * so we don't do microscopic update in schedule()
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 4bb194f096..38777171dd 100644
+index 4bb194f096..a038c899a8 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -179,6 +179,20 @@ extern int unaligned_dump_stack;
@@ -487,7 +500,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &three,
 +	},
 +	{
@@ -503,7 +516,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &three,
 +	},
 +	{
@@ -512,7 +525,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &sixty_four,
 +	},
 +	{
@@ -521,7 +534,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &maxval_12_bits,
 +	},
 +	{
@@ -530,7 +543,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &three,
 +	},
 +	{
@@ -539,7 +552,7 @@ index 4bb194f096..38777171dd 100644
 +		.maxlen		= sizeof(unsigned int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dointvec_minmax,
-+		.extra1		= SYSCTL_ZERO,
++		.extra1		= &zero,
 +		.extra2		= &three,
 +	},
 +#endif // CONFIG_SCHED_BORE

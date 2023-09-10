@@ -1,4 +1,4 @@
-From 450ae08bcaad08e37b99b8f048a562606ca67686 Mon Sep 17 00:00:00 2001
+From 8469da4f749bfb6f5f829281345a65a3d4ec92c2 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Mon, 15 May 2023 06:00:52 +0900
 Subject: [PATCH] constgran vanilla-max sched: Make latency / granularity
@@ -7,14 +7,14 @@ Subject: [PATCH] constgran vanilla-max sched: Make latency / granularity
  constant 3ms wakeup_granularity_ns = variable 1-4ms -> constant 4ms
 
 ---
- kernel/sched/fair.c | 34 ++++++++++++++++++++++++++++------
- 1 file changed, 28 insertions(+), 6 deletions(-)
+ kernel/sched/fair.c | 35 +++++++++++++++++++++++++++++------
+ 1 file changed, 29 insertions(+), 6 deletions(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index ce672197f4..2c0d435d76 100644
+index ce672197f4..274fd1abfa 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -38,8 +38,13 @@
+@@ -38,10 +38,16 @@
   * (to see the precise effective timeslice length of your workload,
   *  run vmstat and monitor the context-switches (cs) field)
   *
@@ -28,8 +28,11 @@ index ce672197f4..2c0d435d76 100644
 +#else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_latency			= 6000000ULL;
  unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
++#endif // CONFIG_SCHED_BORE
  
-@@ -52,17 +57,28 @@ unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
+ /*
+  * The initial- and re-scaling of tunables is configurable
+@@ -52,17 +58,28 @@ unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
   *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
   *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
   *
@@ -61,7 +64,7 @@ index ce672197f4..2c0d435d76 100644
  
  /*
   * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
-@@ -82,10 +98,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
+@@ -82,10 +99,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
   * and reduces their over-scheduling. Synchronous workloads will still
   * have immediate wakeup/sleep latencies.
   *
