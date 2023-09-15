@@ -757,7 +757,11 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
  */
 static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+#ifdef CONFIG_SCHED_BORE
 	return calc_delta_fair_half(sched_slice(cfs_rq, se), se);
+#else // CONFIG_SCHED_BORE
+	return calc_delta_fair(sched_slice(cfs_rq, se), se);
+#endif // CONFIG_SCHED_BORE
 }
 
 #ifdef CONFIG_SMP
