@@ -166,7 +166,7 @@ static void update_burst_penalty(struct sched_entity *se) {
 static inline u64 penalty_scale(u64 delta, struct sched_entity *se, bool half) {
 	u32 score = ((x16*)&se->burst_penalty)->u8[1];
 	if (half) score >>= 1;
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
+	return mul_u64_u32_shr(delta, prio_to_wmult[score], 22);
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
@@ -189,7 +189,6 @@ static inline void vruntime_backstep(s64 *vdiff, struct sched_entity *se) {
 }
 #endif // CONFIG_SCHED_BORE
 
-#ifdef CONFIG_SMP
 /*
  * The exponential sliding  window over which load is averaged for shares
  * distribution.
