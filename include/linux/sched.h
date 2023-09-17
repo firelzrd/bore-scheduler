@@ -1553,6 +1553,8 @@ struct task_struct {
 	u16	child_burst_cache;
 	u16	child_burst_count_cache;
 	u64	child_burst_last_cached;
+	u16	group_burst_cache;
+	u64	group_burst_last_cached;
 #endif // CONFIG_SCHED_BORE
 
 	/*
