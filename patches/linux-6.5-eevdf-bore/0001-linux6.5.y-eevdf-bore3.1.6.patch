@@ -1,15 +1,16 @@
-From 28eaec88b36ff857efd25ae066945cbfb5f587d2 Mon Sep 17 00:00:00 2001
+From ab826f701920b742c06271f2dade364763ab6962 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 4 Oct 2023 19:17:29 +0900
-Subject: [PATCH] linux6.5.y-eevdf-bore3.1.5
+Date: Wed, 4 Oct 2023 21:01:10 +0900
+Subject: [PATCH] linux6.5.y-eevdf-bore3.1.6
 
 ---
- include/linux/sched.h |  31 ++++++++
- init/Kconfig          |  20 +++++
- kernel/sched/core.c   | 162 ++++++++++++++++++++++++++++++++++++++++
- kernel/sched/debug.c  |   3 +
- kernel/sched/fair.c   | 169 +++++++++++++++++++++++++++++++++++++++++-
- 5 files changed, 383 insertions(+), 2 deletions(-)
+ include/linux/sched.h   |  31 ++++++++
+ init/Kconfig            |  20 +++++
+ kernel/sched/core.c     | 162 ++++++++++++++++++++++++++++++++++++++
+ kernel/sched/debug.c    |   3 +
+ kernel/sched/fair.c     | 169 +++++++++++++++++++++++++++++++++++++++-
+ kernel/sched/features.h |   4 +
+ 6 files changed, 387 insertions(+), 2 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 35331c35f6..86bef85e75 100644
@@ -68,10 +69,10 @@ index 35331c35f6..86bef85e75 100644
  	/*
  	 * 'ptraced' is the list of tasks this task is using ptrace() on.
 diff --git a/init/Kconfig b/init/Kconfig
-index 25193a9d5c..acc02af183 100644
+index 5e7d4885d1..28779e870a 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1278,6 +1278,26 @@ config CHECKPOINT_RESTORE
+@@ -1258,6 +1258,26 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
@@ -99,7 +100,7 @@ index 25193a9d5c..acc02af183 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 8116ef56d6..00f1fba177 100644
+index 8116ef56d6..1354b4b028 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4485,6 +4485,157 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -286,7 +287,7 @@ index 8116ef56d6..00f1fba177 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.5 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.6 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -307,7 +308,7 @@ index 2c5bb64f5c..7b1f91bff7 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 53496b0049..7a3fb9864d 100644
+index a3df4e880b..d6be970d5f 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -388,7 +389,7 @@ index 53496b0049..7a3fb9864d 100644
  int sched_thermal_decay_shift;
  static int __init setup_sched_thermal_decay_shift(char *str)
  {
-@@ -149,6 +213,78 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
+@@ -145,6 +209,78 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
  
  #ifdef CONFIG_SYSCTL
  static struct ctl_table sched_fair_sysctls[] = {
@@ -467,7 +468,7 @@ index 53496b0049..7a3fb9864d 100644
  	{
  		.procname       = "sched_child_runs_first",
  		.data           = &sysctl_sched_child_runs_first,
-@@ -312,11 +448,22 @@ static u64 __calc_delta(u64 delta_exec, unsigned long weight, struct load_weight
+@@ -308,11 +444,22 @@ static u64 __calc_delta(u64 delta_exec, unsigned long weight, struct load_weight
  /*
   * delta /= w
   */
@@ -490,7 +491,7 @@ index 53496b0049..7a3fb9864d 100644
  	return delta;
  }
  
-@@ -1176,7 +1323,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1172,7 +1319,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -503,7 +504,7 @@ index 53496b0049..7a3fb9864d 100644
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -4978,7 +5129,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -4974,7 +5125,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  	s64 lag = 0;
  
  	se->slice = sysctl_sched_base_slice;
@@ -515,7 +516,7 @@ index 53496b0049..7a3fb9864d 100644
  
  	/*
  	 * Due to how V is constructed as the weighted average of entities,
-@@ -6532,6 +6687,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6528,6 +6683,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -525,7 +526,7 @@ index 53496b0049..7a3fb9864d 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -8256,8 +8414,12 @@ static void yield_task_fair(struct rq *rq)
+@@ -8252,8 +8410,12 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -539,7 +540,7 @@ index 53496b0049..7a3fb9864d 100644
  
  	clear_buddies(cfs_rq, se);
  
-@@ -8266,6 +8428,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8262,6 +8424,9 @@ static void yield_task_fair(struct rq *rq)
  	 * Update run-time statistics of the 'current'.
  	 */
  	update_curr(cfs_rq);
@@ -549,6 +550,22 @@ index 53496b0049..7a3fb9864d 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
+diff --git a/kernel/sched/features.h b/kernel/sched/features.h
+index 546d212ef4..7212914a37 100644
+--- a/kernel/sched/features.h
++++ b/kernel/sched/features.h
+@@ -6,7 +6,11 @@
+  */
+ SCHED_FEAT(PLACE_LAG, true)
+ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
++#ifdef CONFIG_SCHED_BORE
++SCHED_FEAT(RUN_TO_PARITY, false)
++#else // CONFIG_SCHED_BORE
+ SCHED_FEAT(RUN_TO_PARITY, true)
++#endif // CONFIG_SCHED_BORE
+ 
+ /*
+  * Prefer to schedule the task we woke last (assuming it failed
 -- 
 2.25.1
 
