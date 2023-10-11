@@ -694,10 +694,11 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
  * delta /= w
  */
 #ifdef CONFIG_SCHED_BORE
-#define calc_delta_fair_debit(delta, se) __calc_delta_fair(delta, se, true)
+#define calc_delta_fair_enq(delta, se) __calc_delta_fair(delta, se, true)
 #define calc_delta_fair(delta, se) __calc_delta_fair(delta, se, false)
 static inline u64 __calc_delta_fair(u64 delta, struct sched_entity *se, bool half)
 #else // CONFIG_SCHED_BORE
+#define calc_delta_fair_enq(delta, se) calc_delta_fair(delta, se)
 static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 #endif // CONFIG_SCHED_BORE
 {
@@ -761,11 +762,7 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
  */
 static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#ifdef CONFIG_SCHED_BORE
-	return calc_delta_fair_debit(sched_slice(cfs_rq, se), se);
-#else // CONFIG_SCHED_BORE
-	return calc_delta_fair(sched_slice(cfs_rq, se), se);
-#endif // CONFIG_SCHED_BORE
+	return calc_delta_fair_enq(sched_slice(cfs_rq, se), se);
 }
 
 #ifdef CONFIG_SMP
