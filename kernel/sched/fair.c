@@ -66,17 +66,28 @@
  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
  *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
  *
- * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
+ * (BORE  default SCHED_TUNABLESCALING_NONE = *1 constant)
+ * (EEVDF default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
  */
+#ifdef CONFIG_SCHED_BORE
+unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
+#else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
+#endif // CONFIG_SCHED_BORE
 
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (BORE  default: 3 msec constant, units: nanoseconds)
+ * (EEVDF default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
+#ifdef CONFIG_SCHED_BORE
+unsigned int sysctl_sched_base_slice			= 3000000ULL;
+static unsigned int normalized_sysctl_sched_base_slice	= 3000000ULL;
+#else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_base_slice			= 750000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
+#endif // CONFIG_SCHED_BORE
 
 /*
  * After fork, child runs first. If set to 0 (default) then
