@@ -1,16 +1,16 @@
-From e7684921c583c9a544af7665e18f958903a7968b Mon Sep 17 00:00:00 2001
+From 9503d80c435855dcbf07778887829bf30df59ec1 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 14 Oct 2023 00:44:44 +0900
-Subject: [PATCH] linux6.5.y-eevdf-bore3.2.2
+Date: Sun, 15 Oct 2023 05:59:41 +0900
+Subject: [PATCH] linux6.5.y-eevdf-bore3.2.3
 
 ---
  include/linux/sched.h   |  31 ++++++++
  init/Kconfig            |  20 +++++
  kernel/sched/core.c     | 163 +++++++++++++++++++++++++++++++++++++++
  kernel/sched/debug.c    |   3 +
- kernel/sched/fair.c     | 165 +++++++++++++++++++++++++++++++++++++++-
- kernel/sched/features.h |   7 +-
- 6 files changed, 384 insertions(+), 5 deletions(-)
+ kernel/sched/fair.c     | 167 +++++++++++++++++++++++++++++++++++++++-
+ kernel/sched/features.h |   4 +
+ 6 files changed, 384 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 35331c35f6..86bef85e75 100644
@@ -100,7 +100,7 @@ index 5e7d4885d1..28779e870a 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index be77d999d6..e5ee82e341 100644
+index be77d999d6..de4988e73c 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4485,6 +4485,158 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -288,7 +288,7 @@ index be77d999d6..e5ee82e341 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.2.2 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.2.3 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -309,7 +309,7 @@ index 2c5bb64f5c..7b1f91bff7 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index caec9b43cb..42ddbb81d8 100644
+index caec9b43cb..c036921bdc 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -500,17 +500,19 @@ index caec9b43cb..42ddbb81d8 100644
  	return delta;
  }
  
-@@ -715,6 +855,9 @@ void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -715,6 +855,11 @@ void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	lag = avg_vruntime(cfs_rq) - se->vruntime;
  
  	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
 +#ifdef CONFIG_SCHED_BORE
-+	if (sched_bore) limit /= 4;
++	if (likely(sched_bore))
++		se->vlag = clamp(lag, -(limit >> 2), limit);
++	else
 +#endif // CONFIG_SCHED_BORE
  	se->vlag = clamp(lag, -limit, limit);
  }
  
-@@ -1172,7 +1315,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1172,7 +1317,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -523,7 +525,7 @@ index caec9b43cb..42ddbb81d8 100644
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -6529,6 +6676,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6529,6 +6678,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -533,7 +535,7 @@ index caec9b43cb..42ddbb81d8 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -8253,8 +8403,12 @@ static void yield_task_fair(struct rq *rq)
+@@ -8253,8 +8405,12 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -547,7 +549,7 @@ index caec9b43cb..42ddbb81d8 100644
  
  	clear_buddies(cfs_rq, se);
  
-@@ -8263,6 +8417,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8263,6 +8419,9 @@ static void yield_task_fair(struct rq *rq)
  	 * Update run-time statistics of the 'current'.
  	 */
  	update_curr(cfs_rq);
@@ -558,20 +560,17 @@ index caec9b43cb..42ddbb81d8 100644
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index 546d212ef4..8d808310f7 100644
+index 546d212ef4..7212914a37 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
-@@ -5,8 +5,13 @@
-  * sleep+wake cycles. EEVDF placement strategy #1, #2 if disabled.
+@@ -6,7 +6,11 @@
   */
  SCHED_FEAT(PLACE_LAG, true)
--SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
+ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 +#ifdef CONFIG_SCHED_BORE
 +SCHED_FEAT(RUN_TO_PARITY, false)
-+SCHED_FEAT(PLACE_DEADLINE_INITIAL, false)
 +#else // CONFIG_SCHED_BORE
  SCHED_FEAT(RUN_TO_PARITY, true)
-+SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 +#endif // CONFIG_SCHED_BORE
  
  /*
