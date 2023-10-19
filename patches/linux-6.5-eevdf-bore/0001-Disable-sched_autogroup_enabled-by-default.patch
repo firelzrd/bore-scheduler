@@ -1,0 +1,28 @@
+From d00f62c7cf4976b3944687ecc3ec83fd69ea6b1b Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Fri, 20 Oct 2023 04:54:38 +0900
+Subject: [PATCH] Disable sched_autogroup_enabled by default
+
+---
+ kernel/sched/autogroup.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/kernel/sched/autogroup.c b/kernel/sched/autogroup.c
+index 991fc90025..fdeb340173 100644
+--- a/kernel/sched/autogroup.c
++++ b/kernel/sched/autogroup.c
+@@ -4,7 +4,11 @@
+  * Auto-group scheduling implementation:
+  */
+ 
++#ifdef CONFIG_SCHED_BORE
++unsigned int __read_mostly sysctl_sched_autogroup_enabled = 0;
++#else // CONFIG_SCHED_BORE
+ unsigned int __read_mostly sysctl_sched_autogroup_enabled = 1;
++#endif // CONFIG_SCHED_BORE
+ static struct autogroup autogroup_default;
+ static atomic_t autogroup_seq_nr;
+ 
+-- 
+2.25.1
+

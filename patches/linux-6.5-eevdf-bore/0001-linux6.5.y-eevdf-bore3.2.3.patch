@@ -1,6 +1,6 @@
-From 9503d80c435855dcbf07778887829bf30df59ec1 Mon Sep 17 00:00:00 2001
+From 8f2b727fcb1e33b3fceaab3e71ec163026c9b495 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sun, 15 Oct 2023 05:59:41 +0900
+Date: Fri, 20 Oct 2023 07:55:02 +0900
 Subject: [PATCH] linux6.5.y-eevdf-bore3.2.3
 
 ---
@@ -13,7 +13,7 @@ Subject: [PATCH] linux6.5.y-eevdf-bore3.2.3
  6 files changed, 384 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 35331c35f6..86bef85e75 100644
+index e0a81ce05f..20ba6adf5c 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
 @@ -545,6 +545,24 @@ struct sched_statistics {
@@ -41,7 +41,7 @@ index 35331c35f6..86bef85e75 100644
  struct sched_entity {
  	/* For load-balancing: */
  	struct load_weight		load;
-@@ -559,6 +577,12 @@ struct sched_entity {
+@@ -562,6 +580,12 @@ struct sched_entity {
  	u64				sum_exec_runtime;
  	u64				prev_sum_exec_runtime;
  	u64				vruntime;
@@ -54,7 +54,7 @@ index 35331c35f6..86bef85e75 100644
  	s64				vlag;
  	u64				slice;
  
-@@ -989,6 +1013,13 @@ struct task_struct {
+@@ -992,6 +1016,13 @@ struct task_struct {
  	struct list_head		children;
  	struct list_head		sibling;
  	struct task_struct		*group_leader;
@@ -100,7 +100,7 @@ index 5e7d4885d1..28779e870a 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index be77d999d6..de4988e73c 100644
+index 1556e03c2c..6be9262918 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4485,6 +4485,158 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -270,9 +270,9 @@ index be77d999d6..de4988e73c 100644
 +	sched_fork_bore(p);
 +#endif // CONFIG_SCHED_BORE
  	p->se.vlag			= 0;
- 	p->se.slice			= sysctl_sched_base_slice;
  	INIT_LIST_HEAD(&p->se.group_node);
-@@ -4820,6 +4975,9 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
+ 
+@@ -4821,6 +4976,9 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
  
  void sched_post_fork(struct task_struct *p)
  {
@@ -282,7 +282,7 @@ index be77d999d6..de4988e73c 100644
  	uclamp_post_fork(p);
  }
  
-@@ -9923,6 +10081,11 @@ void __init sched_init(void)
+@@ -9941,6 +10099,11 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
@@ -295,10 +295,10 @@ index be77d999d6..de4988e73c 100644
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
-index 2c5bb64f5c..7b1f91bff7 100644
+index a384686d65..c2969c73e8 100644
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
-@@ -594,6 +594,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
+@@ -595,6 +595,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
  		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_sleep_runtime)),
  		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_block_runtime)));
  
@@ -309,7 +309,7 @@ index 2c5bb64f5c..7b1f91bff7 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index caec9b43cb..c036921bdc 100644
+index d1d7322817..f95d6ab1cc 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -512,7 +512,7 @@ index caec9b43cb..c036921bdc 100644
  	se->vlag = clamp(lag, -limit, limit);
  }
  
-@@ -1172,7 +1317,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1173,7 +1318,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -525,7 +525,7 @@ index caec9b43cb..c036921bdc 100644
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -6529,6 +6678,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6567,6 +6716,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -535,7 +535,7 @@ index caec9b43cb..c036921bdc 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -8253,8 +8405,12 @@ static void yield_task_fair(struct rq *rq)
+@@ -8296,8 +8448,12 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -549,7 +549,7 @@ index caec9b43cb..c036921bdc 100644
  
  	clear_buddies(cfs_rq, se);
  
-@@ -8263,6 +8419,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8306,6 +8462,9 @@ static void yield_task_fair(struct rq *rq)
  	 * Update run-time statistics of the 'current'.
  	 */
  	update_curr(cfs_rq);
@@ -560,7 +560,7 @@ index caec9b43cb..c036921bdc 100644
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index 546d212ef4..7212914a37 100644
+index 2c0733a035..755b556edf 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -6,7 +6,11 @@
@@ -572,9 +572,9 @@ index 546d212ef4..7212914a37 100644
 +#else // CONFIG_SCHED_BORE
  SCHED_FEAT(RUN_TO_PARITY, true)
 +#endif // CONFIG_SCHED_BORE
- 
- /*
-  * Prefer to schedule the task we woke last (assuming it failed
+ SCHED_FEAT(PREEMPT_SHORT, true)
+ SCHED_FEAT(PLACE_SLEEPER, true)
+ SCHED_FEAT(GENTLE_SLEEPER, true)
 -- 
 2.25.1
 
