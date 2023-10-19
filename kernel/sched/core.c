@@ -2146,7 +2146,7 @@ static inline bool group_burst_cache_expired(struct task_struct *p, u64 now) {
 static void __update_child_burst_cache(
 	struct task_struct *p, u32 cnt, u32 sum, u64 now) {
 	u16 avg = 0;
-	if (cnt) avg = DIV_ROUND_CLOSEST(sum, cnt);
+	if (cnt) avg = sum / cnt;
 	p->child_burst_cache = max(avg, p->se.burst_penalty);
 	p->child_burst_count_cache = cnt;
 	p->child_burst_last_cached = now;
@@ -2204,7 +2204,7 @@ static void update_group_burst_cache(struct task_struct *p, u64 now) {
 		sum += member->se.burst_penalty;
 	}
 
-	if (cnt) avg = DIV_ROUND_CLOSEST(sum, cnt);
+	if (cnt) avg = sum / cnt;
 	p->group_burst_cache = max(avg, p->se.burst_penalty);
 	p->group_burst_last_cached = now;
 }
