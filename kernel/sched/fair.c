@@ -129,7 +129,6 @@ const_debug unsigned int sysctl_sched_migration_cost = 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
 unsigned int __read_mostly sched_bore                  = 1;
-unsigned int __read_mostly sched_bore_extra_flags      = 0;
 unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
 unsigned int __read_mostly sched_burst_penalty_offset  = 22;
 unsigned int __read_mostly sched_burst_penalty_scale   = 1366;
@@ -691,9 +690,7 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
  * delta /= w
  */
 #ifdef CONFIG_SCHED_BORE
-#define bore_start_debit_full_penalty (sched_bore_extra_flags & 1)
-#define calc_delta_fair_debit(delta, se) \
-        __calc_delta_fair(delta, se, !bore_start_debit_full_penalty)
+#define calc_delta_fair_debit(delta, se) __calc_delta_fair(delta, se, true)
 #define calc_delta_fair(delta, se) __calc_delta_fair(delta, se, false)
 static inline u64 __calc_delta_fair(u64 delta, struct sched_entity *se, bool half)
 #else // CONFIG_SCHED_BORE

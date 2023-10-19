@@ -2104,7 +2104,6 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 #ifdef CONFIG_SCHED_BORE
 extern unsigned int sched_burst_cache_lifetime;
 extern unsigned int sched_bore;
-extern unsigned int sched_bore_extra_flags;
 extern unsigned int sched_burst_fork_atavistic;
 
 void __init sched_init_bore(void) {
@@ -2211,27 +2210,29 @@ static void update_group_burst_cache(struct task_struct *p, u64 now) {
 }
 
 #define forked_task_is_process(p) (p->pid == p->tgid)
-#define bore_thread_fork_group_inherit (sched_bore_extra_flags & 2)
+#define bore_thread_fork_group_inherit (sched_burst_fork_atavistic & 4)
 
 static void fork_burst_penalty(struct task_struct *p) {
 	struct sched_entity *se = &p->se;
 	struct task_struct *anc;
 	u64 now = ktime_get_ns();
-	u32 cnt = 0, sum = 0;
+	u32 cnt = 0, sum = 0, depth;
 	u16 burst_cache;
 
 	if (likely(sched_bore)) {
 		read_lock(&tasklist_lock);
 
-		if (forked_task_is_process(p) || !bore_thread_fork_group_inherit) {
+		if (forked_task_is_process(p) ||
+		    likely(!bore_thread_fork_group_inherit)) {
 			anc = p->real_parent;
-			if (likely(sched_burst_fork_atavistic)) {
+			depth = sched_burst_fork_atavistic & 3;
+			if (likely(depth)) {
 				while ((anc->real_parent != anc) &&
 				       (count_child_tasks(anc) == 1))
 					anc = anc->real_parent;
 				if (child_burst_cache_expired(anc, now))
 					update_child_burst_cache_atavistic(
-						anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
+						anc, now, depth - 1, &cnt, &sum);
 			} else
 				if (child_burst_cache_expired(anc, now))
 					update_child_burst_cache(anc, now);
