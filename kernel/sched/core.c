@@ -7620,7 +7620,7 @@ void __init sched_init(void)
 
 #ifdef CONFIG_SCHED_BORE
 	sched_init_bore();
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.5 by Masahito Suzuki");
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.1.8 by Masahito Suzuki");
 #endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
