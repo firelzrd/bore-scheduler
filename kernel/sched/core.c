@@ -2104,6 +2104,7 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 #ifdef CONFIG_SCHED_BORE
 extern unsigned int sched_burst_cache_lifetime;
 extern unsigned int sched_bore;
+extern unsigned int sched_bore_extra_flags;
 extern unsigned int sched_burst_fork_atavistic;
 
 void __init sched_init_bore(void) {
@@ -2210,6 +2211,7 @@ static void update_group_burst_cache(struct task_struct *p, u64 now) {
 }
 
 #define forked_task_is_process(p) (p->pid == p->tgid)
+#define bore_thread_fork_group_inherit (sched_bore_extra_flags & 2)
 
 static void fork_burst_penalty(struct task_struct *p) {
 	struct sched_entity *se = &p->se;
@@ -2221,7 +2223,7 @@ static void fork_burst_penalty(struct task_struct *p) {
 	if (likely(sched_bore)) {
 		read_lock(&tasklist_lock);
 
-		if (forked_task_is_process(p)) {
+		if (forked_task_is_process(p) || !bore_thread_fork_group_inherit) {
 			anc = p->real_parent;
 			if (likely(sched_burst_fork_atavistic)) {
 				while ((anc->real_parent != anc) &&

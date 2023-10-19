@@ -691,7 +691,7 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
  * delta /= w
  */
 #ifdef CONFIG_SCHED_BORE
-#define bore_start_debit_full_penalty (sched_bore_extra_flags)
+#define bore_start_debit_full_penalty (sched_bore_extra_flags & 1)
 #define calc_delta_fair_debit(delta, se) \
         __calc_delta_fair(delta, se, !bore_start_debit_full_penalty)
 #define calc_delta_fair(delta, se) __calc_delta_fair(delta, se, false)
