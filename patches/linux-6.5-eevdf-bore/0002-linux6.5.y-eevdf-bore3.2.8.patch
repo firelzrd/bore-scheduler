@@ -1,7 +1,7 @@
 From d10ed199cc6a1ecef9f5d242019fd7511db60b30 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Tue, 24 Oct 2023 02:55:24 +0900
-Subject: [PATCH] linux6.5.y-eevdf-bore3.2.7r2
+Subject: [PATCH] linux6.5.y-eevdf-bore3.2.8
 
 ---
  include/linux/sched.h    |  31 ++++++
@@ -304,7 +304,7 @@ index 9f56638b6d..e326888ae3 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.2.7 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.2.8 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -373,7 +373,7 @@ index 8c1d8bbe7c..84fabfd051 100644
 +unsigned int __read_mostly sched_bore                  = 1;
 +unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
 +unsigned int __read_mostly sched_burst_penalty_offset  = 22;
-+unsigned int __read_mostly sched_burst_penalty_scale   = 1366;
++unsigned int __read_mostly sched_burst_penalty_scale   = 1280;
 +unsigned int __read_mostly sched_burst_smoothness_up   = 1;
 +unsigned int __read_mostly sched_burst_smoothness_down = 0;
 +unsigned int __read_mostly sched_burst_fork_atavistic  = 2;
