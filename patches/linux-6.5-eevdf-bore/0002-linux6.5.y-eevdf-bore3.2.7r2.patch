@@ -1,7 +1,7 @@
-From 3b71c8109fa590d1bb15b8bf8d1c6f7b859ae0da Mon Sep 17 00:00:00 2001
+From d10ed199cc6a1ecef9f5d242019fd7511db60b30 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 23 Oct 2023 05:29:48 +0900
-Subject: [PATCH] linux6.5.y-eevdf-bore3.2.7
+Date: Tue, 24 Oct 2023 02:55:24 +0900
+Subject: [PATCH] linux6.5.y-eevdf-bore3.2.7r2
 
 ---
  include/linux/sched.h    |  31 ++++++
@@ -10,8 +10,8 @@ Subject: [PATCH] linux6.5.y-eevdf-bore3.2.7
  kernel/sched/core.c      | 163 +++++++++++++++++++++++++++++++
  kernel/sched/debug.c     |   3 +
  kernel/sched/fair.c      | 203 ++++++++++++++++++++++++++++++++++++---
- kernel/sched/features.h  |  13 ++-
- 7 files changed, 420 insertions(+), 16 deletions(-)
+ kernel/sched/features.h  |  18 ++++
+ 7 files changed, 426 insertions(+), 15 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 93c03b162e..9316707d05 100644
@@ -116,7 +116,7 @@ index 991fc90025..fdeb340173 100644
  static atomic_t autogroup_seq_nr;
  
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index fd2d0e3e09..6c2d4f8806 100644
+index 9f56638b6d..e326888ae3 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4496,6 +4496,158 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -311,7 +311,7 @@ index fd2d0e3e09..6c2d4f8806 100644
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
-index a384686d65..c2969c73e8 100644
+index 37ffe69a96..7257bfdab1 100644
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -595,6 +595,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
@@ -325,7 +325,7 @@ index a384686d65..c2969c73e8 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 31937f5110..6decbb085c 100644
+index 8c1d8bbe7c..84fabfd051 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -338,7 +338,7 @@ index 31937f5110..6decbb085c 100644
   */
  #include <linux/energy_model.h>
  #include <linux/mmap_lock.h>
-@@ -66,17 +69,28 @@
+@@ -66,20 +69,91 @@
   *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
   *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
   *
@@ -366,10 +366,6 @@ index 31937f5110..6decbb085c 100644
  unsigned int sysctl_sched_base_slice			= 750000ULL;
  static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
 +#endif // CONFIG_SCHED_BORE
- 
- /*
-  * After fork, child runs first. If set to 0 (default) then
-@@ -86,6 +100,66 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
  
@@ -436,7 +432,7 @@ index 31937f5110..6decbb085c 100644
  int sched_thermal_decay_shift;
  static int __init setup_sched_thermal_decay_shift(char *str)
  {
-@@ -145,6 +219,69 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
+@@ -139,6 +213,69 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
  
  #ifdef CONFIG_SYSCTL
  static struct ctl_table sched_fair_sysctls[] = {
@@ -503,10 +499,10 @@ index 31937f5110..6decbb085c 100644
 +		.extra2		= &three,
 +	},
 +#endif // CONFIG_SCHED_BORE
+ #ifdef CONFIG_CFS_BANDWIDTH
  	{
- 		.procname       = "sched_child_runs_first",
- 		.data           = &sysctl_sched_child_runs_first,
-@@ -313,6 +450,9 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
+ 		.procname       = "sched_cfs_bandwidth_slice_us",
+@@ -300,6 +437,9 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
  	if (unlikely(se->load.weight != NICE_0_LOAD))
  		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
  
@@ -516,7 +512,7 @@ index 31937f5110..6decbb085c 100644
  	return delta;
  }
  
-@@ -668,7 +808,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
+@@ -655,7 +795,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
   * Specifically: avg_runtime() + 0 must result in entity_eligible() := true
   * For this to be so, the result of this function must have a left bias.
   */
@@ -525,7 +521,7 @@ index 31937f5110..6decbb085c 100644
  {
  	struct sched_entity *curr = cfs_rq->curr;
  	s64 avg = cfs_rq->avg_vruntime;
-@@ -688,7 +828,11 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
+@@ -675,7 +815,11 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
  		avg = div_s64(avg, load);
  	}
  
@@ -538,7 +534,7 @@ index 31937f5110..6decbb085c 100644
  }
  
  /*
-@@ -715,6 +859,11 @@ void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -702,6 +846,11 @@ void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	lag = avg_vruntime(cfs_rq) - se->vruntime;
  
  	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
@@ -550,7 +546,7 @@ index 31937f5110..6decbb085c 100644
  	se->vlag = clamp(lag, -limit, limit);
  }
  
-@@ -1176,7 +1325,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1162,7 +1311,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -563,7 +559,7 @@ index 31937f5110..6decbb085c 100644
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -4977,26 +5130,36 @@ entity_vlag_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -4964,26 +5117,36 @@ entity_vlag_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  {
  	u64 now, vdelta;
  	s64 delta;
@@ -609,7 +605,7 @@ index 31937f5110..6decbb085c 100644
  }
  
  static void
-@@ -6570,6 +6733,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6557,6 +6720,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	util_est_dequeue(&rq->cfs, p);
  
  	for_each_sched_entity(se) {
@@ -619,7 +615,7 @@ index 31937f5110..6decbb085c 100644
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
  
-@@ -8309,8 +8475,12 @@ static void yield_task_fair(struct rq *rq)
+@@ -8296,8 +8462,12 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -633,7 +629,7 @@ index 31937f5110..6decbb085c 100644
  
  	clear_buddies(cfs_rq, se);
  
-@@ -8319,6 +8489,9 @@ static void yield_task_fair(struct rq *rq)
+@@ -8306,6 +8476,9 @@ static void yield_task_fair(struct rq *rq)
  	 * Update run-time statistics of the 'current'.
  	 */
  	update_curr(cfs_rq);
@@ -644,28 +640,41 @@ index 31937f5110..6decbb085c 100644
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index c280c7dfda..5495ddf50d 100644
+index fd2c963b7d..1c29e359ab 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
-@@ -6,10 +6,16 @@
+@@ -13,17 +13,30 @@ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
+  * Inhibit (wakeup) preemption until the current task has either matched the
+  * 0-lag point or until is has exhausted it's slice.
   */
- SCHED_FEAT(PLACE_LAG, true)
- SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
-+SCHED_FEAT(PLACE_SLEEPER, true)
 +#ifdef CONFIG_SCHED_BORE
 +SCHED_FEAT(RUN_TO_PARITY, false)
-+SCHED_FEAT(PREEMPT_SHORT, false)
-+SCHED_FEAT(GENTLE_SLEEPER, false)
 +#else // CONFIG_SCHED_BORE
  SCHED_FEAT(RUN_TO_PARITY, true)
++#endif // CONFIG_SCHED_BORE
+ /*
+  * Allow tasks with a shorter slice to disregard RUN_TO_PARITY
+  */
++#ifdef CONFIG_SCHED_BORE
++SCHED_FEAT(PREEMPT_SHORT, false)
++#else // CONFIG_SCHED_BORE
  SCHED_FEAT(PREEMPT_SHORT, true)
--SCHED_FEAT(PLACE_SLEEPER, true)
++#endif // CONFIG_SCHED_BORE
+ /*
+  * Let sleepers earn back lag, but not more than 0-lag. GENTLE_SLEEPERS earn at
+  * half the speed.
+  */
++#ifdef CONFIG_SCHED_BORE
++SCHED_FEAT(PLACE_SLEEPER, true)
++SCHED_FEAT(GENTLE_SLEEPER, false)
++#else // CONFIG_SCHED_BORE
+ SCHED_FEAT(PLACE_SLEEPER, false)
  SCHED_FEAT(GENTLE_SLEEPER, true)
 +#endif // CONFIG_SCHED_BORE
  /*
   * Disable the eligibility check -- always true.
   *
-@@ -30,8 +36,13 @@ SCHED_FEAT(EVDF, false)
+@@ -44,8 +57,13 @@ SCHED_FEAT(EVDF, false)
   *
   * GENTLE_DELAY clips the lag on dequeue (or wakeup) to 0.
   */
