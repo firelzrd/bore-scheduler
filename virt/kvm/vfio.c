@@ -64,18 +64,18 @@ static bool kvm_vfio_file_enforced_coherent(struct file *file)
 	return ret;
 }
 
-static bool kvm_vfio_file_is_group(struct file *file)
+static bool kvm_vfio_file_is_valid(struct file *file)
 {
 	bool (*fn)(struct file *file);
 	bool ret;
 
-	fn = symbol_get(vfio_file_is_group);
+	fn = symbol_get(vfio_file_is_valid);
 	if (!fn)
 		return false;
 
 	ret = fn(file);
 
-	symbol_put(vfio_file_is_group);
+	symbol_put(vfio_file_is_valid);
 
 	return ret;
 }
@@ -123,8 +123,6 @@ static void kvm_vfio_update_coherency(struct kvm_device *dev)
 	bool noncoherent = false;
 	struct kvm_vfio_file *kvf;
 
-	mutex_lock(&kv->lock);
-
 	list_for_each_entry(kvf, &kv->file_list, node) {
 		if (!kvm_vfio_file_enforced_coherent(kvf->file)) {
 			noncoherent = true;
@@ -140,8 +138,6 @@ static void kvm_vfio_update_coherency(struct kvm_device *dev)
 		else
 			kvm_arch_unregister_noncoherent_dma(dev->kvm);
 	}
-
-	mutex_unlock(&kv->lock);
 }
 
 static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
@@ -149,16 +145,16 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 	struct kvm_vfio *kv = dev->private;
 	struct kvm_vfio_file *kvf;
 	struct file *filp;
-	int ret;
+	int ret = 0;
 
 	filp = fget(fd);
 	if (!filp)
 		return -EBADF;
 
-	/* Ensure the FD is a vfio group FD.*/
-	if (!kvm_vfio_file_is_group(filp)) {
+	/* Ensure the FD is a vfio FD. */
+	if (!kvm_vfio_file_is_valid(filp)) {
 		ret = -EINVAL;
-		goto err_fput;
+		goto out_fput;
 	}
 
 	mutex_lock(&kv->lock);
@@ -166,30 +162,26 @@ static int kvm_vfio_file_add(struct kvm_device *dev, unsigned int fd)
 	list_for_each_entry(kvf, &kv->file_list, node) {
 		if (kvf->file == filp) {
 			ret = -EEXIST;
-			goto err_unlock;
+			goto out_unlock;
 		}
 	}
 
 	kvf = kzalloc(sizeof(*kvf), GFP_KERNEL_ACCOUNT);
 	if (!kvf) {
 		ret = -ENOMEM;
-		goto err_unlock;
+		goto out_unlock;
 	}
 
-	kvf->file = filp;
+	kvf->file = get_file(filp);
 	list_add_tail(&kvf->node, &kv->file_list);
 
 	kvm_arch_start_assignment(dev->kvm);
 	kvm_vfio_file_set_kvm(kvf->file, dev->kvm);
-
-	mutex_unlock(&kv->lock);
-
 	kvm_vfio_update_coherency(dev);
 
-	return 0;
-err_unlock:
+out_unlock:
 	mutex_unlock(&kv->lock);
-err_fput:
+out_fput:
 	fput(filp);
 	return ret;
 }
@@ -225,11 +217,11 @@ static int kvm_vfio_file_del(struct kvm_device *dev, unsigned int fd)
 		break;
 	}
 
+	kvm_vfio_update_coherency(dev);
+
 	mutex_unlock(&kv->lock);
 
 	fdput(f);
-
-	kvm_vfio_update_coherency(dev);
 
 	return ret;
 }
@@ -286,12 +278,12 @@ static int kvm_vfio_set_file(struct kvm_device *dev, long attr,
 	int32_t fd;
 
 	switch (attr) {
-	case KVM_DEV_VFIO_GROUP_ADD:
+	case KVM_DEV_VFIO_FILE_ADD:
 		if (get_user(fd, argp))
 			return -EFAULT;
 		return kvm_vfio_file_add(dev, fd);
 
-	case KVM_DEV_VFIO_GROUP_DEL:
+	case KVM_DEV_VFIO_FILE_DEL:
 		if (get_user(fd, argp))
 			return -EFAULT;
 		return kvm_vfio_file_del(dev, fd);
@@ -309,7 +301,7 @@ static int kvm_vfio_set_attr(struct kvm_device *dev,
 			     struct kvm_device_attr *attr)
 {
 	switch (attr->group) {
-	case KVM_DEV_VFIO_GROUP:
+	case KVM_DEV_VFIO_FILE:
 		return kvm_vfio_set_file(dev, attr->attr,
 					 u64_to_user_ptr(attr->addr));
 	}
@@ -321,10 +313,10 @@ static int kvm_vfio_has_attr(struct kvm_device *dev,
 			     struct kvm_device_attr *attr)
 {
 	switch (attr->group) {
-	case KVM_DEV_VFIO_GROUP:
+	case KVM_DEV_VFIO_FILE:
 		switch (attr->attr) {
-		case KVM_DEV_VFIO_GROUP_ADD:
-		case KVM_DEV_VFIO_GROUP_DEL:
+		case KVM_DEV_VFIO_FILE_ADD:
+		case KVM_DEV_VFIO_FILE_DEL:
 #ifdef CONFIG_SPAPR_TCE_IOMMU
 		case KVM_DEV_VFIO_GROUP_SET_SPAPR_TCE:
 #endif

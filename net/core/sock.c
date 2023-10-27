@@ -768,7 +768,7 @@ bool sk_mc_loop(struct sock *sk)
 	/* IPV6_ADDRFORM can change sk->sk_family under us. */
 	switch (READ_ONCE(sk->sk_family)) {
 	case AF_INET:
-		return inet_sk(sk)->mc_loop;
+		return inet_test_bit(MC_LOOP, sk);
 #if IS_ENABLED(CONFIG_IPV6)
 	case AF_INET6:
 		return inet6_sk(sk)->mc_loop;
@@ -1248,17 +1248,11 @@ set_sndbuf:
 		break;
 
 	case SO_PASSCRED:
-		if (valbool)
-			set_bit(SOCK_PASSCRED, &sock->flags);
-		else
-			clear_bit(SOCK_PASSCRED, &sock->flags);
+		assign_bit(SOCK_PASSCRED, &sock->flags, valbool);
 		break;
 
 	case SO_PASSPIDFD:
-		if (valbool)
-			set_bit(SOCK_PASSPIDFD, &sock->flags);
-		else
-			clear_bit(SOCK_PASSPIDFD, &sock->flags);
+		assign_bit(SOCK_PASSPIDFD, &sock->flags, valbool);
 		break;
 
 	case SO_TIMESTAMP_OLD:
@@ -1284,14 +1278,19 @@ set_sndbuf:
 		break;
 
 	case SO_RCVLOWAT:
+		{
+		int (*set_rcvlowat)(struct sock *sk, int val) = NULL;
+
 		if (val < 0)
 			val = INT_MAX;
-		if (sock && sock->ops->set_rcvlowat)
-			ret = sock->ops->set_rcvlowat(sk, val);
+		if (sock)
+			set_rcvlowat = READ_ONCE(sock->ops)->set_rcvlowat;
+		if (set_rcvlowat)
+			ret = set_rcvlowat(sk, val);
 		else
 			WRITE_ONCE(sk->sk_rcvlowat, val ? : 1);
 		break;
-
+		}
 	case SO_RCVTIMEO_OLD:
 	case SO_RCVTIMEO_NEW:
 		ret = sock_set_timeout(&sk->sk_rcvtimeo, optval,
@@ -1362,10 +1361,7 @@ set_sndbuf:
 		break;
 
 	case SO_PASSSEC:
-		if (valbool)
-			set_bit(SOCK_PASSSEC, &sock->flags);
-		else
-			clear_bit(SOCK_PASSSEC, &sock->flags);
+		assign_bit(SOCK_PASSSEC, &sock->flags, valbool);
 		break;
 	case SO_MARK:
 		if (!sockopt_ns_capable(sock_net(sk)->user_ns, CAP_NET_RAW) &&
@@ -1389,11 +1385,16 @@ set_sndbuf:
 		break;
 
 	case SO_PEEK_OFF:
-		if (sock->ops->set_peek_off)
-			ret = sock->ops->set_peek_off(sk, val);
+		{
+		int (*set_peek_off)(struct sock *sk, int val);
+
+		set_peek_off = READ_ONCE(sock->ops)->set_peek_off;
+		if (set_peek_off)
+			ret = set_peek_off(sk, val);
 		else
 			ret = -EOPNOTSUPP;
 		break;
+		}
 
 	case SO_NOFCS:
 		sock_valbool_flag(sk, SOCK_NOFCS, valbool);
@@ -1826,7 +1827,7 @@ int sk_getsockopt(struct sock *sk, int level, int optname,
 	{
 		struct sockaddr_storage address;
 
-		lv = sock->ops->getname(sock, (struct sockaddr *)&address, 2);
+		lv = READ_ONCE(sock->ops)->getname(sock, (struct sockaddr *)&address, 2);
 		if (lv < 0)
 			return -ENOTCONN;
 		if (lv < len)
@@ -1868,7 +1869,7 @@ int sk_getsockopt(struct sock *sk, int level, int optname,
 		break;
 
 	case SO_PEEK_OFF:
-		if (!sock->ops->set_peek_off)
+		if (!READ_ONCE(sock->ops)->set_peek_off)
 			return -EOPNOTSUPP;
 
 		v.val = READ_ONCE(sk->sk_peek_off);

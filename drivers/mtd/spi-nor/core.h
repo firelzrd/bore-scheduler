@@ -132,6 +132,7 @@ enum spi_nor_option_flags {
 	SNOR_F_SWP_IS_VOLATILE	= BIT(13),
 	SNOR_F_RWW		= BIT(14),
 	SNOR_F_ECC		= BIT(15),
+	SNOR_F_NO_WP		= BIT(16),
 };
 
 struct spi_nor_read_command {
@@ -363,7 +364,7 @@ struct spi_nor_otp {
  * @erase_map:		the erase map parsed from the SFDP Sector Map Parameter
  *                      Table.
  * @otp:		SPI NOR OTP info.
- * @octal_dtr_enable:	enables SPI NOR octal DTR mode.
+ * @set_octal_dtr:	enables or disables SPI NOR octal DTR mode.
  * @quad_enable:	enables SPI NOR quad mode.
  * @set_4byte_addr_mode: puts the SPI NOR in 4 byte addressing mode.
  * @convert_addr:	converts an absolute address into something the flash
@@ -398,7 +399,7 @@ struct spi_nor_flash_parameter {
 	struct spi_nor_erase_map        erase_map;
 	struct spi_nor_otp		otp;
 
-	int (*octal_dtr_enable)(struct spi_nor *nor, bool enable);
+	int (*set_octal_dtr)(struct spi_nor *nor, bool enable);
 	int (*quad_enable)(struct spi_nor *nor);
 	int (*set_4byte_addr_mode)(struct spi_nor *nor, bool enable);
 	u32 (*convert_addr)(struct spi_nor *nor, u32 addr);

@@ -141,7 +141,6 @@ struct panel_simple {
 
 	bool prepared;
 
-	ktime_t prepared_time;
 	ktime_t unprepared_time;
 
 	const struct panel_desc *desc;
@@ -350,8 +349,6 @@ static int panel_simple_resume(struct device *dev)
 
 	if (p->desc->delay.prepare)
 		msleep(p->desc->delay.prepare);
-
-	p->prepared_time = ktime_get_boottime();
 
 	return 0;
 }
@@ -566,7 +563,6 @@ static int panel_simple_probe(struct device *dev, const struct panel_desc *desc)
 		return -ENOMEM;
 
 	panel->enabled = false;
-	panel->prepared_time = 0;
 	panel->desc = desc;
 
 	panel->supply = devm_regulator_get(dev, "power");
@@ -921,6 +917,38 @@ static const struct panel_desc auo_b101xtn01 = {
 		.width = 223,
 		.height = 125,
 	},
+};
+
+static const struct drm_display_mode auo_b116xw03_mode = {
+	.clock = 70589,
+	.hdisplay = 1366,
+	.hsync_start = 1366 + 40,
+	.hsync_end = 1366 + 40 + 40,
+	.htotal = 1366 + 40 + 40 + 32,
+	.vdisplay = 768,
+	.vsync_start = 768 + 10,
+	.vsync_end = 768 + 10 + 12,
+	.vtotal = 768 + 10 + 12 + 6,
+	.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+};
+
+static const struct panel_desc auo_b116xw03 = {
+	.modes = &auo_b116xw03_mode,
+	.num_modes = 1,
+	.bpc = 6,
+	.size = {
+		.width = 256,
+		.height = 144,
+	},
+	.delay = {
+		.prepare = 1,
+		.enable = 200,
+		.disable = 200,
+		.unprepare = 500,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB666_1X7X3_SPWG,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
 };
 
 static const struct display_timing auo_g070vvn01_timings = {
@@ -2380,6 +2408,37 @@ static const struct panel_desc innolux_g121x1_l03 = {
 	},
 };
 
+static const struct display_timing innolux_g156hce_l01_timings = {
+	.pixelclock = { 120000000, 141860000, 150000000 },
+	.hactive = { 1920, 1920, 1920 },
+	.hfront_porch = { 80, 90, 100 },
+	.hback_porch = { 80, 90, 100 },
+	.hsync_len = { 20, 30, 30 },
+	.vactive = { 1080, 1080, 1080 },
+	.vfront_porch = { 3, 10, 20 },
+	.vback_porch = { 3, 10, 20 },
+	.vsync_len = { 4, 10, 10 },
+};
+
+static const struct panel_desc innolux_g156hce_l01 = {
+	.timings = &innolux_g156hce_l01_timings,
+	.num_timings = 1,
+	.bpc = 8,
+	.size = {
+		.width = 344,
+		.height = 194,
+	},
+	.delay = {
+		.prepare = 1,		/* T1+T2 */
+		.enable = 450,		/* T5 */
+		.disable = 200,		/* T6 */
+		.unprepare = 10,	/* T3+T7 */
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB888_1X7X4_SPWG,
+	.bus_flags = DRM_BUS_FLAG_DE_HIGH,
+	.connector_type = DRM_MODE_CONNECTOR_LVDS,
+};
+
 static const struct drm_display_mode innolux_n156bge_l21_mode = {
 	.clock = 69300,
 	.hdisplay = 1366,
@@ -3211,6 +3270,7 @@ static const struct drm_display_mode powertip_ph800480t013_idf02_mode = {
 static const struct panel_desc powertip_ph800480t013_idf02  = {
 	.modes = &powertip_ph800480t013_idf02_mode,
 	.num_modes = 1,
+	.bpc = 8,
 	.size = {
 		.width = 152,
 		.height = 91,
@@ -4075,6 +4135,9 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "auo,b101xtn01",
 		.data = &auo_b101xtn01,
 	}, {
+		.compatible = "auo,b116xw03",
+		.data = &auo_b116xw03,
+	}, {
 		.compatible = "auo,g070vvn01",
 		.data = &auo_g070vvn01,
 	}, {
@@ -4245,6 +4308,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "innolux,g121x1-l03",
 		.data = &innolux_g121x1_l03,
+	}, {
+		.compatible = "innolux,g156hce-l01",
+		.data = &innolux_g156hce_l01,
 	}, {
 		.compatible = "innolux,n156bge-l21",
 		.data = &innolux_n156bge_l21,
@@ -4461,20 +4527,18 @@ MODULE_DEVICE_TABLE(of, platform_of_match);
 
 static int panel_simple_platform_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *id;
+	const struct panel_desc *desc;
 
-	id = of_match_node(platform_of_match, pdev->dev.of_node);
-	if (!id)
+	desc = of_device_get_match_data(&pdev->dev);
+	if (!desc)
 		return -ENODEV;
 
-	return panel_simple_probe(&pdev->dev, id->data);
+	return panel_simple_probe(&pdev->dev, desc);
 }
 
-static int panel_simple_platform_remove(struct platform_device *pdev)
+static void panel_simple_platform_remove(struct platform_device *pdev)
 {
 	panel_simple_remove(&pdev->dev);
-
-	return 0;
 }
 
 static void panel_simple_platform_shutdown(struct platform_device *pdev)
@@ -4495,7 +4559,7 @@ static struct platform_driver panel_simple_platform_driver = {
 		.pm = &panel_simple_pm_ops,
 	},
 	.probe = panel_simple_platform_probe,
-	.remove = panel_simple_platform_remove,
+	.remove_new = panel_simple_platform_remove,
 	.shutdown = panel_simple_platform_shutdown,
 };
 
@@ -4740,14 +4804,11 @@ MODULE_DEVICE_TABLE(of, dsi_of_match);
 static int panel_simple_dsi_probe(struct mipi_dsi_device *dsi)
 {
 	const struct panel_desc_dsi *desc;
-	const struct of_device_id *id;
 	int err;
 
-	id = of_match_node(dsi_of_match, dsi->dev.of_node);
-	if (!id)
+	desc = of_device_get_match_data(&dsi->dev);
+	if (!desc)
 		return -ENODEV;
-
-	desc = id->data;
 
 	err = panel_simple_probe(&dsi->dev, &desc->desc);
 	if (err < 0)

@@ -1562,7 +1562,7 @@ static void destroy_device_list(struct f2fs_sb_info *sbi)
 
 	for (i = 0; i < sbi->s_ndevs; i++) {
 		if (i > 0)
-			blkdev_put(FDEV(i).bdev, sbi->sb->s_type);
+			blkdev_put(FDEV(i).bdev, sbi->sb);
 #ifdef CONFIG_BLK_DEV_ZONED
 		kvfree(FDEV(i).blkz_seq);
 #endif
@@ -2710,7 +2710,7 @@ retry:
 
 	if (len == towrite)
 		return err;
-	inode->i_mtime = inode->i_ctime = current_time(inode);
+	inode->i_mtime = inode_set_ctime_current(inode);
 	f2fs_mark_inode_dirty_sync(inode, false);
 	return len - towrite;
 }
@@ -4219,7 +4219,7 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 					(FDEV(i).total_segments <<
 					sbi->log_blocks_per_seg) - 1;
 				FDEV(i).bdev = blkdev_get_by_path(FDEV(i).path,
-					mode, sbi->sb->s_type, NULL);
+					mode, sbi->sb, NULL);
 			}
 		}
 		if (IS_ERR(FDEV(i).bdev))

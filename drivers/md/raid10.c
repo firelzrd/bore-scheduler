@@ -325,8 +325,6 @@ static void raid_end_bio_io(struct r10bio *r10_bio)
 	if (!test_bit(R10BIO_Uptodate, &r10_bio->state))
 		bio->bi_status = BLK_STS_IOERR;
 
-	if (r10_bio->start_time)
-		bio_end_io_acct(bio, r10_bio->start_time);
 	bio_endio(bio);
 	/*
 	 * Wake up any possible resync thread that waits for the device
@@ -1172,7 +1170,7 @@ static bool regular_request_wait(struct mddev *mddev, struct r10conf *conf,
 }
 
 static void raid10_read_request(struct mddev *mddev, struct bio *bio,
-				struct r10bio *r10_bio)
+				struct r10bio *r10_bio, bool io_accounting)
 {
 	struct r10conf *conf = mddev->private;
 	struct bio *read_bio;
@@ -1243,9 +1241,10 @@ static void raid10_read_request(struct mddev *mddev, struct bio *bio,
 	}
 	slot = r10_bio->read_slot;
 
-	if (!r10_bio->start_time &&
-	    blk_queue_io_stat(bio->bi_bdev->bd_disk->queue))
-		r10_bio->start_time = bio_start_io_acct(bio);
+	if (io_accounting) {
+		md_account_bio(mddev, &bio);
+		r10_bio->master_bio = bio;
+	}
 	read_bio = bio_alloc_clone(rdev->bdev, bio, gfp, &mddev->bio_set);
 
 	r10_bio->devs[slot].bio = read_bio;
@@ -1552,8 +1551,8 @@ static void raid10_write_request(struct mddev *mddev, struct bio *bio,
 		r10_bio->master_bio = bio;
 	}
 
-	if (blk_queue_io_stat(bio->bi_bdev->bd_disk->queue))
-		r10_bio->start_time = bio_start_io_acct(bio);
+	md_account_bio(mddev, &bio);
+	r10_bio->master_bio = bio;
 	atomic_set(&r10_bio->remaining, 1);
 	md_bitmap_startwrite(mddev->bitmap, r10_bio->sector, r10_bio->sectors, 0);
 
@@ -1580,12 +1579,11 @@ static void __make_request(struct mddev *mddev, struct bio *bio, int sectors)
 	r10_bio->sector = bio->bi_iter.bi_sector;
 	r10_bio->state = 0;
 	r10_bio->read_slot = -1;
-	r10_bio->start_time = 0;
 	memset(r10_bio->devs, 0, sizeof(r10_bio->devs[0]) *
 			conf->geo.raid_disks);
 
 	if (bio_data_dir(bio) == READ)
-		raid10_read_request(mddev, bio, r10_bio);
+		raid10_read_request(mddev, bio, r10_bio, true);
 	else
 		raid10_write_request(mddev, bio, r10_bio);
 }
@@ -2728,10 +2726,10 @@ static int r10_sync_page_io(struct md_rdev *rdev, sector_t sector,
 static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10bio *r10_bio)
 {
 	int sect = 0; /* Offset from r10_bio->sector */
-	int sectors = r10_bio->sectors;
+	int sectors = r10_bio->sectors, slot = r10_bio->read_slot;
 	struct md_rdev *rdev;
 	int max_read_errors = atomic_read(&mddev->max_corr_read_errors);
-	int d = r10_bio->devs[r10_bio->read_slot].devnum;
+	int d = r10_bio->devs[slot].devnum;
 
 	/* still own a reference to this rdev, so it cannot
 	 * have been cleared recently.
@@ -2752,13 +2750,13 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 		pr_notice("md/raid10:%s: %pg: Failing raid device\n",
 			  mdname(mddev), rdev->bdev);
 		md_error(mddev, rdev);
-		r10_bio->devs[r10_bio->read_slot].bio = IO_BLOCKED;
+		r10_bio->devs[slot].bio = IO_BLOCKED;
 		return;
 	}
 
 	while(sectors) {
 		int s = sectors;
-		int sl = r10_bio->read_slot;
+		int sl = slot;
 		int success = 0;
 		int start;
 
@@ -2793,7 +2791,7 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 			sl++;
 			if (sl == conf->copies)
 				sl = 0;
-		} while (!success && sl != r10_bio->read_slot);
+		} while (sl != slot);
 		rcu_read_unlock();
 
 		if (!success) {
@@ -2801,16 +2799,16 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 			 * as bad on the first device to discourage future
 			 * reads.
 			 */
-			int dn = r10_bio->devs[r10_bio->read_slot].devnum;
+			int dn = r10_bio->devs[slot].devnum;
 			rdev = conf->mirrors[dn].rdev;
 
 			if (!rdev_set_badblocks(
 				    rdev,
-				    r10_bio->devs[r10_bio->read_slot].addr
+				    r10_bio->devs[slot].addr
 				    + sect,
 				    s, 0)) {
 				md_error(mddev, rdev);
-				r10_bio->devs[r10_bio->read_slot].bio
+				r10_bio->devs[slot].bio
 					= IO_BLOCKED;
 			}
 			break;
@@ -2819,7 +2817,7 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 		start = sl;
 		/* write it back and re-read */
 		rcu_read_lock();
-		while (sl != r10_bio->read_slot) {
+		while (sl != slot) {
 			if (sl==0)
 				sl = conf->copies;
 			sl--;
@@ -2853,7 +2851,7 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 			rcu_read_lock();
 		}
 		sl = start;
-		while (sl != r10_bio->read_slot) {
+		while (sl != slot) {
 			if (sl==0)
 				sl = conf->copies;
 			sl--;
@@ -2993,7 +2991,7 @@ static void handle_read_error(struct mddev *mddev, struct r10bio *r10_bio)
 
 	rdev_dec_pending(rdev, mddev);
 	r10_bio->state = 0;
-	raid10_read_request(mddev, r10_bio->master_bio, r10_bio);
+	raid10_read_request(mddev, r10_bio->master_bio, r10_bio, false);
 	/*
 	 * allow_barrier after re-submit to ensure no sync io
 	 * can be issued while regular io pending.
@@ -4322,7 +4320,7 @@ static int raid10_run(struct mddev *mddev)
 	return 0;
 
 out_free_conf:
-	md_unregister_thread(&mddev->thread);
+	md_unregister_thread(mddev, &mddev->thread);
 	raid10_free_conf(conf);
 	mddev->private = NULL;
 out:
@@ -4419,7 +4417,6 @@ static void *raid10_takeover_raid0(struct mddev *mddev, sector_t size, int devs)
 				rdev->new_raid_disk = rdev->raid_disk * 2;
 				rdev->sectors = size;
 			}
-		WRITE_ONCE(conf->barrier, 1);
 	}
 
 	return conf;

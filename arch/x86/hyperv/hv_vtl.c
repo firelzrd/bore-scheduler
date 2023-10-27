@@ -215,7 +215,7 @@ static int hv_vtl_wakeup_secondary_cpu(int apicid, unsigned long start_eip)
 	return hv_vtl_bringup_vcpu(vp_id, start_eip);
 }
 
-static int __init hv_vtl_early_init(void)
+int __init hv_vtl_early_init(void)
 {
 	/*
 	 * `boot_cpu_has` returns the runtime feature support,
@@ -226,8 +226,7 @@ static int __init hv_vtl_early_init(void)
 			  "Please add 'noxsave' to the kernel command line.\n");
 
 	real_mode_header = &hv_vtl_real_mode_header;
-	apic->wakeup_secondary_cpu_64 = hv_vtl_wakeup_secondary_cpu;
+	apic_update_callback(wakeup_secondary_cpu_64, hv_vtl_wakeup_secondary_cpu);
 
 	return 0;
 }
-early_initcall(hv_vtl_early_init);

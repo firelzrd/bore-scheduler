@@ -9,10 +9,10 @@
 #include <linux/soundwire/sdw.h>
 #include <linux/soundwire/sdw_type.h>
 #include "bus.h"
+#include "irq.h"
 #include "sysfs_local.h"
 
 static DEFINE_IDA(sdw_bus_ida);
-static DEFINE_IDA(sdw_peripheral_ida);
 
 static int sdw_get_id(struct sdw_bus *bus)
 {
@@ -151,6 +151,10 @@ int sdw_bus_master_add(struct sdw_bus *bus, struct device *parent,
 	bus->params.curr_bank = SDW_BANK0;
 	bus->params.next_bank = SDW_BANK1;
 
+	ret = sdw_irq_create(bus, fwnode);
+	if (ret)
+		return ret;
+
 	return 0;
 }
 EXPORT_SYMBOL(sdw_bus_master_add);
@@ -168,8 +172,8 @@ static int sdw_delete_slave(struct device *dev, void *data)
 
 	if (slave->dev_num) { /* clear dev_num if assigned */
 		clear_bit(slave->dev_num, bus->assigned);
-		if (bus->dev_num_ida_min)
-			ida_free(&sdw_peripheral_ida, slave->dev_num);
+		if (bus->ops && bus->ops->put_device_num)
+			bus->ops->put_device_num(bus, slave);
 	}
 	list_del_init(&slave->node);
 	mutex_unlock(&bus->bus_lock);
@@ -187,6 +191,9 @@ static int sdw_delete_slave(struct device *dev, void *data)
 void sdw_bus_master_delete(struct sdw_bus *bus)
 {
 	device_for_each_child(bus->dev, NULL, sdw_delete_slave);
+
+	sdw_irq_delete(bus);
+
 	sdw_master_device_del(bus);
 
 	sdw_bus_debugfs_exit(bus);
@@ -710,16 +717,15 @@ EXPORT_SYMBOL(sdw_compare_devid);
 /* called with bus_lock held */
 static int sdw_get_device_num(struct sdw_slave *slave)
 {
+	struct sdw_bus *bus = slave->bus;
 	int bit;
 
-	if (slave->bus->dev_num_ida_min) {
-		bit = ida_alloc_range(&sdw_peripheral_ida,
-				      slave->bus->dev_num_ida_min, SDW_MAX_DEVICES,
-				      GFP_KERNEL);
+	if (bus->ops && bus->ops->get_device_num) {
+		bit = bus->ops->get_device_num(bus, slave);
 		if (bit < 0)
 			goto err;
 	} else {
-		bit = find_first_zero_bit(slave->bus->assigned, SDW_MAX_DEVICES);
+		bit = find_first_zero_bit(bus->assigned, SDW_MAX_DEVICES);
 		if (bit == SDW_MAX_DEVICES) {
 			bit = -ENODEV;
 			goto err;
@@ -730,7 +736,7 @@ static int sdw_get_device_num(struct sdw_slave *slave)
 	 * Do not update dev_num in Slave data structure here,
 	 * Update once program dev_num is successful
 	 */
-	set_bit(bit, slave->bus->assigned);
+	set_bit(bit, bus->assigned);
 
 err:
 	return bit;
@@ -781,7 +787,7 @@ static int sdw_assign_device_num(struct sdw_slave *slave)
 	slave->dev_num = slave->dev_num_sticky;
 
 	if (bus->ops && bus->ops->new_peripheral_assigned)
-		bus->ops->new_peripheral_assigned(bus, dev_num);
+		bus->ops->new_peripheral_assigned(bus, slave, dev_num);
 
 	return 0;
 }
@@ -1724,6 +1730,9 @@ static int sdw_handle_slave_alerts(struct sdw_slave *slave)
 			if (slave->probed) {
 				struct device *dev = &slave->dev;
 				struct sdw_driver *drv = drv_to_sdw_driver(dev->driver);
+
+				if (slave->prop.use_domain_irq && slave->irq)
+					handle_nested_irq(slave->irq);
 
 				if (drv->ops && drv->ops->interrupt_callback) {
 					slave_intr.sdca_cascade = sdca_cascade;

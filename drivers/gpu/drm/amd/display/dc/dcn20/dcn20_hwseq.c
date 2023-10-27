@@ -1106,29 +1106,6 @@ void dcn20_blank_pixel_data(
 			v_active,
 			offset);
 
-	if (!blank && dc->debug.enable_single_display_2to1_odm_policy) {
-		/* when exiting dynamic ODM need to reinit DPG state for unused pipes */
-		struct pipe_ctx *old_odm_pipe = dc->current_state->res_ctx.pipe_ctx[pipe_ctx->pipe_idx].next_odm_pipe;
-
-		odm_pipe = pipe_ctx->next_odm_pipe;
-
-		while (old_odm_pipe) {
-			if (!odm_pipe || old_odm_pipe->pipe_idx != odm_pipe->pipe_idx)
-				dc->hwss.set_disp_pattern_generator(dc,
-						old_odm_pipe,
-						CONTROLLER_DP_TEST_PATTERN_VIDEOMODE,
-						CONTROLLER_DP_COLOR_SPACE_UDEFINED,
-						COLOR_DEPTH_888,
-						NULL,
-						0,
-						0,
-						0);
-			old_odm_pipe = old_odm_pipe->next_odm_pipe;
-			if (odm_pipe)
-				odm_pipe = odm_pipe->next_odm_pipe;
-		}
-	}
-
 	if (!blank)
 		if (stream_res->abm) {
 			dc->hwss.set_pipe(pipe_ctx);
@@ -1269,20 +1246,21 @@ void dcn20_pipe_control_lock(
 	}
 
 	if (flip_immediate && lock) {
-		const int TIMEOUT_FOR_FLIP_PENDING = 100000;
+		const int TIMEOUT_FOR_FLIP_PENDING_US = 100000;
+		unsigned int polling_interval_us = 1;
 		int i;
 
 		temp_pipe = pipe;
 		while (temp_pipe) {
 			if (temp_pipe->plane_state && temp_pipe->plane_state->flip_immediate) {
-				for (i = 0; i < TIMEOUT_FOR_FLIP_PENDING; ++i) {
+				for (i = 0; i < TIMEOUT_FOR_FLIP_PENDING_US / polling_interval_us; ++i) {
 					if (!temp_pipe->plane_res.hubp->funcs->hubp_is_flip_pending(temp_pipe->plane_res.hubp))
 						break;
-					udelay(1);
+					udelay(polling_interval_us);
 				}
 
 				/* no reason it should take this long for immediate flips */
-				ASSERT(i != TIMEOUT_FOR_FLIP_PENDING);
+				ASSERT(i != TIMEOUT_FOR_FLIP_PENDING_US);
 			}
 			temp_pipe = temp_pipe->bottom_pipe;
 		}
@@ -1626,6 +1604,7 @@ static void dcn20_update_dchubp_dpp(
 	if (pipe_ctx->update_flags.bits.enable || pipe_ctx->update_flags.bits.opp_changed
 			|| pipe_ctx->update_flags.bits.plane_changed
 			|| pipe_ctx->stream->update_flags.bits.gamut_remap
+			|| plane_state->update_flags.bits.gamut_remap_change
 			|| pipe_ctx->stream->update_flags.bits.out_csc) {
 		/* dpp/cm gamut remap*/
 		dc->hwss.program_gamut_remap(pipe_ctx);
@@ -1709,11 +1688,16 @@ static void dcn20_program_pipe(
 		struct dc_state *context)
 {
 	struct dce_hwseq *hws = dc->hwseq;
-	/* Only need to unblank on top pipe */
 
-	if ((pipe_ctx->update_flags.bits.enable || pipe_ctx->stream->update_flags.bits.abm_level)
-			&& !pipe_ctx->top_pipe && !pipe_ctx->prev_odm_pipe)
-		hws->funcs.blank_pixel_data(dc, pipe_ctx, !pipe_ctx->plane_state->visible);
+	/* Only need to unblank on top pipe */
+	if (resource_is_pipe_type(pipe_ctx, OTG_MASTER)) {
+		if (pipe_ctx->update_flags.bits.enable ||
+				pipe_ctx->update_flags.bits.odm ||
+				pipe_ctx->stream->update_flags.bits.abm_level)
+			hws->funcs.blank_pixel_data(dc, pipe_ctx,
+					!pipe_ctx->plane_state ||
+					!pipe_ctx->plane_state->visible);
+	}
 
 	/* Only update TG on top pipe */
 	if (pipe_ctx->update_flags.bits.global_sync && !pipe_ctx->top_pipe
@@ -1941,7 +1925,8 @@ void dcn20_post_unlock_program_front_end(
 		struct dc_state *context)
 {
 	int i;
-	const unsigned int TIMEOUT_FOR_PIPE_ENABLE_MS = 100;
+	const unsigned int TIMEOUT_FOR_PIPE_ENABLE_US = 100000;
+	unsigned int polling_interval_us = 1;
 	struct dce_hwseq *hwseq = dc->hwseq;
 
 	DC_LOGGER_INIT(dc->ctx->logger);
@@ -1963,10 +1948,9 @@ void dcn20_post_unlock_program_front_end(
 				pipe->stream->mall_stream_config.type != SUBVP_PHANTOM) {
 			struct hubp *hubp = pipe->plane_res.hubp;
 			int j = 0;
-
-			for (j = 0; j < TIMEOUT_FOR_PIPE_ENABLE_MS*1000
+			for (j = 0; j < TIMEOUT_FOR_PIPE_ENABLE_US / polling_interval_us
 					&& hubp->funcs->hubp_is_flip_pending(hubp); j++)
-				udelay(1);
+				udelay(polling_interval_us);
 		}
 	}
 
@@ -2727,8 +2711,8 @@ void dcn20_enable_stream(struct pipe_ctx *pipe_ctx)
 		dto_params.timing = &pipe_ctx->stream->timing;
 		dto_params.ref_dtbclk_khz = dc->clk_mgr->funcs->get_dtb_ref_clk_frequency(dc->clk_mgr);
 		dccg->funcs->set_dtbclk_dto(dccg, &dto_params);
-	}
-
+	} else {
+		}
 	if (hws->funcs.calculate_dccg_k1_k2_values && dc->res_pool->dccg->funcs->set_pixel_rate_div) {
 		hws->funcs.calculate_dccg_k1_k2_values(pipe_ctx, &k1_div, &k2_div);
 

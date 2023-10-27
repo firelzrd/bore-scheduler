@@ -282,7 +282,7 @@ err_mem:
 	return ret;
 }
 
-static int zynqmp_dpsub_remove(struct platform_device *pdev)
+static void zynqmp_dpsub_remove(struct platform_device *pdev)
 {
 	struct zynqmp_dpsub *dpsub = platform_get_drvdata(pdev);
 
@@ -300,8 +300,6 @@ static int zynqmp_dpsub_remove(struct platform_device *pdev)
 
 	if (!dpsub->drm)
 		zynqmp_dpsub_release(dpsub);
-
-	return 0;
 }
 
 static void zynqmp_dpsub_shutdown(struct platform_device *pdev)
@@ -322,7 +320,7 @@ MODULE_DEVICE_TABLE(of, zynqmp_dpsub_of_match);
 
 static struct platform_driver zynqmp_dpsub_driver = {
 	.probe			= zynqmp_dpsub_probe,
-	.remove			= zynqmp_dpsub_remove,
+	.remove_new		= zynqmp_dpsub_remove,
 	.shutdown		= zynqmp_dpsub_shutdown,
 	.driver			= {
 		.name		= "zynqmp-dpsub",

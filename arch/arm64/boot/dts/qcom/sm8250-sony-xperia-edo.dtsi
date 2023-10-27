@@ -500,13 +500,6 @@
 	};
 };
 
-&i2c5 {
-	status = "okay";
-	clock-frequency = <400000>;
-
-	/* Dialog SLG51000 CMIC @ 75 */
-};
-
 &i2c9 {
 	status = "okay";
 	clock-frequency = <400000>;

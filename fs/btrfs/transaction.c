@@ -56,12 +56,17 @@ static struct kmem_cache *btrfs_trans_handle_cachep;
  * |  Call btrfs_commit_transaction() on any trans handle attached to
  * |  transaction N
  * V
+ * Transaction N [[TRANS_STATE_COMMIT_PREP]]
+ * |
+ * | If there are simultaneous calls to btrfs_commit_transaction() one will win
+ * | the race and the rest will wait for the winner to commit the transaction.
+ * |
+ * | The winner will wait for previous running transaction to completely finish
+ * | if there is one.
+ * |
  * Transaction N [[TRANS_STATE_COMMIT_START]]
  * |
- * | Will wait for previous running transaction to completely finish if there
- * | is one
- * |
- * | Then one of the following happes:
+ * | Then one of the following happens:
  * | - Wait for all other trans handle holders to release.
  * |   The btrfs_commit_transaction() caller will do the commit work.
  * | - Wait for current transaction to be committed by others.
@@ -112,6 +117,7 @@ static struct kmem_cache *btrfs_trans_handle_cachep;
  */
 static const unsigned int btrfs_blocked_trans_types[TRANS_STATE_MAX] = {
 	[TRANS_STATE_RUNNING]		= 0U,
+	[TRANS_STATE_COMMIT_PREP]	= 0U,
 	[TRANS_STATE_COMMIT_START]	= (__TRANS_START | __TRANS_ATTACH),
 	[TRANS_STATE_COMMIT_DOING]	= (__TRANS_START |
 					   __TRANS_ATTACH |
@@ -799,7 +805,10 @@ struct btrfs_trans_handle *btrfs_join_transaction_spacecache(struct btrfs_root *
 
 /*
  * Similar to regular join but it never starts a transaction when none is
- * running or after waiting for the current one to finish.
+ * running or when there's a running one at a state >= TRANS_STATE_UNBLOCKED.
+ * This is similar to btrfs_attach_transaction() but it allows the join to
+ * happen if the transaction commit already started but it's not yet in the
+ * "doing" phase (the state is < TRANS_STATE_COMMIT_DOING).
  */
 struct btrfs_trans_handle *btrfs_join_transaction_nostart(struct btrfs_root *root)
 {
@@ -1074,8 +1083,8 @@ int btrfs_write_marked_extents(struct btrfs_fs_info *fs_info,
 	u64 start = 0;
 	u64 end;
 
-	while (!find_first_extent_bit(dirty_pages, start, &start, &end,
-				      mark, &cached_state)) {
+	while (find_first_extent_bit(dirty_pages, start, &start, &end,
+				     mark, &cached_state)) {
 		bool wait_writeback = false;
 
 		err = convert_extent_bit(dirty_pages, start, end,
@@ -1128,8 +1137,8 @@ static int __btrfs_wait_marked_extents(struct btrfs_fs_info *fs_info,
 	u64 start = 0;
 	u64 end;
 
-	while (!find_first_extent_bit(dirty_pages, start, &start, &end,
-				      EXTENT_NEED_WAIT, &cached_state)) {
+	while (find_first_extent_bit(dirty_pages, start, &start, &end,
+				     EXTENT_NEED_WAIT, &cached_state)) {
 		/*
 		 * Ignore -ENOMEM errors returned by clear_extent_bit().
 		 * When committing the transaction, we'll remove any entries
@@ -1851,8 +1860,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 
 	btrfs_i_size_write(BTRFS_I(parent_inode), parent_inode->i_size +
 						  fname.disk_name.len * 2);
-	parent_inode->i_mtime = current_time(parent_inode);
-	parent_inode->i_ctime = parent_inode->i_mtime;
+	parent_inode->i_mtime = inode_set_ctime_current(parent_inode);
 	ret = btrfs_update_inode_fallback(trans, parent_root, BTRFS_I(parent_inode));
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
@@ -1980,7 +1988,7 @@ void btrfs_commit_transaction_async(struct btrfs_trans_handle *trans)
 	 * Wait for the current transaction commit to start and block
 	 * subsequent transaction joins
 	 */
-	btrfs_might_wait_for_state(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_START);
+	btrfs_might_wait_for_state(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 	wait_event(fs_info->transaction_blocked_wait,
 		   cur_trans->state >= TRANS_STATE_COMMIT_START ||
 		   TRANS_ABORTED(cur_trans));
@@ -2127,7 +2135,7 @@ static void add_pending_snapshot(struct btrfs_trans_handle *trans)
 		return;
 
 	lockdep_assert_held(&trans->fs_info->trans_lock);
-	ASSERT(cur_trans->state >= TRANS_STATE_COMMIT_START);
+	ASSERT(cur_trans->state >= TRANS_STATE_COMMIT_PREP);
 
 	list_add(&trans->pending_snapshot->list, &cur_trans->pending_snapshots);
 }
@@ -2151,7 +2159,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	ktime_t interval;
 
 	ASSERT(refcount_read(&trans->use_count) == 1);
-	btrfs_trans_state_lockdep_acquire(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_START);
+	btrfs_trans_state_lockdep_acquire(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 
 	clear_bit(BTRFS_FS_NEED_TRANS_COMMIT, &fs_info->flags);
 
@@ -2211,7 +2219,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	}
 
 	spin_lock(&fs_info->trans_lock);
-	if (cur_trans->state >= TRANS_STATE_COMMIT_START) {
+	if (cur_trans->state >= TRANS_STATE_COMMIT_PREP) {
 		enum btrfs_trans_state want_state = TRANS_STATE_COMPLETED;
 
 		add_pending_snapshot(trans);
@@ -2223,7 +2231,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 			want_state = TRANS_STATE_SUPER_COMMITTED;
 
 		btrfs_trans_state_lockdep_release(fs_info,
-						  BTRFS_LOCKDEP_TRANS_COMMIT_START);
+						  BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 		ret = btrfs_end_transaction(trans);
 		wait_for_commit(cur_trans, want_state);
 
@@ -2235,9 +2243,9 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 		return ret;
 	}
 
-	cur_trans->state = TRANS_STATE_COMMIT_START;
+	cur_trans->state = TRANS_STATE_COMMIT_PREP;
 	wake_up(&fs_info->transaction_blocked_wait);
-	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_START);
+	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 
 	if (cur_trans->list.prev != &fs_info->trans_list) {
 		enum btrfs_trans_state want_state = TRANS_STATE_COMPLETED;
@@ -2258,11 +2266,9 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 			btrfs_put_transaction(prev_trans);
 			if (ret)
 				goto lockdep_release;
-		} else {
-			spin_unlock(&fs_info->trans_lock);
+			spin_lock(&fs_info->trans_lock);
 		}
 	} else {
-		spin_unlock(&fs_info->trans_lock);
 		/*
 		 * The previous transaction was aborted and was already removed
 		 * from the list of transactions at fs_info->trans_list. So we
@@ -2270,10 +2276,15 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 		 * corrupt state (pointing to trees with unwritten nodes/leafs).
 		 */
 		if (BTRFS_FS_ERROR(fs_info)) {
+			spin_unlock(&fs_info->trans_lock);
 			ret = -EROFS;
 			goto lockdep_release;
 		}
 	}
+
+	cur_trans->state = TRANS_STATE_COMMIT_START;
+	wake_up(&fs_info->transaction_blocked_wait);
+	spin_unlock(&fs_info->trans_lock);
 
 	/*
 	 * Get the time spent on the work done by the commit thread and not
@@ -2584,7 +2595,7 @@ lockdep_release:
 	goto cleanup_transaction;
 
 lockdep_trans_commit_start_release:
-	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_START);
+	btrfs_trans_state_lockdep_release(fs_info, BTRFS_LOCKDEP_TRANS_COMMIT_PREP);
 	btrfs_end_transaction(trans);
 	return ret;
 }

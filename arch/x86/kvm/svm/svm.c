@@ -39,9 +39,8 @@
 #include <asm/spec-ctrl.h>
 #include <asm/cpu_device_id.h>
 #include <asm/traps.h>
+#include <asm/reboot.h>
 #include <asm/fpu/api.h>
-
-#include <asm/virtext.h>
 
 #include <trace/events/ipi.h>
 
@@ -203,7 +202,7 @@ static int nested = true;
 module_param(nested, int, S_IRUGO);
 
 /* enable/disable Next RIP Save */
-static int nrips = true;
+int nrips = true;
 module_param(nrips, int, 0444);
 
 /* enable/disable Virtual VMLOAD VMSAVE */
@@ -527,14 +526,21 @@ static void svm_init_osvw(struct kvm_vcpu *vcpu)
 		vcpu->arch.osvw.status |= 1;
 }
 
-static bool kvm_is_svm_supported(void)
+static bool __kvm_is_svm_supported(void)
 {
-	int cpu = raw_smp_processor_id();
-	const char *msg;
+	int cpu = smp_processor_id();
+	struct cpuinfo_x86 *c = &cpu_data(cpu);
+
 	u64 vm_cr;
 
-	if (!cpu_has_svm(&msg)) {
-		pr_err("SVM not supported by CPU %d, %s\n", cpu, msg);
+	if (c->x86_vendor != X86_VENDOR_AMD &&
+	    c->x86_vendor != X86_VENDOR_HYGON) {
+		pr_err("CPU %d isn't AMD or Hygon\n", cpu);
+		return false;
+	}
+
+	if (!cpu_has(c, X86_FEATURE_SVM)) {
+		pr_err("SVM not supported by CPU %d\n", cpu);
 		return false;
 	}
 
@@ -552,25 +558,55 @@ static bool kvm_is_svm_supported(void)
 	return true;
 }
 
+static bool kvm_is_svm_supported(void)
+{
+	bool supported;
+
+	migrate_disable();
+	supported = __kvm_is_svm_supported();
+	migrate_enable();
+
+	return supported;
+}
+
 static int svm_check_processor_compat(void)
 {
-	if (!kvm_is_svm_supported())
+	if (!__kvm_is_svm_supported())
 		return -EIO;
 
 	return 0;
 }
 
-void __svm_write_tsc_multiplier(u64 multiplier)
+static void __svm_write_tsc_multiplier(u64 multiplier)
 {
-	preempt_disable();
-
 	if (multiplier == __this_cpu_read(current_tsc_ratio))
-		goto out;
+		return;
 
 	wrmsrl(MSR_AMD64_TSC_RATIO, multiplier);
 	__this_cpu_write(current_tsc_ratio, multiplier);
-out:
-	preempt_enable();
+}
+
+static inline void kvm_cpu_svm_disable(void)
+{
+	uint64_t efer;
+
+	wrmsrl(MSR_VM_HSAVE_PA, 0);
+	rdmsrl(MSR_EFER, efer);
+	if (efer & EFER_SVME) {
+		/*
+		 * Force GIF=1 prior to disabling SVM, e.g. to ensure INIT and
+		 * NMI aren't blocked.
+		 */
+		stgi();
+		wrmsrl(MSR_EFER, efer & ~EFER_SVME);
+	}
+}
+
+static void svm_emergency_disable(void)
+{
+	kvm_rebooting = true;
+
+	kvm_cpu_svm_disable();
 }
 
 static void svm_hardware_disable(void)
@@ -579,7 +615,7 @@ static void svm_hardware_disable(void)
 	if (tsc_scaling)
 		__svm_write_tsc_multiplier(SVM_TSC_RATIO_DEFAULT);
 
-	cpu_svm_disable();
+	kvm_cpu_svm_disable();
 
 	amd_pmu_disable_virt();
 }
@@ -647,6 +683,21 @@ static int svm_hardware_enable(void)
 
 	amd_pmu_enable_virt();
 
+	/*
+	 * If TSC_AUX virtualization is supported, TSC_AUX becomes a swap type
+	 * "B" field (see sev_es_prepare_switch_to_guest()) for SEV-ES guests.
+	 * Since Linux does not change the value of TSC_AUX once set, prime the
+	 * TSC_AUX field now to avoid a RDMSR on every vCPU run.
+	 */
+	if (boot_cpu_has(X86_FEATURE_V_TSC_AUX)) {
+		struct sev_es_save_area *hostsa;
+		u32 __maybe_unused msr_hi;
+
+		hostsa = (struct sev_es_save_area *)(page_address(sd->save_area) + 0x400);
+
+		rdmsr(MSR_TSC_AUX, hostsa->tsc_aux, msr_hi);
+	}
+
 	return 0;
 }
 
@@ -685,6 +736,39 @@ free_save_area:
 	sd->save_area = NULL;
 	return ret;
 
+}
+
+static void set_dr_intercepts(struct vcpu_svm *svm)
+{
+	struct vmcb *vmcb = svm->vmcb01.ptr;
+
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR0_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR1_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR2_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR3_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR4_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR5_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR6_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR0_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR1_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR2_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR3_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR4_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR5_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR6_WRITE);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR7_READ);
+	vmcb_set_intercept(&vmcb->control, INTERCEPT_DR7_WRITE);
+
+	recalc_intercepts(svm);
+}
+
+static void clr_dr_intercepts(struct vcpu_svm *svm)
+{
+	struct vmcb *vmcb = svm->vmcb01.ptr;
+
+	vmcb->control.intercepts[INTERCEPT_DR] = 0;
+
+	recalc_intercepts(svm);
 }
 
 static int direct_access_msr_slot(u32 msr)
@@ -956,50 +1040,24 @@ static void svm_disable_lbrv(struct kvm_vcpu *vcpu)
 		svm_copy_lbrs(svm->vmcb01.ptr, svm->vmcb);
 }
 
-static int svm_get_lbr_msr(struct vcpu_svm *svm, u32 index)
+static struct vmcb *svm_get_lbr_vmcb(struct vcpu_svm *svm)
 {
 	/*
-	 * If the LBR virtualization is disabled, the LBR msrs are always
-	 * kept in the vmcb01 to avoid copying them on nested guest entries.
-	 *
-	 * If nested, and the LBR virtualization is enabled/disabled, the msrs
-	 * are moved between the vmcb01 and vmcb02 as needed.
+	 * If LBR virtualization is disabled, the LBR MSRs are always kept in
+	 * vmcb01.  If LBR virtualization is enabled and L1 is running VMs of
+	 * its own, the MSRs are moved between vmcb01 and vmcb02 as needed.
 	 */
-	struct vmcb *vmcb =
-		(svm->vmcb->control.virt_ext & LBR_CTL_ENABLE_MASK) ?
-			svm->vmcb : svm->vmcb01.ptr;
-
-	switch (index) {
-	case MSR_IA32_DEBUGCTLMSR:
-		return vmcb->save.dbgctl;
-	case MSR_IA32_LASTBRANCHFROMIP:
-		return vmcb->save.br_from;
-	case MSR_IA32_LASTBRANCHTOIP:
-		return vmcb->save.br_to;
-	case MSR_IA32_LASTINTFROMIP:
-		return vmcb->save.last_excp_from;
-	case MSR_IA32_LASTINTTOIP:
-		return vmcb->save.last_excp_to;
-	default:
-		KVM_BUG(false, svm->vcpu.kvm,
-			"%s: Unknown MSR 0x%x", __func__, index);
-		return 0;
-	}
+	return svm->vmcb->control.virt_ext & LBR_CTL_ENABLE_MASK ? svm->vmcb :
+								   svm->vmcb01.ptr;
 }
 
 void svm_update_lbrv(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-
-	bool enable_lbrv = svm_get_lbr_msr(svm, MSR_IA32_DEBUGCTLMSR) &
-					   DEBUGCTLMSR_LBR;
-
-	bool current_enable_lbrv = !!(svm->vmcb->control.virt_ext &
-				      LBR_CTL_ENABLE_MASK);
-
-	if (unlikely(is_guest_mode(vcpu) && svm->lbrv_enabled))
-		if (unlikely(svm->nested.ctl.virt_ext & LBR_CTL_ENABLE_MASK))
-			enable_lbrv = true;
+	bool current_enable_lbrv = svm->vmcb->control.virt_ext & LBR_CTL_ENABLE_MASK;
+	bool enable_lbrv = (svm_get_lbr_vmcb(svm)->save.dbgctl & DEBUGCTLMSR_LBR) ||
+			    (is_guest_mode(vcpu) && guest_can_use(vcpu, X86_FEATURE_LBRV) &&
+			    (svm->nested.ctl.virt_ext & LBR_CTL_ENABLE_MASK));
 
 	if (enable_lbrv == current_enable_lbrv)
 		return;
@@ -1110,20 +1168,22 @@ static u64 svm_get_l2_tsc_multiplier(struct kvm_vcpu *vcpu)
 	return svm->tsc_ratio_msr;
 }
 
-static void svm_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
+static void svm_write_tsc_offset(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
 	svm->vmcb01.ptr->control.tsc_offset = vcpu->arch.l1_tsc_offset;
-	svm->vmcb->control.tsc_offset = offset;
+	svm->vmcb->control.tsc_offset = vcpu->arch.tsc_offset;
 	vmcb_mark_dirty(svm->vmcb, VMCB_INTERCEPTS);
 }
 
-static void svm_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 multiplier)
+void svm_write_tsc_multiplier(struct kvm_vcpu *vcpu)
 {
-	__svm_write_tsc_multiplier(multiplier);
+	preempt_disable();
+	if (to_svm(vcpu)->guest_state_loaded)
+		__svm_write_tsc_multiplier(vcpu->arch.tsc_scaling_ratio);
+	preempt_enable();
 }
-
 
 /* Evaluate instruction intercepts that depend on guest CPUID features. */
 static void svm_recalc_instruction_intercepts(struct kvm_vcpu *vcpu,
@@ -1165,8 +1225,6 @@ static inline void init_vmcb_after_set_cpuid(struct kvm_vcpu *vcpu)
 
 		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 0, 0);
 		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 0, 0);
-
-		svm->v_vmload_vmsave_enabled = false;
 	} else {
 		/*
 		 * If hardware supports Virtual VMLOAD VMSAVE then enable it
@@ -1210,10 +1268,9 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 	 * Guest access to VMware backdoor ports could legitimately
 	 * trigger #GP because of TSS I/O permission bitmap.
 	 * We intercept those #GP and allow access to them anyway
-	 * as VMware does.  Don't intercept #GP for SEV guests as KVM can't
-	 * decrypt guest memory to decode the faulting instruction.
+	 * as VMware does.
 	 */
-	if (enable_vmware_backdoor && !sev_guest(vcpu->kvm))
+	if (enable_vmware_backdoor)
 		set_exception_intercept(svm, GP_VECTOR);
 
 	svm_set_intercept(svm, INTERCEPT_INTR);
@@ -1489,7 +1546,14 @@ static void svm_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	if (tsc_scaling)
 		__svm_write_tsc_multiplier(vcpu->arch.tsc_scaling_ratio);
 
-	if (likely(tsc_aux_uret_slot >= 0))
+	/*
+	 * TSC_AUX is always virtualized for SEV-ES guests when the feature is
+	 * available. The user return MSR support is not required in this case
+	 * because TSC_AUX is restored on #VMEXIT from the host save area
+	 * (which has been initialized in svm_hardware_enable()).
+	 */
+	if (likely(tsc_aux_uret_slot >= 0) &&
+	    (!boot_cpu_has(X86_FEATURE_V_TSC_AUX) || !sev_es_guest(vcpu->kvm)))
 		kvm_set_user_return_msr(tsc_aux_uret_slot, svm->tsc_aux, -1ull);
 
 	svm->guest_state_loaded = true;
@@ -1958,7 +2022,7 @@ static void svm_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	if (vcpu->arch.guest_state_protected)
+	if (WARN_ON_ONCE(sev_es_guest(vcpu->kvm)))
 		return;
 
 	get_debugreg(vcpu->arch.db[0], 0);
@@ -2690,6 +2754,13 @@ static int dr_interception(struct kvm_vcpu *vcpu)
 	unsigned long val;
 	int err = 0;
 
+	/*
+	 * SEV-ES intercepts DR7 only to disable guest debugging and the guest issues a VMGEXIT
+	 * for DR7 write only. KVM cannot change DR7 (always swapped as type 'A') so return early.
+	 */
+	if (sev_es_guest(vcpu->kvm))
+		return 1;
+
 	if (vcpu->guest_debug == 0) {
 		/*
 		 * No more DR vmexits; force a reload of the debug registers
@@ -2774,7 +2845,8 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 	switch (msr_info->index) {
 	case MSR_AMD64_TSC_RATIO:
-		if (!msr_info->host_initiated && !svm->tsc_scaling_enabled)
+		if (!msr_info->host_initiated &&
+		    !guest_can_use(vcpu, X86_FEATURE_TSCRATEMSR))
 			return 1;
 		msr_info->data = svm->tsc_ratio_msr;
 		break;
@@ -2812,11 +2884,19 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data = svm->tsc_aux;
 		break;
 	case MSR_IA32_DEBUGCTLMSR:
+		msr_info->data = svm_get_lbr_vmcb(svm)->save.dbgctl;
+		break;
 	case MSR_IA32_LASTBRANCHFROMIP:
+		msr_info->data = svm_get_lbr_vmcb(svm)->save.br_from;
+		break;
 	case MSR_IA32_LASTBRANCHTOIP:
+		msr_info->data = svm_get_lbr_vmcb(svm)->save.br_to;
+		break;
 	case MSR_IA32_LASTINTFROMIP:
+		msr_info->data = svm_get_lbr_vmcb(svm)->save.last_excp_from;
+		break;
 	case MSR_IA32_LASTINTTOIP:
-		msr_info->data = svm_get_lbr_msr(svm, msr_info->index);
+		msr_info->data = svm_get_lbr_vmcb(svm)->save.last_excp_to;
 		break;
 	case MSR_VM_HSAVE_PA:
 		msr_info->data = svm->nested.hsave_msr;
@@ -2916,7 +2996,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	switch (ecx) {
 	case MSR_AMD64_TSC_RATIO:
 
-		if (!svm->tsc_scaling_enabled) {
+		if (!guest_can_use(vcpu, X86_FEATURE_TSCRATEMSR)) {
 
 			if (!msr->host_initiated)
 				return 1;
@@ -2938,7 +3018,8 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 
 		svm->tsc_ratio_msr = data;
 
-		if (svm->tsc_scaling_enabled && is_guest_mode(vcpu))
+		if (guest_can_use(vcpu, X86_FEATURE_TSCRATEMSR) &&
+		    is_guest_mode(vcpu))
 			nested_svm_update_tsc_ratio_msr(vcpu);
 
 		break;
@@ -3027,6 +3108,16 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		break;
 	case MSR_TSC_AUX:
 		/*
+		 * TSC_AUX is always virtualized for SEV-ES guests when the
+		 * feature is available. The user return MSR support is not
+		 * required in this case because TSC_AUX is restored on #VMEXIT
+		 * from the host save area (which has been initialized in
+		 * svm_hardware_enable()).
+		 */
+		if (boot_cpu_has(X86_FEATURE_V_TSC_AUX) && sev_es_guest(vcpu->kvm))
+			break;
+
+		/*
 		 * TSC_AUX is usually changed only during boot and never read
 		 * directly.  Intercept TSC_AUX instead of exposing it to the
 		 * guest via direct_access_msrs, and switch it via user return.
@@ -3047,13 +3138,8 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		if (data & DEBUGCTL_RESERVED_BITS)
 			return 1;
 
-		if (svm->vmcb->control.virt_ext & LBR_CTL_ENABLE_MASK)
-			svm->vmcb->save.dbgctl = data;
-		else
-			svm->vmcb01.ptr->save.dbgctl = data;
-
+		svm_get_lbr_vmcb(svm)->save.dbgctl = data;
 		svm_update_lbrv(vcpu);
-
 		break;
 	case MSR_VM_HSAVE_PA:
 		/*
@@ -3779,6 +3865,19 @@ static void svm_enable_nmi_window(struct kvm_vcpu *vcpu)
 	if (svm_get_nmi_mask(vcpu) && !svm->awaiting_iret_completion)
 		return; /* IRET will cause a vm exit */
 
+	/*
+	 * SEV-ES guests are responsible for signaling when a vCPU is ready to
+	 * receive a new NMI, as SEV-ES guests can't be single-stepped, i.e.
+	 * KVM can't intercept and single-step IRET to detect when NMIs are
+	 * unblocked (architecturally speaking).  See SVM_VMGEXIT_NMI_COMPLETE.
+	 *
+	 * Note, GIF is guaranteed to be '1' for SEV-ES guests as hardware
+	 * ignores SEV-ES guest writes to EFER.SVME *and* CLGI/STGI are not
+	 * supported NAEs in the GHCB protocol.
+	 */
+	if (sev_es_guest(vcpu->kvm))
+		return;
+
 	if (!gif_set(svm)) {
 		if (vgif)
 			svm_set_intercept(svm, INTERCEPT_STGI);
@@ -4217,28 +4316,37 @@ static void svm_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	vcpu->arch.xsaves_enabled = guest_cpuid_has(vcpu, X86_FEATURE_XSAVE) &&
-				    boot_cpu_has(X86_FEATURE_XSAVE) &&
-				    boot_cpu_has(X86_FEATURE_XSAVES);
+	/*
+	 * SVM doesn't provide a way to disable just XSAVES in the guest, KVM
+	 * can only disable all variants of by disallowing CR4.OSXSAVE from
+	 * being set.  As a result, if the host has XSAVE and XSAVES, and the
+	 * guest has XSAVE enabled, the guest can execute XSAVES without
+	 * faulting.  Treat XSAVES as enabled in this case regardless of
+	 * whether it's advertised to the guest so that KVM context switches
+	 * XSS on VM-Enter/VM-Exit.  Failure to do so would effectively give
+	 * the guest read/write access to the host's XSS.
+	 */
+	if (boot_cpu_has(X86_FEATURE_XSAVE) &&
+	    boot_cpu_has(X86_FEATURE_XSAVES) &&
+	    guest_cpuid_has(vcpu, X86_FEATURE_XSAVE))
+		kvm_governed_feature_set(vcpu, X86_FEATURE_XSAVES);
 
-	/* Update nrips enabled cache */
-	svm->nrips_enabled = kvm_cpu_cap_has(X86_FEATURE_NRIPS) &&
-			     guest_cpuid_has(vcpu, X86_FEATURE_NRIPS);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_NRIPS);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_TSCRATEMSR);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_LBRV);
 
-	svm->tsc_scaling_enabled = tsc_scaling && guest_cpuid_has(vcpu, X86_FEATURE_TSCRATEMSR);
-	svm->lbrv_enabled = lbrv && guest_cpuid_has(vcpu, X86_FEATURE_LBRV);
+	/*
+	 * Intercept VMLOAD if the vCPU mode is Intel in order to emulate that
+	 * VMLOAD drops bits 63:32 of SYSENTER (ignoring the fact that exposing
+	 * SVM on Intel is bonkers and extremely unlikely to work).
+	 */
+	if (!guest_cpuid_is_intel(vcpu))
+		kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_V_VMSAVE_VMLOAD);
 
-	svm->v_vmload_vmsave_enabled = vls && guest_cpuid_has(vcpu, X86_FEATURE_V_VMSAVE_VMLOAD);
-
-	svm->pause_filter_enabled = kvm_cpu_cap_has(X86_FEATURE_PAUSEFILTER) &&
-			guest_cpuid_has(vcpu, X86_FEATURE_PAUSEFILTER);
-
-	svm->pause_threshold_enabled = kvm_cpu_cap_has(X86_FEATURE_PFTHRESHOLD) &&
-			guest_cpuid_has(vcpu, X86_FEATURE_PFTHRESHOLD);
-
-	svm->vgif_enabled = vgif && guest_cpuid_has(vcpu, X86_FEATURE_VGIF);
-
-	svm->vnmi_enabled = vnmi && guest_cpuid_has(vcpu, X86_FEATURE_VNMI);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_PAUSEFILTER);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_PFTHRESHOLD);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_VGIF);
+	kvm_governed_feature_check_and_set(vcpu, X86_FEATURE_VNMI);
 
 	svm_recalc_instruction_intercepts(vcpu, svm);
 
@@ -5125,9 +5233,11 @@ static __init int svm_hardware_setup(void)
 
 	svm_adjust_mmio_mask();
 
+	nrips = nrips && boot_cpu_has(X86_FEATURE_NRIPS);
+
 	/*
 	 * Note, SEV setup consumes npt_enabled and enable_mmio_caching (which
-	 * may be modified by svm_adjust_mmio_mask()).
+	 * may be modified by svm_adjust_mmio_mask()), as well as nrips.
 	 */
 	sev_hardware_setup();
 
@@ -5137,11 +5247,6 @@ static __init int svm_hardware_setup(void)
 		r = svm_cpu_init(cpu);
 		if (r)
 			goto err;
-	}
-
-	if (nrips) {
-		if (!boot_cpu_has(X86_FEATURE_NRIPS))
-			nrips = false;
 	}
 
 	enable_apicv = avic = avic && avic_hardware_setup();
@@ -5226,6 +5331,13 @@ static struct kvm_x86_init_ops svm_init_ops __initdata = {
 	.pmu_ops = &amd_pmu_ops,
 };
 
+static void __svm_exit(void)
+{
+	kvm_x86_vendor_exit();
+
+	cpu_emergency_unregister_virt_callback(svm_emergency_disable);
+}
+
 static int __init svm_init(void)
 {
 	int r;
@@ -5239,6 +5351,8 @@ static int __init svm_init(void)
 	if (r)
 		return r;
 
+	cpu_emergency_register_virt_callback(svm_emergency_disable);
+
 	/*
 	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
 	 * exposed to userspace!
@@ -5251,14 +5365,14 @@ static int __init svm_init(void)
 	return 0;
 
 err_kvm_init:
-	kvm_x86_vendor_exit();
+	__svm_exit();
 	return r;
 }
 
 static void __exit svm_exit(void)
 {
 	kvm_exit();
-	kvm_x86_vendor_exit();
+	__svm_exit();
 }
 
 module_init(svm_init)

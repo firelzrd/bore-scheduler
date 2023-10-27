@@ -1015,6 +1015,7 @@ struct rswitch_private {
 	spinlock_t lock;	/* lock interrupt registers' control */
 	struct clk *clk;
 
+	bool etha_no_runtime_change;
 	bool gwca_halt;
 };
 

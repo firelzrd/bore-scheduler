@@ -1041,7 +1041,7 @@ stop_rr_fcf_flogi:
 		    !(ndlp->fc4_xpt_flags & SCSI_XPT_REGD))
 			lpfc_nlp_put(ndlp);
 
-		lpfc_printf_vlog(vport, KERN_WARNING, LOG_TRACE_EVENT,
+		lpfc_printf_vlog(vport, KERN_WARNING, LOG_ELS,
 				 "0150 FLOGI failure Status:x%x/x%x "
 				 "xri x%x TMO:x%x refcnt %d\n",
 				 ulp_status, ulp_word4, cmdiocb->sli4_xritag,
@@ -1091,7 +1091,6 @@ stop_rr_fcf_flogi:
 			if (!lpfc_error_lost_link(vport, ulp_status, ulp_word4))
 				lpfc_issue_reg_vfi(vport);
 
-			lpfc_nlp_put(ndlp);
 			goto out;
 		}
 		goto flogifail;
@@ -1332,7 +1331,8 @@ lpfc_issue_els_flogi(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 	if (phba->cfg_vmid_priority_tagging) {
 		sp->cmn.priority_tagging = 1;
 		/* lpfc_vmid_host_uuid is combination of wwpn and wwnn */
-		if (uuid_is_null((uuid_t *)vport->lpfc_vmid_host_uuid)) {
+		if (!memchr_inv(vport->lpfc_vmid_host_uuid, 0,
+				sizeof(vport->lpfc_vmid_host_uuid))) {
 			memcpy(vport->lpfc_vmid_host_uuid, phba->wwpn,
 			       sizeof(phba->wwpn));
 			memcpy(&vport->lpfc_vmid_host_uuid[8], phba->wwnn,
@@ -2377,10 +2377,10 @@ lpfc_cmpl_els_prli(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 		/* PRLI failed */
 		lpfc_printf_vlog(vport, mode, loglevel,
 				 "2754 PRLI failure DID:%06X Status:x%x/x%x, "
-				 "data: x%x x%x\n",
+				 "data: x%x x%x x%x\n",
 				 ndlp->nlp_DID, ulp_status,
 				 ulp_word4, ndlp->nlp_state,
-				 ndlp->fc4_prli_sent);
+				 ndlp->fc4_prli_sent, ndlp->nlp_flag);
 
 		/* Do not call DSM for lpfc_els_abort'ed ELS cmds */
 		if (!lpfc_error_lost_link(vport, ulp_status, ulp_word4))
@@ -2391,14 +2391,16 @@ lpfc_cmpl_els_prli(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 		 * mismatch typically caused by an RSCN. Skip any
 		 * processing to allow recovery.
 		 */
-		if (ndlp->nlp_state >= NLP_STE_PLOGI_ISSUE &&
-		    ndlp->nlp_state <= NLP_STE_REG_LOGIN_ISSUE) {
+		if ((ndlp->nlp_state >= NLP_STE_PLOGI_ISSUE &&
+		     ndlp->nlp_state <= NLP_STE_REG_LOGIN_ISSUE) ||
+		    (ndlp->nlp_state == NLP_STE_NPR_NODE &&
+		     ndlp->nlp_flag & NLP_DELAY_TMO)) {
 			lpfc_printf_vlog(vport, KERN_WARNING, LOG_NODE,
-					 "2784 PRLI cmpl: state mismatch "
+					 "2784 PRLI cmpl: Allow Node recovery "
 					 "DID x%06x nstate x%x nflag x%x\n",
 					 ndlp->nlp_DID, ndlp->nlp_state,
 					 ndlp->nlp_flag);
-				goto out;
+			goto out;
 		}
 
 		/*
@@ -6166,11 +6168,25 @@ lpfc_els_rsp_prli_acc(struct lpfc_vport *vport, struct lpfc_iocbq *oldiocb,
 			npr->TaskRetryIdReq = 1;
 		}
 		npr->acceptRspCode = PRLI_REQ_EXECUTED;
-		npr->estabImagePair = 1;
+
+		/* Set image pair for complementary pairs only. */
+		if (ndlp->nlp_type & NLP_FCP_TARGET)
+			npr->estabImagePair = 1;
+		else
+			npr->estabImagePair = 0;
 		npr->readXferRdyDis = 1;
 		npr->ConfmComplAllowed = 1;
 		npr->prliType = PRLI_FCP_TYPE;
 		npr->initiatorFunc = 1;
+
+		/* Xmit PRLI ACC response tag <ulpIoTag> */
+		lpfc_printf_vlog(vport, KERN_INFO,
+				 LOG_ELS | LOG_NODE | LOG_DISCOVERY,
+				 "6014 FCP issue PRLI ACC imgpair %d "
+				 "retry %d task %d\n",
+				 npr->estabImagePair,
+				 npr->Retry, npr->TaskRetryIdReq);
+
 	} else if (prli_fc4_req == PRLI_NVME_TYPE) {
 		/* Respond with an NVME PRLI Type */
 		npr_nvme = (struct lpfc_nvme_prli *) pcmd;
@@ -12342,9 +12358,10 @@ lpfc_vmid_uvem(struct lpfc_vport *vport,
 	elsiocb->vmid_tag.vmid_context = vmid_context;
 	pcmd = (u8 *)elsiocb->cmd_dmabuf->virt;
 
-	if (uuid_is_null((uuid_t *)vport->lpfc_vmid_host_uuid))
+	if (!memchr_inv(vport->lpfc_vmid_host_uuid, 0,
+			sizeof(vport->lpfc_vmid_host_uuid)))
 		memcpy(vport->lpfc_vmid_host_uuid, vmid->host_vmid,
-		       LPFC_COMPRESS_VMID_SIZE);
+		       sizeof(vport->lpfc_vmid_host_uuid));
 
 	*((u32 *)(pcmd)) = ELS_CMD_UVEM;
 	len = (u32 *)(pcmd + 4);
@@ -12354,13 +12371,13 @@ lpfc_vmid_uvem(struct lpfc_vport *vport,
 	vem_id_desc->tag = be32_to_cpu(VEM_ID_DESC_TAG);
 	vem_id_desc->length = be32_to_cpu(LPFC_UVEM_VEM_ID_DESC_SIZE);
 	memcpy(vem_id_desc->vem_id, vport->lpfc_vmid_host_uuid,
-	       LPFC_COMPRESS_VMID_SIZE);
+	       sizeof(vem_id_desc->vem_id));
 
 	inst_desc = (struct instantiated_ve_desc *)(pcmd + 32);
 	inst_desc->tag = be32_to_cpu(INSTANTIATED_VE_DESC_TAG);
 	inst_desc->length = be32_to_cpu(LPFC_UVEM_VE_MAP_DESC_SIZE);
 	memcpy(inst_desc->global_vem_id, vmid->host_vmid,
-	       LPFC_COMPRESS_VMID_SIZE);
+	       sizeof(inst_desc->global_vem_id));
 
 	bf_set(lpfc_instantiated_nport_id, inst_desc, vport->fc_myDID);
 	bf_set(lpfc_instantiated_local_id, inst_desc,

@@ -272,8 +272,7 @@ continue_unlock:
 				 * not be suitable for data integrity
 				 * writeout).
 				 */
-				*done_index = folio->index +
-					folio_nr_pages(folio);
+				*done_index = folio_next_index(folio);
 				ret = 1;
 				break;
 			}
@@ -747,7 +746,7 @@ static const struct address_space_operations gfs2_aops = {
 	.writepages = gfs2_writepages,
 	.read_folio = gfs2_read_folio,
 	.readahead = gfs2_readahead,
-	.dirty_folio = filemap_dirty_folio,
+	.dirty_folio = iomap_dirty_folio,
 	.release_folio = iomap_release_folio,
 	.invalidate_folio = iomap_invalidate_folio,
 	.bmap = gfs2_bmap,

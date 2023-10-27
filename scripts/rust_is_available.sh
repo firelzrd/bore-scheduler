@@ -19,6 +19,49 @@ get_canonical_version()
 	echo $((100000 * $1 + 100 * $2 + $3))
 }
 
+# Print a reference to the Quick Start guide in the documentation.
+print_docs_reference()
+{
+	echo >&2 "***"
+	echo >&2 "*** Please see Documentation/rust/quick-start.rst for details"
+	echo >&2 "*** on how to set up the Rust support."
+	echo >&2 "***"
+}
+
+# Print an explanation about the fact that the script is meant to be called from Kbuild.
+print_kbuild_explanation()
+{
+	echo >&2 "***"
+	echo >&2 "*** This script is intended to be called from Kbuild."
+	echo >&2 "*** Please use the 'rustavailable' target to call it instead."
+	echo >&2 "*** Otherwise, the results may not be meaningful."
+	exit 1
+}
+
+# If the script fails for any reason, or if there was any warning, then
+# print a reference to the documentation on exit.
+warning=0
+trap 'if [ $? -ne 0 ] || [ $warning -ne 0 ]; then print_docs_reference; fi' EXIT
+
+# Check that the expected environment variables are set.
+if [ -z "${RUSTC+x}" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Environment variable 'RUSTC' is not set."
+	print_kbuild_explanation
+fi
+
+if [ -z "${BINDGEN+x}" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Environment variable 'BINDGEN' is not set."
+	print_kbuild_explanation
+fi
+
+if [ -z "${CC+x}" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Environment variable 'CC' is not set."
+	print_kbuild_explanation
+fi
+
 # Check that the Rust compiler exists.
 if ! command -v "$RUSTC" >/dev/null; then
 	echo >&2 "***"
@@ -38,11 +81,31 @@ fi
 # Check that the Rust compiler version is suitable.
 #
 # Non-stable and distributions' versions may have a version suffix, e.g. `-dev`.
+rust_compiler_output=$( \
+	LC_ALL=C "$RUSTC" --version 2>/dev/null
+) || rust_compiler_code=$?
+if [ -n "$rust_compiler_code" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Running '$RUSTC' to check the Rust compiler version failed with"
+	echo >&2 "*** code $rust_compiler_code. See output and docs below for details:"
+	echo >&2 "***"
+	echo >&2 "$rust_compiler_output"
+	echo >&2 "***"
+	exit 1
+fi
 rust_compiler_version=$( \
-	LC_ALL=C "$RUSTC" --version 2>/dev/null \
-		| head -n 1 \
-		| grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+	echo "$rust_compiler_output" \
+		| sed -nE '1s:.*rustc ([0-9]+\.[0-9]+\.[0-9]+).*:\1:p'
 )
+if [ -z "$rust_compiler_version" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Running '$RUSTC' to check the Rust compiler version did not return"
+	echo >&2 "*** an expected output. See output and docs below for details:"
+	echo >&2 "***"
+	echo >&2 "$rust_compiler_output"
+	echo >&2 "***"
+	exit 1
+fi
 rust_compiler_min_version=$($min_tool_version rustc)
 rust_compiler_cversion=$(get_canonical_version $rust_compiler_version)
 rust_compiler_min_cversion=$(get_canonical_version $rust_compiler_min_version)
@@ -60,16 +123,37 @@ if [ "$rust_compiler_cversion" -gt "$rust_compiler_min_cversion" ]; then
 	echo >&2 "***   Your version:     $rust_compiler_version"
 	echo >&2 "***   Expected version: $rust_compiler_min_version"
 	echo >&2 "***"
+	warning=1
 fi
 
 # Check that the Rust bindings generator is suitable.
 #
 # Non-stable and distributions' versions may have a version suffix, e.g. `-dev`.
+rust_bindings_generator_output=$( \
+	LC_ALL=C "$BINDGEN" --version 2>/dev/null
+) || rust_bindings_generator_code=$?
+if [ -n "$rust_bindings_generator_code" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Running '$BINDGEN' to check the Rust bindings generator version failed with"
+	echo >&2 "*** code $rust_bindings_generator_code. See output and docs below for details:"
+	echo >&2 "***"
+	echo >&2 "$rust_bindings_generator_output"
+	echo >&2 "***"
+	exit 1
+fi
 rust_bindings_generator_version=$( \
-	LC_ALL=C "$BINDGEN" --version 2>/dev/null \
-		| head -n 1 \
-		| grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+	echo "$rust_bindings_generator_output" \
+		| sed -nE '1s:.*bindgen ([0-9]+\.[0-9]+\.[0-9]+).*:\1:p'
 )
+if [ -z "$rust_bindings_generator_version" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Running '$BINDGEN' to check the bindings generator version did not return"
+	echo >&2 "*** an expected output. See output and docs below for details:"
+	echo >&2 "***"
+	echo >&2 "$rust_bindings_generator_output"
+	echo >&2 "***"
+	exit 1
+fi
 rust_bindings_generator_min_version=$($min_tool_version bindgen)
 rust_bindings_generator_cversion=$(get_canonical_version $rust_bindings_generator_version)
 rust_bindings_generator_min_cversion=$(get_canonical_version $rust_bindings_generator_min_version)
@@ -87,6 +171,7 @@ if [ "$rust_bindings_generator_cversion" -gt "$rust_bindings_generator_min_cvers
 	echo >&2 "***   Your version:     $rust_bindings_generator_version"
 	echo >&2 "***   Expected version: $rust_bindings_generator_min_version"
 	echo >&2 "***"
+	warning=1
 fi
 
 # Check that the `libclang` used by the Rust bindings generator is suitable.
@@ -110,10 +195,23 @@ fi
 
 # `bindgen` returned successfully, thus use the output to check that the version
 # of the `libclang` found by the Rust bindings generator is suitable.
+#
+# Unlike other version checks, note that this one does not necessarily appear
+# in the first line of the output, thus no `sed` address is provided.
 bindgen_libclang_version=$( \
 	echo "$bindgen_libclang_output" \
 		| sed -nE 's:.*clang version ([0-9]+\.[0-9]+\.[0-9]+).*:\1:p'
 )
+if [ -z "$bindgen_libclang_version" ]; then
+	echo >&2 "***"
+	echo >&2 "*** Running '$BINDGEN' to check the libclang version (used by the Rust"
+	echo >&2 "*** bindings generator) did not return an expected output. See output"
+	echo >&2 "*** and docs below for details:"
+	echo >&2 "***"
+	echo >&2 "$bindgen_libclang_output"
+	echo >&2 "***"
+	exit 1
+fi
 bindgen_libclang_min_version=$($min_tool_version llvm)
 bindgen_libclang_cversion=$(get_canonical_version $bindgen_libclang_version)
 bindgen_libclang_min_cversion=$(get_canonical_version $bindgen_libclang_min_version)
@@ -144,6 +242,7 @@ if [ "$cc_name" = Clang ]; then
 		echo >&2 "***   libclang version: $bindgen_libclang_version"
 		echo >&2 "***   Clang version:    $clang_version"
 		echo >&2 "***"
+		warning=1
 	fi
 fi
 

@@ -86,7 +86,7 @@ static int raa215300_i2c_probe(struct i2c_client *client)
 	val &= RAA215300_REG_BLOCK_EN_RTC_EN;
 	regmap_write(regmap, RAA215300_REG_BLOCK_EN, val);
 
-	/*Clear the latched registers */
+	/* Clear the latched registers */
 	regmap_read(regmap, RAA215300_FAULT_LATCHED_STATUS_1, &val);
 	regmap_write(regmap, RAA215300_FAULT_LATCHED_STATUS_1, val);
 	regmap_read(regmap, RAA215300_FAULT_LATCHED_STATUS_2, &val);
@@ -119,7 +119,7 @@ static int raa215300_i2c_probe(struct i2c_client *client)
 	}
 
 	if (clk_name) {
-		char *name = pmic_version >= 0x12 ? "isl1208" : "raa215300_a0";
+		const char *name = pmic_version >= 0x12 ? "isl1208" : "raa215300_a0";
 		struct device_node *np = client->dev.of_node;
 		u32 addr = RAA215300_RTC_DEFAULT_ADDR;
 		struct i2c_board_info info = {};
@@ -127,7 +127,7 @@ static int raa215300_i2c_probe(struct i2c_client *client)
 		struct clk_hw *hw;
 		ssize_t size;
 
-		hw = devm_clk_hw_register_fixed_rate(dev, clk_name, NULL, 0, 32000);
+		hw = devm_clk_hw_register_fixed_rate(dev, clk_name, NULL, 0, 32768);
 		if (IS_ERR(hw))
 			return PTR_ERR(hw);
 
@@ -182,7 +182,7 @@ static struct i2c_driver raa215300_i2c_driver = {
 		.name = "raa215300",
 		.of_match_table = raa215300_dt_match,
 	},
-	.probe_new = raa215300_i2c_probe,
+	.probe = raa215300_i2c_probe,
 };
 module_i2c_driver(raa215300_i2c_driver);
 

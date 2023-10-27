@@ -817,7 +817,7 @@ static void tg_update_carryover(struct throtl_grp *tg)
 		__tg_update_carryover(tg, WRITE);
 
 	/* see comments in struct throtl_grp for meaning of these fields. */
-	throtl_log(&tg->service_queue, "%s: %llu %llu %u %u\n", __func__,
+	throtl_log(&tg->service_queue, "%s: %lld %lld %d %d\n", __func__,
 		   tg->carryover_bytes[READ], tg->carryover_bytes[WRITE],
 		   tg->carryover_ios[READ], tg->carryover_ios[WRITE]);
 }
@@ -826,7 +826,7 @@ static unsigned long tg_within_iops_limit(struct throtl_grp *tg, struct bio *bio
 				 u32 iops_limit)
 {
 	bool rw = bio_data_dir(bio);
-	unsigned int io_allowed;
+	int io_allowed;
 	unsigned long jiffy_elapsed, jiffy_wait, jiffy_elapsed_rnd;
 
 	if (iops_limit == UINT_MAX) {
@@ -839,9 +839,8 @@ static unsigned long tg_within_iops_limit(struct throtl_grp *tg, struct bio *bio
 	jiffy_elapsed_rnd = roundup(jiffy_elapsed + 1, tg->td->throtl_slice);
 	io_allowed = calculate_io_allowed(iops_limit, jiffy_elapsed_rnd) +
 		     tg->carryover_ios[rw];
-	if (tg->io_disp[rw] + 1 <= io_allowed) {
+	if (io_allowed > 0 && tg->io_disp[rw] + 1 <= io_allowed)
 		return 0;
-	}
 
 	/* Calc approx time to dispatch */
 	jiffy_wait = jiffy_elapsed_rnd - jiffy_elapsed;
@@ -852,7 +851,8 @@ static unsigned long tg_within_bps_limit(struct throtl_grp *tg, struct bio *bio,
 				u64 bps_limit)
 {
 	bool rw = bio_data_dir(bio);
-	u64 bytes_allowed, extra_bytes;
+	long long bytes_allowed;
+	u64 extra_bytes;
 	unsigned long jiffy_elapsed, jiffy_wait, jiffy_elapsed_rnd;
 	unsigned int bio_size = throtl_bio_data_size(bio);
 
@@ -870,9 +870,8 @@ static unsigned long tg_within_bps_limit(struct throtl_grp *tg, struct bio *bio,
 	jiffy_elapsed_rnd = roundup(jiffy_elapsed_rnd, tg->td->throtl_slice);
 	bytes_allowed = calculate_bytes_allowed(bps_limit, jiffy_elapsed_rnd) +
 			tg->carryover_bytes[rw];
-	if (tg->bytes_disp[rw] + bio_size <= bytes_allowed) {
+	if (bytes_allowed > 0 && tg->bytes_disp[rw] + bio_size <= bytes_allowed)
 		return 0;
-	}
 
 	/* Calc approx time to dispatch */
 	extra_bytes = tg->bytes_disp[rw] + bio_size - bytes_allowed;

@@ -7,8 +7,9 @@
 #include <linux/component.h>
 #include <linux/iommu.h>
 #include <linux/module.h>
-#include <linux/of_address.h>
+#include <linux/of.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/dma-mapping.h>
 
@@ -559,11 +560,8 @@ static const struct drm_driver mtk_drm_driver = {
 
 	.dumb_create = mtk_drm_gem_dumb_create,
 
-	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
-	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_import = mtk_drm_gem_prime_import,
 	.gem_prime_import_sg_table = mtk_gem_prime_import_sg_table,
-	.gem_prime_mmap = drm_gem_prime_mmap,
 	.fops = &mtk_drm_fops,
 
 	.name = DRIVER_NAME,
@@ -912,7 +910,7 @@ err_node:
 	return ret;
 }
 
-static int mtk_drm_remove(struct platform_device *pdev)
+static void mtk_drm_remove(struct platform_device *pdev)
 {
 	struct mtk_drm_private *private = platform_get_drvdata(pdev);
 	int i;
@@ -922,8 +920,6 @@ static int mtk_drm_remove(struct platform_device *pdev)
 	of_node_put(private->mutex_node);
 	for (i = 0; i < DDP_COMPONENT_DRM_ID_MAX; i++)
 		of_node_put(private->comp_node[i]);
-
-	return 0;
 }
 
 static int mtk_drm_sys_prepare(struct device *dev)
@@ -956,7 +952,7 @@ static const struct dev_pm_ops mtk_drm_pm_ops = {
 
 static struct platform_driver mtk_drm_platform_driver = {
 	.probe	= mtk_drm_probe,
-	.remove	= mtk_drm_remove,
+	.remove_new = mtk_drm_remove,
 	.driver	= {
 		.name	= "mediatek-drm",
 		.pm     = &mtk_drm_pm_ops,

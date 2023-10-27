@@ -8,9 +8,9 @@
 #include <linux/err.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 
 #include <dt-bindings/clock/qcom,gcc-sc8280xp.h>
@@ -6786,8 +6786,8 @@ static struct gdsc pcie_2a_gdsc = {
 	.pd = {
 		.name = "pcie_2a_gdsc",
 	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
+	.pwrsts = PWRSTS_RET_ON,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc pcie_2b_gdsc = {
@@ -6797,8 +6797,8 @@ static struct gdsc pcie_2b_gdsc = {
 	.pd = {
 		.name = "pcie_2b_gdsc",
 	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
+	.pwrsts = PWRSTS_RET_ON,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc pcie_3a_gdsc = {
@@ -6808,8 +6808,8 @@ static struct gdsc pcie_3a_gdsc = {
 	.pd = {
 		.name = "pcie_3a_gdsc",
 	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
+	.pwrsts = PWRSTS_RET_ON,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc pcie_3b_gdsc = {
@@ -6819,8 +6819,8 @@ static struct gdsc pcie_3b_gdsc = {
 	.pd = {
 		.name = "pcie_3b_gdsc",
 	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
+	.pwrsts = PWRSTS_RET_ON,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc pcie_4_gdsc = {
@@ -6830,8 +6830,8 @@ static struct gdsc pcie_4_gdsc = {
 	.pd = {
 		.name = "pcie_4_gdsc",
 	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
+	.pwrsts = PWRSTS_RET_ON,
+	.flags = VOTABLE | RETAIN_FF_ENABLE,
 };
 
 static struct gdsc ufs_card_gdsc = {

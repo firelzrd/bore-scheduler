@@ -1439,7 +1439,7 @@ static bool check_acpi(struct ssif_info *ssif_info, struct device *dev)
 	if (acpi_handle) {
 		ssif_info->addr_source = SI_ACPI;
 		ssif_info->addr_info.acpi_info.acpi_handle = acpi_handle;
-		request_module("acpi_ipmi");
+		request_module_nowait("acpi_ipmi");
 		return true;
 	}
 #endif
@@ -2059,7 +2059,7 @@ static struct i2c_driver ssif_i2c_driver = {
 	.driver		= {
 		.name			= DEVICE_NAME
 	},
-	.probe_new	= ssif_probe,
+	.probe		= ssif_probe,
 	.remove		= ssif_remove,
 	.alert		= ssif_alert,
 	.id_table	= ssif_id,

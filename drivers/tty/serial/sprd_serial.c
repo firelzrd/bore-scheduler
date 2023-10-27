@@ -558,7 +558,7 @@ static void sprd_break_ctl(struct uart_port *port, int break_state)
 }
 
 static int handle_lsr_errors(struct uart_port *port,
-			     unsigned int *flag,
+			     u8 *flag,
 			     unsigned int *lsr)
 {
 	int ret = 0;
@@ -594,7 +594,8 @@ static inline void sprd_rx(struct uart_port *port)
 	struct sprd_uart_port *sp = container_of(port, struct sprd_uart_port,
 						 port);
 	struct tty_port *tty = &port->state->port;
-	unsigned int ch, flag, lsr, max_count = SPRD_TIMEOUT;
+	unsigned int lsr, max_count = SPRD_TIMEOUT;
+	u8 ch, flag;
 
 	if (sp->rx_dma.enable) {
 		sprd_uart_dma_irq(port);
@@ -1179,8 +1180,7 @@ static int sprd_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	up->membase = devm_ioremap_resource(&pdev->dev, res);
+	up->membase = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(up->membase))
 		return PTR_ERR(up->membase);
 

@@ -4129,7 +4129,7 @@ void dml32_CalculateFlipSchedule(
 	unsigned int HostVMDynamicLevelsTrips;
 	double TimeForFetchingMetaPTEImmediateFlip;
 	double TimeForFetchingRowInVBlankImmediateFlip;
-	double ImmediateFlipBW;
+	double ImmediateFlipBW = 1.0;
 
 	if (GPUVMEnable == true && HostVMEnable == true)
 		HostVMDynamicLevelsTrips = HostVMMaxNonCachedPageTableLevels;

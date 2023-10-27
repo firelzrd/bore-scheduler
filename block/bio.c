@@ -606,15 +606,15 @@ struct bio *bio_kmalloc(unsigned short nr_vecs, gfp_t gfp_mask)
 }
 EXPORT_SYMBOL(bio_kmalloc);
 
-void zero_fill_bio(struct bio *bio)
+void zero_fill_bio_iter(struct bio *bio, struct bvec_iter start)
 {
 	struct bio_vec bv;
 	struct bvec_iter iter;
 
-	bio_for_each_segment(bv, bio, iter)
+	__bio_for_each_segment(bv, bio, iter, start)
 		memzero_bvec(&bv);
 }
-EXPORT_SYMBOL(zero_fill_bio);
+EXPORT_SYMBOL(zero_fill_bio_iter);
 
 /**
  * bio_truncate - truncate the bio to small size of @new_size
@@ -969,7 +969,7 @@ int bio_add_hw_page(struct request_queue *q, struct bio *bio,
 	if (WARN_ON_ONCE(bio_flagged(bio, BIO_CLONED)))
 		return 0;
 
-	if (((bio->bi_iter.bi_size + len) >> 9) > max_sectors)
+	if (((bio->bi_iter.bi_size + len) >> SECTOR_SHIFT) > max_sectors)
 		return 0;
 
 	if (bio->bi_vcnt > 0) {
@@ -981,6 +981,10 @@ int bio_add_hw_page(struct request_queue *q, struct bio *bio,
 			return len;
 		}
 
+		if (bio->bi_vcnt >=
+		    min(bio->bi_max_vecs, queue_max_segments(q)))
+			return 0;
+
 		/*
 		 * If the queue doesn't support SG gaps and adding this segment
 		 * would create a gap, disallow it.
@@ -988,12 +992,6 @@ int bio_add_hw_page(struct request_queue *q, struct bio *bio,
 		if (bvec_gap_to_prev(&q->limits, bv, offset))
 			return 0;
 	}
-
-	if (bio_full(bio, len))
-		return 0;
-
-	if (bio->bi_vcnt >= queue_max_segments(q))
-		return 0;
 
 	bvec_set_page(&bio->bi_io_vec[bio->bi_vcnt], page, len, offset);
 	bio->bi_vcnt++;
@@ -1107,7 +1105,7 @@ int bio_add_page(struct bio *bio, struct page *page,
 		return len;
 	}
 
-	if (bio_full(bio, len))
+	if (bio->bi_vcnt >= bio->bi_max_vecs)
 		return 0;
 	__bio_add_page(bio, page, len, offset);
 	return len;
@@ -1233,7 +1231,7 @@ static int __bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter)
 	struct page **pages = (struct page **)bv;
 	ssize_t size, left;
 	unsigned len, i = 0;
-	size_t offset, trim;
+	size_t offset;
 	int ret = 0;
 
 	/*
@@ -1262,10 +1260,12 @@ static int __bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter)
 
 	nr_pages = DIV_ROUND_UP(offset + size, PAGE_SIZE);
 
-	trim = size & (bdev_logical_block_size(bio->bi_bdev) - 1);
-	iov_iter_revert(iter, trim);
+	if (bio->bi_bdev) {
+		size_t trim = size & (bdev_logical_block_size(bio->bi_bdev) - 1);
+		iov_iter_revert(iter, trim);
+		size -= trim;
+	}
 
-	size -= trim;
 	if (unlikely(!size)) {
 		ret = -EFAULT;
 		goto out;
@@ -1474,6 +1474,7 @@ void bio_set_pages_dirty(struct bio *bio)
 			set_page_dirty_lock(bvec->bv_page);
 	}
 }
+EXPORT_SYMBOL_GPL(bio_set_pages_dirty);
 
 /*
  * bio_check_pages_dirty() will check that all the BIO's pages are still dirty.
@@ -1533,6 +1534,7 @@ defer:
 	spin_unlock_irqrestore(&bio_dirty_lock, flags);
 	schedule_work(&bio_dirty_work);
 }
+EXPORT_SYMBOL_GPL(bio_check_pages_dirty);
 
 static inline bool bio_remaining_done(struct bio *bio)
 {

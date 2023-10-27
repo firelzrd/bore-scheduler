@@ -159,7 +159,7 @@ out_sem:
 
 	sb_end_pagefault(inode->i_sb);
 err:
-	return block_page_mkwrite_return(err);
+	return vmf_fs_error(err);
 }
 
 static const struct vm_operations_struct f2fs_file_vm_ops = {
@@ -798,7 +798,7 @@ int f2fs_truncate(struct inode *inode)
 	if (err)
 		return err;
 
-	inode->i_mtime = inode->i_ctime = current_time(inode);
+	inode->i_mtime = inode_set_ctime_current(inode);
 	f2fs_mark_inode_dirty_sync(inode, false);
 	return 0;
 }
@@ -886,7 +886,7 @@ int f2fs_getattr(struct mnt_idmap *idmap, const struct path *path,
 				  STATX_ATTR_NODUMP |
 				  STATX_ATTR_VERITY);
 
-	generic_fillattr(idmap, inode, stat);
+	generic_fillattr(idmap, request_mask, inode, stat);
 
 	/* we need to show initial sectors used for inline_data/dentries */
 	if ((S_ISREG(inode->i_mode) && f2fs_has_inline_data(inode)) ||
@@ -909,7 +909,7 @@ static void __setattr_copy(struct mnt_idmap *idmap,
 	if (ia_valid & ATTR_MTIME)
 		inode->i_mtime = attr->ia_mtime;
 	if (ia_valid & ATTR_CTIME)
-		inode->i_ctime = attr->ia_ctime;
+		inode_set_ctime_to_ts(inode, attr->ia_ctime);
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 		vfsgid_t vfsgid = i_gid_into_vfsgid(idmap, inode);
@@ -1012,7 +1012,7 @@ int f2fs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			return err;
 
 		spin_lock(&F2FS_I(inode)->i_size_lock);
-		inode->i_mtime = inode->i_ctime = current_time(inode);
+		inode->i_mtime = inode_set_ctime_current(inode);
 		F2FS_I(inode)->last_disk_size = i_size_read(inode);
 		spin_unlock(&F2FS_I(inode)->i_size_lock);
 	}
@@ -1840,7 +1840,7 @@ static long f2fs_fallocate(struct file *file, int mode,
 	}
 
 	if (!ret) {
-		inode->i_mtime = inode->i_ctime = current_time(inode);
+		inode->i_mtime = inode_set_ctime_current(inode);
 		f2fs_mark_inode_dirty_sync(inode, false);
 		f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
 	}
@@ -1949,7 +1949,7 @@ static int f2fs_setflags_common(struct inode *inode, u32 iflags, u32 mask)
 	else
 		clear_inode_flag(inode, FI_PROJ_INHERIT);
 
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	f2fs_set_inode_flags(inode);
 	f2fs_mark_inode_dirty_sync(inode, true);
 	return 0;
@@ -2888,10 +2888,10 @@ out_src:
 	if (ret)
 		goto out_unlock;
 
-	src->i_mtime = src->i_ctime = current_time(src);
+	src->i_mtime = inode_set_ctime_current(src);
 	f2fs_mark_inode_dirty_sync(src, false);
 	if (src != dst) {
-		dst->i_mtime = dst->i_ctime = current_time(dst);
+		dst->i_mtime = inode_set_ctime_current(dst);
 		f2fs_mark_inode_dirty_sync(dst, false);
 	}
 	f2fs_update_time(sbi, REQ_TIME);
@@ -3088,7 +3088,7 @@ static int f2fs_ioc_setproject(struct inode *inode, __u32 projid)
 		goto out_unlock;
 
 	fi->i_projid = kprojid;
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	f2fs_mark_inode_dirty_sync(inode, true);
 out_unlock:
 	f2fs_unlock_op(sbi);
@@ -3526,7 +3526,7 @@ static int f2fs_release_compress_blocks(struct file *filp, unsigned long arg)
 	}
 
 	set_inode_flag(inode, FI_COMPRESS_RELEASED);
-	inode->i_ctime = current_time(inode);
+	inode_set_ctime_current(inode);
 	f2fs_mark_inode_dirty_sync(inode, true);
 
 	f2fs_down_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
@@ -3725,7 +3725,7 @@ static int f2fs_reserve_compress_blocks(struct file *filp, unsigned long arg)
 
 	if (ret >= 0) {
 		clear_inode_flag(inode, FI_COMPRESS_RELEASED);
-		inode->i_ctime = current_time(inode);
+		inode_set_ctime_current(inode);
 		f2fs_mark_inode_dirty_sync(inode, true);
 	}
 unlock_inode:
@@ -4096,10 +4096,8 @@ static int f2fs_ioc_decompress_file(struct file *filp)
 	last_idx = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
 
 	count = last_idx - page_idx;
-	while (count) {
-		int len = min(cluster_size, count);
-
-		ret = redirty_blocks(inode, page_idx, len);
+	while (count && count >= cluster_size) {
+		ret = redirty_blocks(inode, page_idx, cluster_size);
 		if (ret < 0)
 			break;
 
@@ -4109,8 +4107,14 @@ static int f2fs_ioc_decompress_file(struct file *filp)
 				break;
 		}
 
-		count -= len;
-		page_idx += len;
+		count -= cluster_size;
+		page_idx += cluster_size;
+
+		cond_resched();
+		if (fatal_signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
 	}
 
 	if (!ret)
@@ -4170,10 +4174,8 @@ static int f2fs_ioc_compress_file(struct file *filp)
 	last_idx = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
 
 	count = last_idx - page_idx;
-	while (count) {
-		int len = min(cluster_size, count);
-
-		ret = redirty_blocks(inode, page_idx, len);
+	while (count && count >= cluster_size) {
+		ret = redirty_blocks(inode, page_idx, cluster_size);
 		if (ret < 0)
 			break;
 
@@ -4183,8 +4185,14 @@ static int f2fs_ioc_compress_file(struct file *filp)
 				break;
 		}
 
-		count -= len;
-		page_idx += len;
+		count -= cluster_size;
+		page_idx += cluster_size;
+
+		cond_resched();
+		if (fatal_signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
 	}
 
 	if (!ret)
@@ -4596,6 +4604,7 @@ static int f2fs_dio_write_end_io(struct kiocb *iocb, ssize_t size, int error,
 	dec_page_count(sbi, F2FS_DIO_WRITE);
 	if (error)
 		return error;
+	f2fs_update_time(sbi, REQ_TIME);
 	f2fs_update_iostat(sbi, NULL, APP_DIRECT_IO, size);
 	return 0;
 }

@@ -92,7 +92,6 @@ BEGIN_FTR_SECTION;						\
 END_FTR_SECTION(0, 1);						\
 	LOAD_REG_ADDR(r12, hcall_tracepoint_refcount) ;		\
 	ld	r12,0(r12);					\
-	std	r12,32(r1);					\
 	cmpdi	r12,0;						\
 	bne-	LABEL;						\
 1:
@@ -184,8 +183,6 @@ _GLOBAL_TOC(plpar_hcall)
 #ifdef CONFIG_TRACEPOINTS
 plpar_hcall_trace:
 	HCALL_INST_PRECALL(R5)
-
-	mr	r0,r4
 
 	mr	r4,r5
 	mr	r5,r6
@@ -295,8 +292,6 @@ _GLOBAL_TOC(plpar_hcall9)
 #ifdef CONFIG_TRACEPOINTS
 plpar_hcall9_trace:
 	HCALL_INST_PRECALL(R5)
-
-	mr	r0,r4
 
 	mr	r4,r5
 	mr	r5,r6

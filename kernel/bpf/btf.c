@@ -29,6 +29,7 @@
 #include <net/netfilter/nf_bpf_link.h>
 
 #include <net/sock.h>
+#include <net/xdp.h>
 #include "../tools/lib/bpf/relo_core.h"
 
 /* BTF (BPF Type Format) is the meta data format which describes
@@ -552,7 +553,7 @@ s32 btf_find_by_name_kind(const struct btf *btf, const char *name, u8 kind)
 	return -ENOENT;
 }
 
-static s32 bpf_find_btf_id(const char *name, u32 kind, struct btf **btf_p)
+s32 bpf_find_btf_id(const char *name, u32 kind, struct btf **btf_p)
 {
 	struct btf *btf;
 	s32 ret;
@@ -6134,6 +6135,8 @@ static int btf_struct_walk(struct bpf_verifier_log *log, const struct btf *btf,
 	u32 vlen, elem_id, mid;
 
 again:
+	if (btf_type_is_modifier(t))
+		t = btf_type_skip_modifiers(btf, t->type, NULL);
 	tname = __btf_name_by_offset(btf, t->name_off);
 	if (!btf_type_is_struct(t)) {
 		bpf_log(log, "Type '%s' is not a struct\n", tname);

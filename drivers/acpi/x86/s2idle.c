@@ -94,6 +94,11 @@ static struct lpi_constraints *lpi_constraints_table;
 static int lpi_constraints_table_size;
 static int rev_id;
 
+#define for_each_lpi_constraint(entry)						\
+	for (int i = 0;								\
+	     entry = &lpi_constraints_table[i], i < lpi_constraints_table_size;	\
+	     i++)
+
 static void lpi_device_get_constraints_amd(void)
 {
 	union acpi_object *out_obj;
@@ -156,6 +161,13 @@ static void lpi_device_get_constraints_amd(void)
 					}
 				}
 
+				acpi_handle_debug(lps0_device_handle,
+						  "Name:%s, Enabled: %d, States: %d, MinDstate: %d\n",
+						  dev_info.name,
+						  dev_info.enabled,
+						  dev_info.function_states,
+						  dev_info.min_dstate);
+
 				if (!dev_info.enabled || !dev_info.name ||
 				    !dev_info.min_dstate)
 					continue;
@@ -163,9 +175,6 @@ static void lpi_device_get_constraints_amd(void)
 				status = acpi_get_handle(NULL, dev_info.name, &list->handle);
 				if (ACPI_FAILURE(status))
 					continue;
-
-				acpi_handle_debug(lps0_device_handle,
-						  "Name:%s\n", dev_info.name);
 
 				list->min_dstate = dev_info.min_dstate;
 
@@ -290,32 +299,55 @@ free_acpi_buffer:
 	ACPI_FREE(out_obj);
 }
 
+/**
+ * acpi_get_lps0_constraint - Get the LPS0 constraint for a device.
+ * @adev: Device to get the constraint for.
+ *
+ * The LPS0 constraint is the shallowest (minimum) power state in which the
+ * device can be so as to allow the platform as a whole to achieve additional
+ * energy conservation by utilizing a system-wide low-power state.
+ *
+ * Returns:
+ *  - ACPI power state value of the constraint for @adev on success.
+ *  - Otherwise, ACPI_STATE_UNKNOWN.
+ */
+int acpi_get_lps0_constraint(struct acpi_device *adev)
+{
+	struct lpi_constraints *entry;
+
+	for_each_lpi_constraint(entry) {
+		if (adev->handle == entry->handle)
+			return entry->min_dstate;
+	}
+
+	return ACPI_STATE_UNKNOWN;
+}
+
 static void lpi_check_constraints(void)
 {
-	int i;
+	struct lpi_constraints *entry;
 
-	for (i = 0; i < lpi_constraints_table_size; ++i) {
-		acpi_handle handle = lpi_constraints_table[i].handle;
-		struct acpi_device *adev = acpi_fetch_acpi_dev(handle);
+	for_each_lpi_constraint(entry) {
+		struct acpi_device *adev = acpi_fetch_acpi_dev(entry->handle);
 
 		if (!adev)
 			continue;
 
-		acpi_handle_debug(handle,
+		acpi_handle_debug(entry->handle,
 			"LPI: required min power state:%s current power state:%s\n",
-			acpi_power_state_string(lpi_constraints_table[i].min_dstate),
+			acpi_power_state_string(entry->min_dstate),
 			acpi_power_state_string(adev->power.state));
 
 		if (!adev->flags.power_manageable) {
-			acpi_handle_info(handle, "LPI: Device not power manageable\n");
-			lpi_constraints_table[i].handle = NULL;
+			acpi_handle_info(entry->handle, "LPI: Device not power manageable\n");
+			entry->handle = NULL;
 			continue;
 		}
 
-		if (adev->power.state < lpi_constraints_table[i].min_dstate)
-			acpi_handle_info(handle,
+		if (adev->power.state < entry->min_dstate)
+			acpi_handle_info(entry->handle,
 				"LPI: Constraint not met; min power state:%s current power state:%s\n",
-				acpi_power_state_string(lpi_constraints_table[i].min_dstate),
+				acpi_power_state_string(entry->min_dstate),
 				acpi_power_state_string(adev->power.state));
 	}
 }

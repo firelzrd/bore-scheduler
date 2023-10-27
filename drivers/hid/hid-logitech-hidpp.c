@@ -228,7 +228,7 @@ struct hidpp_device {
 #define HIDPP20_ERROR_INVALID_ARGS		0x02
 #define HIDPP20_ERROR_OUT_OF_RANGE		0x03
 #define HIDPP20_ERROR_HW_ERROR			0x04
-#define HIDPP20_ERROR_LOGITECH_INTERNAL		0x05
+#define HIDPP20_ERROR_NOT_ALLOWED		0x05
 #define HIDPP20_ERROR_INVALID_FEATURE_INDEX	0x06
 #define HIDPP20_ERROR_INVALID_FUNCTION_ID	0x07
 #define HIDPP20_ERROR_BUSY			0x08
@@ -4656,6 +4656,8 @@ static const struct hid_device_id hidpp_devices[] = {
 		.driver_data = HIDPP_QUIRK_CLASS_G920 | HIDPP_QUIRK_FORCE_OUTPUT_REPORTS },
 	{ /* Logitech G Pro Gaming Mouse over USB */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH, 0xC088) },
+	{ /* Logitech G Pro X Superlight Gaming Mouse over USB */
+	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH, 0xC094) },
 
 	{ /* G935 Gaming Headset */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH, 0x0a87),
@@ -4685,6 +4687,8 @@ static const struct hid_device_id hidpp_devices[] = {
 	  HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_LOGITECH, 0xb02a) },
 	{ /* MX Master 3 mouse over Bluetooth */
 	  HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_LOGITECH, 0xb023) },
+	{ /* MX Anywhere 3 mouse over Bluetooth */
+	  HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_LOGITECH, 0xb025) },
 	{ /* MX Master 3S mouse over Bluetooth */
 	  HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_LOGITECH, 0xb034) },
 	{}
