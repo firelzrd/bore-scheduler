@@ -19,6 +19,9 @@
  *
  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
+ *
+ *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
+ *  Copyright (C) 2021-2023 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include <linux/energy_model.h>
 #include <linux/mmap_lock.h>
@@ -97,6 +100,66 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
+#ifdef CONFIG_SCHED_BORE
+unsigned int __read_mostly sched_bore                  = 1;
+unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
+unsigned int __read_mostly sched_burst_penalty_offset  = 22;
+unsigned int __read_mostly sched_burst_penalty_scale   = 1280;
+unsigned int __read_mostly sched_burst_smoothness_up   = 1;
+unsigned int __read_mostly sched_burst_smoothness_down = 0;
+unsigned int __read_mostly sched_burst_fork_atavistic  = 2;
+static int three          = 3;
+static int seven          = 7;
+static int sixty_four     = 64;
+static int maxval_12_bits = 4095;
+
+#define MAX_BURST_PENALTY ((40U << 8) - 1)
+
+static inline u32 log2plus1_u64_u32f8(u64 v) {
+	x32 result;
+	int msb = fls64(v);
+	int excess_bits = msb - 9;
+	result.u8[0] = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	result.u8[1] = msb;
+	return result.u32;
+}
+
+static inline u32 calc_burst_penalty(u64 burst_time) {
+	u32 greed, tolerance, penalty, scaled_penalty;
+	
+	greed = log2plus1_u64_u32f8(burst_time);
+	tolerance = sched_burst_penalty_offset << 8;
+	penalty = max(0, (s32)greed - (s32)tolerance);
+	scaled_penalty = penalty * sched_burst_penalty_scale >> 10;
+
+	return min(MAX_BURST_PENALTY, scaled_penalty);
+}
+
+static void update_burst_penalty(struct sched_entity *se) {
+	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
+	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
+}
+
+static inline u64 penalty_scale(u64 delta, struct sched_entity *se) {
+	u32 score = ((x16*)&se->burst_penalty)->u8[1];
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
+}
+
+static inline u32 binary_smooth(u32 new, u32 old) {
+  int increment = new - old;
+  return (0 <= increment)?
+    old + ( increment >> sched_burst_smoothness_up):
+    old - (-increment >> sched_burst_smoothness_down);
+}
+
+static void restart_burst(struct sched_entity *se) {
+	se->burst_penalty = se->prev_burst_penalty =
+		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
+	se->curr_burst_penalty = 0;
+	se->burst_time = 0;
+}
+#endif // CONFIG_SCHED_BORE
+
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -156,6 +219,69 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
 
 #ifdef CONFIG_SYSCTL
 static struct ctl_table sched_fair_sysctls[] = {
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_bore",
+		.data		= &sched_bore,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "sched_burst_cache_lifetime",
+		.data		= &sched_burst_cache_lifetime,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler = proc_dointvec,
+	},
+	{
+		.procname	= "sched_burst_fork_atavistic",
+		.data		= &sched_burst_fork_atavistic,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &seven,
+	},
+	{
+		.procname	= "sched_burst_penalty_offset",
+		.data		= &sched_burst_penalty_offset,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &sixty_four,
+	},
+	{
+		.procname	= "sched_burst_penalty_scale",
+		.data		= &sched_burst_penalty_scale,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &maxval_12_bits,
+	},
+	{
+		.procname	= "sched_burst_smoothness_down",
+		.data		= &sched_burst_smoothness_down,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &three,
+	},
+	{
+		.procname	= "sched_burst_smoothness_up",
+		.data		= &sched_burst_smoothness_up,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &three,
+	},
+#endif // CONFIG_SCHED_BORE
 	{
 		.procname       = "sched_child_runs_first",
 		.data           = &sysctl_sched_child_runs_first,
@@ -324,6 +450,9 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 	if (unlikely(se->load.weight != NICE_0_LOAD))
 		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
 
+#ifdef CONFIG_SCHED_BORE
+	if (likely(sched_bore)) delta = penalty_scale(delta, se);
+#endif // CONFIG_SCHED_BORE
 	return delta;
 }
 
@@ -679,7 +808,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
  * Specifically: avg_runtime() + 0 must result in entity_eligible() := true
  * For this to be so, the result of this function must have a left bias.
  */
-u64 avg_vruntime(struct cfs_rq *cfs_rq)
+static u64 avg_key(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
 	s64 avg = cfs_rq->avg_vruntime;
@@ -699,7 +828,11 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
 		avg = div_s64(avg, load);
 	}
 
-	return cfs_rq->min_vruntime + avg;
+	return avg;
+}
+
+inline u64 avg_vruntime(struct cfs_rq *cfs_rq) {
+	return cfs_rq->min_vruntime + avg_key(cfs_rq);
 }
 
 /*
@@ -992,7 +1125,6 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 	return se;
 }
 
-#ifdef CONFIG_SCHED_DEBUG
 struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 {
 	struct rb_node *last = rb_last(&cfs_rq->tasks_timeline.rb_root);
@@ -1006,6 +1138,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 /**************************************************************
  * Scheduling class statistics methods:
  */
+#ifdef CONFIG_SCHED_DEBUG
 #ifdef CONFIG_SMP
 int sched_update_scaling(void)
 {
@@ -1184,7 +1317,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
-	curr->vruntime += calc_delta_fair(delta_exec, curr);
+#ifdef CONFIG_SCHED_BORE
+	curr->burst_time += delta_exec;
+	update_burst_penalty(curr);
+#endif // CONFIG_SCHED_BORE
+	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
 	update_deadline(cfs_rq, curr);
 	update_min_vruntime(cfs_rq);
 
@@ -5048,6 +5185,23 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		lag = div_s64(lag, load);
+
+#ifdef CONFIG_SCHED_BORE
+		if (flags & ENQUEUE_MIGRATED && likely(sched_bore)) {
+			struct sched_entity *last, *first;
+			s64 left_vruntime = vruntime, right_vruntime = vruntime;
+
+			if (first = __pick_first_entity(cfs_rq))
+				left_vruntime = first->vruntime;
+
+			if (last = __pick_last_entity(cfs_rq))
+				right_vruntime = last->vruntime;
+
+			lag = clamp(lag,
+				(s64)vruntime - right_vruntime,
+				(s64)vruntime - left_vruntime);
+		}
+#endif // CONFIG_SCHED_BORE
 	}
 
 	se->vruntime = vruntime - lag;
@@ -6606,6 +6760,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	util_est_dequeue(&rq->cfs, p);
 
 	for_each_sched_entity(se) {
+#ifdef CONFIG_SCHED_BORE
+		if (task_sleep) restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
 
@@ -8335,8 +8492,12 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Are we the only task in the tree?
 	 */
-	if (unlikely(rq->nr_running == 1))
+	if (unlikely(rq->nr_running == 1)) {
+#ifdef CONFIG_SCHED_BORE
+		restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 		return;
+	}
 
 	clear_buddies(cfs_rq, se);
 
@@ -8345,6 +8506,9 @@ static void yield_task_fair(struct rq *rq)
 	 * Update run-time statistics of the 'current'.
 	 */
 	update_curr(cfs_rq);
+#ifdef CONFIG_SCHED_BORE
+	restart_burst(se);
+#endif // CONFIG_SCHED_BORE
 	/*
 	 * Tell update_rq_clock() that we've just updated,
 	 * so we don't do microscopic update in schedule()
