@@ -4537,6 +4537,7 @@ static void update_child_burst_cache(struct task_struct *p, u64 now) {
 	u32 sum = 0;
 
 	list_for_each_entry(child, &p->children, sibling) {
+		if (child->sched_class != &fair_sched_class) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
 	}
@@ -4556,6 +4557,7 @@ static void update_child_burst_cache_atavistic(
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 		
 		if (!dcnt || !depth) {
+			if (dec->sched_class != &fair_sched_class) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
 		} else {
