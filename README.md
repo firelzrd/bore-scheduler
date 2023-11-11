@@ -39,13 +39,12 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
 
-### sched_burst_fork_atavistic (range: 0 - 7, default: 2)
+### sched_burst_fork_atavistic (range: 0 - 3, default: 2)
 
 0: Disables the inheritance of the average child burst time from ancestor processes.  
 1-3: Enables the inheritance of the average child burst time from ancestor processes using a topological hub/stub style hierarchy tree, rather than the traditional parent-to-child style.  
 When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
 Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.  
-& 0x4: Forked thread inherits the same task group siblings' average burst score, instead of regular atavistic inheritance. It MAY improve certain application performance. Forked processes are not affected by this flag.
 
 ### sched_burst_penalty_offset (range: 0 - 64, default: 22)
 
@@ -53,7 +52,7 @@ How many bits to reduce from burst time bit count when calculating burst score.
 Increasing this value prevents tasks of shorter burst time from being too strong.  
 Increasing this value also lengthens the effective burst time range.
 
-### sched_burst_penalty_scale (range: 0 - 4095, default: 1366)
+### sched_burst_penalty_scale (range: 0 - 4095, default: 1280)
 
 How strongly tasks are discriminated accordingly to their burst time ratio, scaled in 1/1024 of its precursor value.  
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
