@@ -5187,14 +5187,12 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 #ifdef CONFIG_SCHED_BORE
 		if (flags & ENQUEUE_MIGRATED && likely(sched_bore)) {
-			struct sched_entity *last, *first;
 			s64 left_vruntime = vruntime, right_vruntime = vruntime;
+			struct sched_entity *first = __pick_first_entity(cfs_rq),
+			                    *last = __pick_last_entity(cfs_rq);
 
-			if (first = __pick_first_entity(cfs_rq))
-				left_vruntime = first->vruntime;
-
-			if (last = __pick_last_entity(cfs_rq))
-				right_vruntime = last->vruntime;
+			if (first) left_vruntime = first->vruntime;
+			if (last) right_vruntime = last->vruntime;
 
 			lag = clamp(lag,
 				(s64)vruntime - right_vruntime,
