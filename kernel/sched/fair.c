@@ -852,13 +852,8 @@ inline u64 avg_vruntime(struct cfs_rq *cfs_rq) {
  */
 static void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	s64 lag, limit;
-
 	SCHED_WARN_ON(!se->on_rq);
-	lag = avg_vruntime(cfs_rq) - se->vruntime;
-
-	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
-	se->vlag = clamp(lag, -limit, limit);
+	se->vlag = avg_vruntime(cfs_rq) - se->vruntime;
 }
 
 /*
@@ -5105,7 +5100,7 @@ static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
 	u64 vslice, vruntime = avg_vruntime(cfs_rq);
-	s64 lag = 0;
+	s64 lag = 0, limit;
 
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
@@ -5122,7 +5117,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
 
-		lag = se->vlag;
+		limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
+		lag = clamp(se->vlag, -limit, limit);
 
 		/*
 		 * If we want to place a task and preserve lag, we have to
