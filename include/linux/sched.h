@@ -582,6 +582,7 @@ struct sched_entity {
 	u16				prev_burst_penalty;
 	u16				curr_burst_penalty;
 	u16				burst_penalty;
+	u16				slice_burst_penalty;
 #endif // CONFIG_SCHED_BORE
 	s64				vlag;
 	u64				slice;

@@ -139,8 +139,12 @@ static void update_burst_penalty(struct sched_entity *se) {
 	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
 }
 
+static inline void update_slice_burst_penalty(struct sched_entity *se) {
+	se->slice_burst_penalty = likely(sched_bore) ? se->burst_penalty : 0;
+}
+
 static inline u64 penalty_scale(u64 delta, struct sched_entity *se) {
-	u32 score = ((x16*)&se->burst_penalty)->u8[1];
+	u32 score = ((x16*)&se->slice_burst_penalty)->u8[1];
 	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
 }
 
@@ -1169,6 +1173,9 @@ static void update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/*
 	 * EEVDF: vd_i = ve_i + r_i / w_i
 	 */
+#ifdef CONFIG_SCHED_BORE
+	update_slice_burst_penalty(se);
+#endif // CONFIG_SCHED_BORE
 	se->deadline = se->vruntime + calc_delta_fair(se->slice, se);
 
 	/*
@@ -5103,6 +5110,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	s64 lag = 0, limit;
 
 	se->slice = sysctl_sched_base_slice;
+#ifdef CONFIG_SCHED_BORE
+	update_slice_burst_penalty(se);
+#endif // CONFIG_SCHED_BORE
 	vslice = calc_delta_fair(se->slice, se);
 
 	/*
@@ -8501,6 +8511,7 @@ static void yield_task_fair(struct rq *rq)
 	update_curr(cfs_rq);
 #ifdef CONFIG_SCHED_BORE
 	restart_burst(se);
+	update_slice_burst_penalty(se);
 #endif // CONFIG_SCHED_BORE
 	/*
 	 * Tell update_rq_clock() that we've just updated,
