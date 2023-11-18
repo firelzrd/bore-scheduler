@@ -115,12 +115,13 @@ static int maxval_12_bits = 4095;
 #define MAX_BURST_PENALTY ((40U << 8) - 1)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
-	x32 result;
+	u32 result;
+	u8 *p = (u8*)&result;
 	int msb = fls64(v);
 	int excess_bits = msb - 9;
-	result.u8[0] = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
-	result.u8[1] = msb;
-	return result.u32;
+	*p = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	*++p = msb;
+	return result;
 }
 
 static inline u32 calc_burst_penalty(u64 burst_time) {
@@ -140,7 +141,7 @@ static void update_burst_penalty(struct sched_entity *se) {
 }
 
 static inline void update_slice_score(struct sched_entity *se) {
-	se->slice_score = ((x16*)&se->burst_penalty)->u8[1];
+	se->slice_score = se->burst_penalty >> 8;
 }
 
 static inline u64 scale_slice(u64 delta, struct sched_entity *se) {

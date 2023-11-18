@@ -545,24 +545,6 @@ struct sched_statistics {
 #endif /* CONFIG_SCHEDSTATS */
 } ____cacheline_aligned;
 
-#ifdef CONFIG_SCHED_BORE
-typedef union {
-	u16	u16;
-	s16	s16;
-	u8	u8[2];
-	s8	s8[2];
-} x16;
-
-typedef union {
-	u32	u32;
-	s32	s32;
-	u16	u16[2];
-	s16	s16[2];
-	u8	u8[4];
-	s8	s8[4];
-} x32;
-#endif // CONFIG_SCHED_BORE
-
 struct sched_entity {
 	/* For load-balancing: */
 	struct load_weight		load;
