@@ -140,7 +140,7 @@ static void update_burst_penalty(struct sched_entity *se) {
 }
 
 static inline void update_slice_burst_penalty(struct sched_entity *se) {
-	se->slice_burst_penalty = likely(sched_bore) ? se->burst_penalty : 0;
+	se->slice_burst_penalty = se->burst_penalty;
 }
 
 static inline u64 penalty_scale(u64 delta, struct sched_entity *se) {
