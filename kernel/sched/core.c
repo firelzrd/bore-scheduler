@@ -4489,28 +4489,28 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 }
 
 #ifdef CONFIG_SCHED_BORE
-extern unsigned int sched_burst_cache_lifetime;
 extern unsigned int sched_bore;
+extern unsigned int sched_burst_cache_lifetime;
 extern unsigned int sched_burst_fork_atavistic;
 
 void __init sched_init_bore(void) {
-	init_task.child_burst_cache = 0;
-	init_task.child_burst_count_cache = 0;
-	init_task.child_burst_last_cached = 0;
 	init_task.se.burst_time = 0;
 	init_task.se.prev_burst_penalty = 0;
 	init_task.se.curr_burst_penalty = 0;
 	init_task.se.burst_penalty = 0;
 	init_task.se.slice_score = 0;
+	init_task.se.child_burst = 0;
+	init_task.se.child_burst_cnt = 0;
+	init_task.se.child_burst_last_cached = 0;
 }
 
 void inline sched_fork_bore(struct task_struct *p) {
-	p->child_burst_cache = 0;
-	p->child_burst_count_cache = 0;
-	p->child_burst_last_cached = 0;
 	p->se.burst_time = 0;
 	p->se.curr_burst_penalty = 0;
 	p->se.slice_score = 0;
+	p->se.child_burst = 0;
+	p->se.child_burst_cnt = 0;
+	p->se.child_burst_last_cached = 0;
 }
 
 static u32 count_child_tasks(struct task_struct *p) {
@@ -4521,16 +4521,16 @@ static u32 count_child_tasks(struct task_struct *p) {
 }
 
 static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
-	return (p->child_burst_last_cached + sched_burst_cache_lifetime < now);
+	return (p->se.child_burst_last_cached + sched_burst_cache_lifetime < now);
 }
 
 static void __update_child_burst_cache(
 	struct task_struct *p, u32 cnt, u32 sum, u64 now) {
-	u16 avg = 0;
+	u8 avg = 0;
 	if (cnt) avg = sum / cnt;
-	p->child_burst_cache = max(avg, p->se.burst_penalty);
-	p->child_burst_count_cache = cnt;
-	p->child_burst_last_cached = now;
+	p->se.child_burst = max(avg, p->se.burst_penalty);
+	p->se.child_burst_cnt = cnt;
+	p->se.child_burst_last_cached = now;
 }
 
 static void update_child_burst_cache(struct task_struct *p, u64 now) {
@@ -4562,14 +4562,14 @@ static void update_child_burst_cache_atavistic(
 			if (dec->sched_class != &fair_sched_class) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
-		} else {
-			if (child_burst_cache_expired(dec, now))
-				update_child_burst_cache_atavistic(dec, now, depth - 1, &cnt, &sum);
-			else {
-				cnt += dec->child_burst_count_cache;
-				sum += (u32)dec->child_burst_cache * dec->child_burst_count_cache;
-			}
+			continue;
 		}
+		if (!child_burst_cache_expired(dec, now)) {
+			cnt += dec->se.child_burst_cnt;
+			sum += (u32)dec->se.child_burst * dec->se.child_burst_cnt;
+			continue;
+		}
+		update_child_burst_cache_atavistic(dec, now, depth - 1, &cnt, &sum);
 	}
 
 	__update_child_burst_cache(p, cnt, sum, now);
@@ -4577,12 +4577,12 @@ static void update_child_burst_cache_atavistic(
 	*asum += sum;
 }
 
-static void fork_burst_penalty(struct task_struct *p) {
+static void sched_post_fork_bore(struct task_struct *p) {
 	struct sched_entity *se = &p->se;
 	struct task_struct *anc;
 	u64 now = ktime_get_ns();
 	u32 cnt = 0, sum = 0, depth;
-	u16 burst_cache;
+	u8 burst_cache;
 
 	if (likely(sched_bore)) {
 		read_lock(&tasklist_lock);
@@ -4600,7 +4600,7 @@ static void fork_burst_penalty(struct task_struct *p) {
 			if (child_burst_cache_expired(anc, now))
 				update_child_burst_cache(anc, now);
 
-		burst_cache = anc->child_burst_cache;
+		burst_cache = anc->se.child_burst;
 
 		read_unlock(&tasklist_lock);
 		se->prev_burst_penalty = max(se->prev_burst_penalty, burst_cache);
@@ -4948,7 +4948,7 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
 void sched_post_fork(struct task_struct *p)
 {
 #ifdef CONFIG_SCHED_BORE
-	fork_burst_penalty(p);
+	sched_post_fork_bore(p);
 #endif // CONFIG_SCHED_BORE
 	uclamp_post_fork(p);
 }

@@ -101,19 +101,18 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
-unsigned int __read_mostly sched_bore                  = 1;
-unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
-unsigned int __read_mostly sched_burst_penalty_offset  = 22;
-unsigned int __read_mostly sched_burst_penalty_scale   = 1280;
-unsigned int __read_mostly sched_burst_score_rounding  = 1;
-unsigned int __read_mostly sched_burst_smoothness_up   = 1;
-unsigned int __read_mostly sched_burst_smoothness_down = 0;
-unsigned int __read_mostly sched_burst_fork_atavistic  = 2;
-static int three          = 3;
+unsigned int __read_mostly sched_bore                   = 1;
+unsigned int __read_mostly sched_burst_cache_lifetime   = 60000000;
+unsigned int __read_mostly sched_burst_fork_atavistic   = 2;
+unsigned int __read_mostly sched_burst_penalty_offset   = 22;
+unsigned int __read_mostly sched_burst_penalty_scale    = 1280;
+unsigned int __read_mostly sched_burst_score_rounding   = 1;
+unsigned int __read_mostly sched_burst_smoothness_long  = 1;
+unsigned int __read_mostly sched_burst_smoothness_short = 0;
 static int sixty_four     = 64;
 static int maxval_12_bits = 4095;
 
-#define MAX_BURST_PENALTY (39U << 8)
+#define MAX_BURST_PENALTY (39U <<2)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
 	u32 msb = fls64(v);
@@ -128,20 +127,20 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 	greed = log2plus1_u64_u32f8(burst_time);
 	tolerance = sched_burst_penalty_offset << 8;
 	penalty = max(0, (s32)greed - (s32)tolerance);
-	scaled_penalty = penalty * sched_burst_penalty_scale >> 10;
+	scaled_penalty = penalty * sched_burst_penalty_scale >> 16;
 
 	return min(MAX_BURST_PENALTY, scaled_penalty);
 }
 
-static void update_burst_penalty(struct sched_entity *se) {
+static inline void update_burst_penalty(struct sched_entity *se) {
 	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
 	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
 }
 
 static inline void update_slice_score(struct sched_entity *se) {
 	u32 penalty = se->burst_penalty;
-	if (sched_burst_score_rounding) penalty += 0x80U;
-	se->slice_score = penalty >> 8;
+	if (sched_burst_score_rounding) penalty += 0x2U;
+	se->slice_score = penalty >> 2;
 }
 
 static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
@@ -151,8 +150,8 @@ static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
 static inline u32 binary_smooth(u32 new, u32 old) {
   int increment = new - old;
   return (0 <= increment)?
-    old + ( increment >> sched_burst_smoothness_up):
-    old - (-increment >> sched_burst_smoothness_down);
+    old + ( increment >> sched_burst_smoothness_long):
+    old - (-increment >> sched_burst_smoothness_short);
 }
 
 static void restart_burst(struct sched_entity *se) {
@@ -246,7 +245,7 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
+		.extra2		= SYSCTL_THREE,
 	},
 	{
 		.procname	= "sched_burst_score_rounding",
@@ -276,22 +275,22 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.extra2		= &maxval_12_bits,
 	},
 	{
-		.procname	= "sched_burst_smoothness_down",
-		.data		= &sched_burst_smoothness_down,
+		.procname	= "sched_burst_smoothness_long",
+		.data		= &sched_burst_smoothness_long,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
+		.extra2		= SYSCTL_TWO,
 	},
 	{
-		.procname	= "sched_burst_smoothness_up",
-		.data		= &sched_burst_smoothness_up,
+		.procname	= "sched_burst_smoothness_short",
+		.data		= &sched_burst_smoothness_short,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
+		.extra2		= SYSCTL_TWO,
 	},
 #endif // CONFIG_SCHED_BORE
 	{
