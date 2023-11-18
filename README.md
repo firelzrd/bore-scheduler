@@ -34,7 +34,7 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 1 Enables the BORE mechanism.  
 0 Disables the BORE mechanism.
 
-### sched_burst_cache_lifetime (range: 0 - 2147483647, default: 60000000)
+### sched_burst_cache_lifetime (range: 0 - 4294967295, default: 60000000)
 
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
@@ -58,8 +58,8 @@ How strongly tasks are discriminated accordingly to their burst time ratio, scal
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness_up (range: 0 - 3, default: 1)
-### sched_burst_smoothness_down (range: 0 - 3, default: 0)
+### sched_burst_smoothness_up (range: 0 - 1, default: 1)
+### sched_burst_smoothness_down (range: 0 - 1, default: 0)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
 Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time / (2 ^ burst_smoothness) into prev_burst_time. but this mixing occurs only when prev_burst_time increases. burst_smoothness=0 means no smoothening.
