@@ -101,16 +101,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
-unsigned int __read_mostly sched_bore                   = 1;
-unsigned int __read_mostly sched_burst_cache_lifetime   = 60000000;
-unsigned int __read_mostly sched_burst_fork_atavistic   = 2;
-unsigned int __read_mostly sched_burst_penalty_offset   = 20;
-unsigned int __read_mostly sched_burst_penalty_scale    = 1280;
-unsigned int __read_mostly sched_burst_score_rounding   = 1;
-unsigned int __read_mostly sched_burst_smoothness_long  = 1;
-unsigned int __read_mostly sched_burst_smoothness_short = 0;
-static int sixty_four     = 64;
-static int maxval_12_bits = 4095;
+bool __read_mostly sched_bore                   = 1;
+bool __read_mostly sched_burst_score_rounding   = 1;
+bool __read_mostly sched_burst_smoothness_long  = 1;
+bool __read_mostly sched_burst_smoothness_short = 0;
+u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_penalty_offset   = 20;
+uint __read_mostly sched_burst_penalty_scale    = 1280;
+uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+static u8   sixty_four     = 64;
+static uint maxval_12_bits = 4095;
 
 #define MAX_BURST_PENALTY (39U <<2)
 
@@ -150,8 +150,8 @@ static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
 static inline u32 binary_smooth(u32 new, u32 old) {
   int increment = new - old;
   return (0 <= increment)?
-    old + ( increment >> sched_burst_smoothness_long):
-    old - (-increment >> sched_burst_smoothness_short);
+    old + ( increment >> (int)sched_burst_smoothness_long):
+    old - (-increment >> (int)sched_burst_smoothness_short);
 }
 
 static void restart_burst(struct sched_entity *se) {
@@ -225,72 +225,64 @@ static struct ctl_table sched_fair_sysctls[] = {
 	{
 		.procname	= "sched_bore",
 		.data		= &sched_bore,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(bool),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
+		.proc_handler	= &proc_dobool,
 	},
 	{
 		.procname	= "sched_burst_cache_lifetime",
 		.data		= &sched_burst_cache_lifetime,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(uint),
 		.mode		= 0644,
-		.proc_handler = proc_dointvec,
+		.proc_handler = proc_douintvec,
 	},
 	{
 		.procname	= "sched_burst_fork_atavistic",
 		.data		= &sched_burst_fork_atavistic,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
+		.proc_handler	= &proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_THREE,
 	},
 	{
-		.procname	= "sched_burst_score_rounding",
-		.data		= &sched_burst_score_rounding,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
-	},
-	{
 		.procname	= "sched_burst_penalty_offset",
 		.data		= &sched_burst_penalty_offset,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
+		.proc_handler	= &proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &sixty_four,
 	},
 	{
 		.procname	= "sched_burst_penalty_scale",
 		.data		= &sched_burst_penalty_scale,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(uint),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
+		.proc_handler	= &proc_douintvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &maxval_12_bits,
 	},
 	{
+		.procname	= "sched_burst_score_rounding",
+		.data		= &sched_burst_score_rounding,
+		.maxlen		= sizeof(bool),
+		.mode		= 0644,
+		.proc_handler	= &proc_dobool,
+	},
+	{
 		.procname	= "sched_burst_smoothness_long",
 		.data		= &sched_burst_smoothness_long,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(bool),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_TWO,
+		.proc_handler	= &proc_dobool,
 	},
 	{
 		.procname	= "sched_burst_smoothness_short",
 		.data		= &sched_burst_smoothness_short,
-		.maxlen		= sizeof(unsigned int),
+		.maxlen		= sizeof(bool),
 		.mode		= 0644,
-		.proc_handler	= &proc_dointvec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_TWO,
+		.proc_handler	= &proc_dobool,
 	},
 #endif // CONFIG_SCHED_BORE
 	{
