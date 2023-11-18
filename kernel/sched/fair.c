@@ -115,13 +115,10 @@ static int maxval_12_bits = 4095;
 #define MAX_BURST_PENALTY ((40U << 8) - 1)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
-	u32 result;
-	u8 *p = (u8*)&result;
-	int msb = fls64(v);
-	int excess_bits = msb - 9;
-	*p = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
-	*++p = msb;
-	return result;
+	u32 msb = fls64(v);
+	s32 excess_bits = msb - 9;
+    u8 fractional = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	return msb << 8 | fractional;
 }
 
 static inline u32 calc_burst_penalty(u64 burst_time) {
