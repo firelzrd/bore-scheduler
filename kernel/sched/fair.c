@@ -105,6 +105,7 @@ unsigned int __read_mostly sched_bore                  = 1;
 unsigned int __read_mostly sched_burst_cache_lifetime  = 60000000;
 unsigned int __read_mostly sched_burst_penalty_offset  = 22;
 unsigned int __read_mostly sched_burst_penalty_scale   = 1280;
+unsigned int __read_mostly sched_burst_score_rounding  = 1;
 unsigned int __read_mostly sched_burst_smoothness_up   = 1;
 unsigned int __read_mostly sched_burst_smoothness_down = 0;
 unsigned int __read_mostly sched_burst_fork_atavistic  = 2;
@@ -112,7 +113,7 @@ static int three          = 3;
 static int sixty_four     = 64;
 static int maxval_12_bits = 4095;
 
-#define MAX_BURST_PENALTY ((40U << 8) - 1)
+#define MAX_BURST_PENALTY (39U << 8)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
 	u32 msb = fls64(v);
@@ -138,7 +139,9 @@ static void update_burst_penalty(struct sched_entity *se) {
 }
 
 static inline void update_slice_score(struct sched_entity *se) {
-	se->slice_score = se->burst_penalty >> 8;
+	u32 penalty = se->burst_penalty;
+	if (sched_burst_score_rounding) penalty += 0x80U;
+	se->slice_score = penalty >> 8;
 }
 
 static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
@@ -244,6 +247,15 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.proc_handler	= &proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &three,
+	},
+	{
+		.procname	= "sched_burst_score_rounding",
+		.data		= &sched_burst_score_rounding,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_penalty_offset",
