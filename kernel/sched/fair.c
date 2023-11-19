@@ -102,11 +102,11 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
 bool __read_mostly sched_bore                   = 1;
-bool __read_mostly sched_burst_score_rounding   = 1;
+bool __read_mostly sched_burst_score_rounding   = 0;
 bool __read_mostly sched_burst_smoothness_long  = 1;
 bool __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
-u8   __read_mostly sched_burst_penalty_offset   = 20;
+u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
 static u8   sixty_four     = 64;
