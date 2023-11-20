@@ -4580,11 +4580,12 @@ static void update_child_burst_cache_atavistic(
 static void sched_post_fork_bore(struct task_struct *p) {
 	struct sched_entity *se = &p->se;
 	struct task_struct *anc;
-	u64 now = ktime_get_ns();
+	u64 now;
 	u32 cnt = 0, sum = 0, depth;
 	u8 burst_cache;
 
 	if (likely(sched_bore)) {
+		now = ktime_get_ns();
 		read_lock(&tasklist_lock);
 
 		anc = p->real_parent;
