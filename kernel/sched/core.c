@@ -4591,8 +4591,7 @@ static void sched_post_fork_bore(struct task_struct *p) {
 		anc = p->real_parent;
 		depth = sched_burst_fork_atavistic;
 		if (likely(depth)) {
-			while ((anc->real_parent != anc) &&
-			       (count_child_tasks(anc) == 1))
+			while ((anc->real_parent != anc) && (count_child_tasks(anc) == 1))
 				anc = anc->real_parent;
 			if (child_burst_cache_expired(anc, now))
 				update_child_burst_cache_atavistic(
