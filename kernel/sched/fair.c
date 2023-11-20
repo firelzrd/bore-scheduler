@@ -5107,7 +5107,7 @@ static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
 	u64 vslice, vruntime = avg_vruntime(cfs_rq);
-	s64 lag = 0, limit;
+	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
 #ifdef CONFIG_SCHED_BORE
@@ -5127,7 +5127,12 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
 
-		limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
+		u64 slice = se->slice;
+#ifdef CONFIG_SCHED_BORE
+		if (unlikely(!sched_bore))
+#endif // CONFIG_SCHED_BORE
+		slice *= 2;
+		s64 limit = calc_delta_fair(max_t(u64, slice, TICK_NSEC), se);
 		lag = clamp(se->vlag, -limit, limit);
 
 		/*
