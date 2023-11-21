@@ -8498,6 +8498,7 @@ static void yield_task_fair(struct rq *rq)
 	if (unlikely(rq->nr_running == 1)) {
 #ifdef CONFIG_SCHED_BORE
 		restart_burst(se);
+		update_slice_score(se);
 #endif // CONFIG_SCHED_BORE
 		return;
 	}
