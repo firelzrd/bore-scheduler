@@ -1,6 +1,6 @@
 # BORE (Burst-Oriented Response Enhancer) CPU Scheduler
 
-BORE (Burst-Oriented Response Enhancer) is enhanced versions of CFS (Completely Fair Scheduler) and EEVDF (Earliest Eligible Virtual Dealine First) Linux schedulers.
+BORE (Burst-Oriented Response Enhancer) is enhanced versions of CFS (Completely Fair Scheduler) and EEVDF (Earliest Eligible Virtual Deadline First) Linux schedulers.
 Developed with the aim of maintaining these schedulers' high performance while delivering resilient responsiveness to user input under as versatile load scenario as possible.
 
 To achieve this, BORE introduces a dimension of flexibility known as "burstiness" for each individual tasks, partially departing from CFS's inherent "complete fairness" principle.
