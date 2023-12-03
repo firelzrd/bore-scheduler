@@ -1,7 +1,7 @@
-From 189bcdea3897db35475840766fb972e786168ecb Mon Sep 17 00:00:00 2001
+From 60a0b66f608bdbfae7823de0d2dbaa20aadbcea3 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 1 Dec 2023 15:32:49 +0900
-Subject: [PATCH] linux6.6.y-bore3.5.4
+Date: Tue, 5 Dec 2023 22:54:38 +0900
+Subject: [PATCH] linux6.6.y-bore3.5.7
 
 ---
  include/linux/sched.h   |  10 ++
@@ -10,7 +10,7 @@ Subject: [PATCH] linux6.6.y-bore3.5.4
  kernel/sched/debug.c    |   3 +
  kernel/sched/fair.c     | 216 +++++++++++++++++++++++++++++++++++++---
  kernel/sched/features.h |   4 +
- 6 files changed, 364 insertions(+), 16 deletions(-)
+ 6 files changed, 366 insertions(+), 14 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 77f01ac385..01f2839adf 100644
@@ -64,7 +64,7 @@ index 9dee4c1003..49d343e97b 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 9e9a45a339..6954258364 100644
+index a854b71836..a98cfa7ab4 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4488,6 +4488,123 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -211,13 +211,13 @@ index 9e9a45a339..6954258364 100644
  	uclamp_post_fork(p);
  }
  
-@@ -9925,6 +10048,11 @@ void __init sched_init(void)
+@@ -9922,6 +10045,11 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.5.4 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.5.7 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -238,7 +238,7 @@ index 4c3d0d9f3d..e37fdfad1c 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 1795f6fe99..68b1abcfa5 100644
+index 1795f6fe99..af6bac4862 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -555,27 +555,20 @@ index 1795f6fe99..68b1abcfa5 100644
  	}
  
  	se->vruntime = vruntime - lag;
-@@ -5256,8 +5429,7 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
- 	/*
- 	 * Enabling NEXT_BUDDY will affect latency but not fairness.
- 	 */
--	if (sched_feat(NEXT_BUDDY) &&
--	    cfs_rq->next && entity_eligible(cfs_rq, cfs_rq->next))
-+	if (cfs_rq->next && entity_eligible(cfs_rq, cfs_rq->next))
- 		return cfs_rq->next;
+@@ -6593,6 +6766,12 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	bool was_sched_idle = sched_idle_rq(rq);
  
- 	return pick_eevdf(cfs_rq);
-@@ -6597,6 +6769,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
- 	for_each_sched_entity(se) {
- 		cfs_rq = cfs_rq_of(se);
- 		dequeue_entity(cfs_rq, se, flags);
+ 	util_est_dequeue(&rq->cfs, p);
 +#ifdef CONFIG_SCHED_BORE
-+		if (task_sleep) restart_burst(se);
++	if (task_sleep) {
++		update_curr(cfs_rq_of(se));
++		restart_burst(se);
++	}
 +#endif // CONFIG_SCHED_BORE
  
- 		cfs_rq->h_nr_running--;
- 		cfs_rq->idle_h_nr_running -= idle_h_nr_running;
-@@ -8324,8 +8499,13 @@ static void yield_task_fair(struct rq *rq)
+ 	for_each_sched_entity(se) {
+ 		cfs_rq = cfs_rq_of(se);
+@@ -8324,8 +8503,13 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -590,7 +583,7 @@ index 1795f6fe99..68b1abcfa5 100644
  
  	clear_buddies(cfs_rq, se);
  
-@@ -8334,6 +8514,10 @@ static void yield_task_fair(struct rq *rq)
+@@ -8334,6 +8518,10 @@ static void yield_task_fair(struct rq *rq)
  	 * Update run-time statistics of the 'current'.
  	 */
  	update_curr(cfs_rq);
