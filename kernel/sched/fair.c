@@ -137,14 +137,28 @@ static inline void update_burst_penalty(struct sched_entity *se) {
 	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
 }
 
+static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
+}
+
+static inline u64 __unscale_slice(u64 delta, u8 score) {
+	return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);
+}
+
 static inline void update_slice_score(struct sched_entity *se) {
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
 	se->slice_score = penalty >> 2;
 }
 
-static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
+static inline void update_slice_score_mid_slice(struct sched_entity *se) {
+	u64 wremain, vremain = se->deadline - se->vruntime;
+	u8 prev_score = se->slice_score;
+	update_slice_score(se);
+	if (prev_score != se->slice_score) {
+		wremain = __unscale_slice(vremain, prev_score);
+		se->deadline = se->vruntime + scale_slice(wremain, se);
+	}
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
@@ -8503,13 +8517,11 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Are we the only task in the tree?
 	 */
-	if (unlikely(rq->nr_running == 1)) {
 #ifdef CONFIG_SCHED_BORE
-		restart_burst(se);
-		update_slice_score(se);
+	if (unlikely(!sched_bore))
 #endif // CONFIG_SCHED_BORE
+	if (unlikely(rq->nr_running == 1))
 		return;
-	}
 
 	clear_buddies(cfs_rq, se);
 
@@ -8518,16 +8530,19 @@ static void yield_task_fair(struct rq *rq)
 	 * Update run-time statistics of the 'current'.
 	 */
 	update_curr(cfs_rq);
-#ifdef CONFIG_SCHED_BORE
-	restart_burst(se);
-	update_slice_score(se);
-#endif // CONFIG_SCHED_BORE
 	/*
 	 * Tell update_rq_clock() that we've just updated,
 	 * so we don't do microscopic update in schedule()
 	 * and double the fastpath cost.
 	 */
 	rq_clock_skip_update(rq);
+#ifdef CONFIG_SCHED_BORE
+	restart_burst(se);
+	if (likely(sched_bore)) {
+		update_slice_score_mid_slice(se);
+		if (unlikely(rq->nr_running == 1)) return;
+	}
+#endif // CONFIG_SCHED_BORE
 
 	se->deadline += calc_delta_fair(se->slice, se);
 }
