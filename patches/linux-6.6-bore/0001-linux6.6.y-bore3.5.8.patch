@@ -1,16 +1,16 @@
-From 60a0b66f608bdbfae7823de0d2dbaa20aadbcea3 Mon Sep 17 00:00:00 2001
+From 73d7e003d81be305ac17b51536248bf936eb23b4 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 5 Dec 2023 22:54:38 +0900
-Subject: [PATCH] linux6.6.y-bore3.5.7
+Date: Tue, 19 Dec 2023 04:20:30 +0900
+Subject: [PATCH] linux6.6.y-bore3.5.8
 
 ---
  include/linux/sched.h   |  10 ++
  init/Kconfig            |  19 ++++
- kernel/sched/core.c     | 128 ++++++++++++++++++++++++
+ kernel/sched/core.c     | 128 ++++++++++++++++++++++
  kernel/sched/debug.c    |   3 +
- kernel/sched/fair.c     | 216 +++++++++++++++++++++++++++++++++++++---
+ kernel/sched/fair.c     | 229 +++++++++++++++++++++++++++++++++++++---
  kernel/sched/features.h |   4 +
- 6 files changed, 366 insertions(+), 14 deletions(-)
+ 6 files changed, 380 insertions(+), 13 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 77f01ac385..01f2839adf 100644
@@ -34,10 +34,10 @@ index 77f01ac385..01f2839adf 100644
  	u64				slice;
  
 diff --git a/init/Kconfig b/init/Kconfig
-index 9dee4c1003..49d343e97b 100644
+index 6d35728b94..796c996f06 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1278,6 +1278,25 @@ config CHECKPOINT_RESTORE
+@@ -1258,6 +1258,25 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
@@ -64,7 +64,7 @@ index 9dee4c1003..49d343e97b 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index a854b71836..a98cfa7ab4 100644
+index a854b71836..db2c396350 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4488,6 +4488,123 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -217,7 +217,7 @@ index a854b71836..a98cfa7ab4 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.5.7 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 3.5.8 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -238,7 +238,7 @@ index 4c3d0d9f3d..e37fdfad1c 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 1795f6fe99..af6bac4862 100644
+index 1795f6fe99..26d9462353 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -282,7 +282,7 @@ index 1795f6fe99..af6bac4862 100644
  
  /*
   * After fork, child runs first. If set to 0 (default) then
-@@ -86,6 +100,68 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
+@@ -86,6 +100,82 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
  
@@ -323,14 +323,28 @@ index 1795f6fe99..af6bac4862 100644
 +	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
 +}
 +
++static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
++	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
++}
++
++static inline u64 __unscale_slice(u64 delta, u8 score) {
++	return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);
++}
++
 +static inline void update_slice_score(struct sched_entity *se) {
 +	u32 penalty = se->burst_penalty;
 +	if (sched_burst_score_rounding) penalty += 0x2U;
 +	se->slice_score = penalty >> 2;
 +}
 +
-+static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
-+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
++static inline void update_slice_score_mid_slice(struct sched_entity *se) {
++	u64 wremain, vremain = se->deadline - se->vruntime;
++	u8 prev_score = se->slice_score;
++	update_slice_score(se);
++	if (prev_score != se->slice_score) {
++		wremain = __unscale_slice(vremain, prev_score);
++		se->deadline = se->vruntime + scale_slice(wremain, se);
++	}
 +}
 +
 +static inline u32 binary_smooth(u32 new, u32 old) {
@@ -351,7 +365,7 @@ index 1795f6fe99..af6bac4862 100644
  int sched_thermal_decay_shift;
  static int __init setup_sched_thermal_decay_shift(char *str)
  {
-@@ -145,6 +221,70 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
+@@ -145,6 +235,70 @@ static unsigned int sysctl_numa_balancing_promote_rate_limit = 65536;
  
  #ifdef CONFIG_SYSCTL
  static struct ctl_table sched_fair_sysctls[] = {
@@ -422,7 +436,7 @@ index 1795f6fe99..af6bac4862 100644
  	{
  		.procname       = "sched_child_runs_first",
  		.data           = &sysctl_sched_child_runs_first,
-@@ -313,6 +453,9 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
+@@ -313,6 +467,9 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
  	if (unlikely(se->load.weight != NICE_0_LOAD))
  		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
  
@@ -432,7 +446,7 @@ index 1795f6fe99..af6bac4862 100644
  	return delta;
  }
  
-@@ -668,7 +811,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
+@@ -668,7 +825,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
   * Specifically: avg_runtime() + 0 must result in entity_eligible() := true
   * For this to be so, the result of this function must have a left bias.
   */
@@ -441,7 +455,7 @@ index 1795f6fe99..af6bac4862 100644
  {
  	struct sched_entity *curr = cfs_rq->curr;
  	s64 avg = cfs_rq->avg_vruntime;
-@@ -688,7 +831,11 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
+@@ -688,7 +845,11 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
  		avg = div_s64(avg, load);
  	}
  
@@ -454,7 +468,7 @@ index 1795f6fe99..af6bac4862 100644
  }
  
  /*
-@@ -709,13 +856,8 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
+@@ -709,13 +870,8 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
   */
  static void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  {
@@ -469,7 +483,7 @@ index 1795f6fe99..af6bac4862 100644
  }
  
  /*
-@@ -981,7 +1123,6 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
+@@ -981,7 +1137,6 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
  	return se;
  }
  
@@ -477,7 +491,7 @@ index 1795f6fe99..af6bac4862 100644
  struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
  {
  	struct rb_node *last = rb_last(&cfs_rq->tasks_timeline.rb_root);
-@@ -995,6 +1136,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
+@@ -995,6 +1150,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
  /**************************************************************
   * Scheduling class statistics methods:
   */
@@ -485,7 +499,7 @@ index 1795f6fe99..af6bac4862 100644
  #ifdef CONFIG_SMP
  int sched_update_scaling(void)
  {
-@@ -1031,6 +1173,9 @@ static void update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
+@@ -1031,6 +1187,9 @@ static void update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
  	/*
  	 * EEVDF: vd_i = ve_i + r_i / w_i
  	 */
@@ -495,7 +509,7 @@ index 1795f6fe99..af6bac4862 100644
  	se->deadline = se->vruntime + calc_delta_fair(se->slice, se);
  
  	/*
-@@ -1173,7 +1318,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1173,7 +1332,11 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	curr->sum_exec_runtime += delta_exec;
  	schedstat_add(cfs_rq->exec_clock, delta_exec);
  
@@ -508,7 +522,7 @@ index 1795f6fe99..af6bac4862 100644
  	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
  
-@@ -4961,6 +5110,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -4961,6 +5124,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  	s64 lag = 0;
  
  	se->slice = sysctl_sched_base_slice;
@@ -518,7 +532,7 @@ index 1795f6fe99..af6bac4862 100644
  	vslice = calc_delta_fair(se->slice, se);
  
  	/*
-@@ -4975,7 +5127,13 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -4975,7 +5141,13 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  		struct sched_entity *curr = cfs_rq->curr;
  		unsigned long load;
  
@@ -533,7 +547,7 @@ index 1795f6fe99..af6bac4862 100644
  
  		/*
  		 * If we want to place a task and preserve lag, we have to
-@@ -5037,6 +5195,21 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -5037,6 +5209,21 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  		if (WARN_ON_ONCE(!load))
  			load = 1;
  		lag = div_s64(lag, load);
@@ -555,7 +569,7 @@ index 1795f6fe99..af6bac4862 100644
  	}
  
  	se->vruntime = vruntime - lag;
-@@ -6593,6 +6766,12 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -6593,6 +6780,12 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	bool was_sched_idle = sched_idle_rq(rq);
  
  	util_est_dequeue(&rq->cfs, p);
@@ -568,32 +582,30 @@ index 1795f6fe99..af6bac4862 100644
  
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
-@@ -8324,8 +8503,13 @@ static void yield_task_fair(struct rq *rq)
+@@ -8324,6 +8517,9 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
--	if (unlikely(rq->nr_running == 1))
-+	if (unlikely(rq->nr_running == 1)) {
 +#ifdef CONFIG_SCHED_BORE
-+		restart_burst(se);
-+		update_slice_score(se);
++	if (unlikely(!sched_bore))
 +#endif // CONFIG_SCHED_BORE
+ 	if (unlikely(rq->nr_running == 1))
  		return;
-+	}
  
- 	clear_buddies(cfs_rq, se);
- 
-@@ -8334,6 +8518,10 @@ static void yield_task_fair(struct rq *rq)
- 	 * Update run-time statistics of the 'current'.
+@@ -8340,6 +8536,13 @@ static void yield_task_fair(struct rq *rq)
+ 	 * and double the fastpath cost.
  	 */
- 	update_curr(cfs_rq);
+ 	rq_clock_skip_update(rq);
 +#ifdef CONFIG_SCHED_BORE
 +	restart_burst(se);
-+	update_slice_score(se);
++	if (likely(sched_bore)) {
++		update_slice_score_mid_slice(se);
++		if (unlikely(rq->nr_running == 1)) return;
++	}
 +#endif // CONFIG_SCHED_BORE
- 	/*
- 	 * Tell update_rq_clock() that we've just updated,
- 	 * so we don't do microscopic update in schedule()
+ 
+ 	se->deadline += calc_delta_fair(se->slice, se);
+ }
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
 index f770168230..a2e09c04f3 100644
 --- a/kernel/sched/features.h
