@@ -155,7 +155,7 @@ static inline void update_slice_score_mid_slice(struct sched_entity *se) {
 	u64 wremain, vremain = se->deadline - se->vruntime;
 	u8 prev_score = se->slice_score;
 	update_slice_score(se);
-	if (prev_score != se->slice_score) {
+	if (prev_score > se->slice_score) {
 		wremain = __unscale_slice(vremain, prev_score);
 		se->deadline = se->vruntime + scale_slice(wremain, se);
 	}
