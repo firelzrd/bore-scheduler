@@ -5141,13 +5141,12 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
 
-		u64 slice = se->slice;
+		u64 limit = calc_delta_fair(max_t(u64, se->slice*2, TICK_NSEC), se);
+		s64 overmet = limit, undermet = limit;
 #ifdef CONFIG_SCHED_BORE
-		if (unlikely(!sched_bore))
+		if (likely(sched_bore)) overmet /= 2;
 #endif // CONFIG_SCHED_BORE
-		slice *= 2;
-		s64 limit = calc_delta_fair(max_t(u64, slice, TICK_NSEC), se);
-		lag = clamp(se->vlag, -limit, limit);
+		lag = clamp(se->vlag, -overmet, undermet);
 
 		/*
 		 * If we want to place a task and preserve lag, we have to
