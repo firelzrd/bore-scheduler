@@ -1137,6 +1137,7 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 	return se;
 }
 
+#ifdef CONFIG_SCHED_DEBUG
 struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 {
 	struct rb_node *last = rb_last(&cfs_rq->tasks_timeline.rb_root);
@@ -1150,7 +1151,6 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 /**************************************************************
  * Scheduling class statistics methods:
  */
-#ifdef CONFIG_SCHED_DEBUG
 #ifdef CONFIG_SMP
 int sched_update_scaling(void)
 {
@@ -5208,21 +5208,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		lag = div_s64(lag, load);
-
-#ifdef CONFIG_SCHED_BORE
-		if (flags & ENQUEUE_MIGRATED && likely(sched_bore)) {
-			s64 left_vruntime = vruntime, right_vruntime = vruntime;
-			struct sched_entity *first = __pick_first_entity(cfs_rq),
-			                    *last = __pick_last_entity(cfs_rq);
-
-			if (first) left_vruntime = first->vruntime;
-			if (last) right_vruntime = last->vruntime;
-
-			lag = clamp(lag,
-				(s64)vruntime - right_vruntime,
-				(s64)vruntime - left_vruntime);
-		}
-#endif // CONFIG_SCHED_BORE
 	}
 
 	se->vruntime = vruntime - lag;
