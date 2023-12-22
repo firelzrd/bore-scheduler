@@ -5124,9 +5124,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
-#ifdef CONFIG_SCHED_BORE
-	if (flags & ENQUEUE_WAKEUP) update_slice_score(se);
-#endif // CONFIG_SCHED_BORE
 	vslice = calc_delta_fair(se->slice, se);
 
 	/*
@@ -6684,6 +6681,10 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	 */
 	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
+
+#ifdef CONFIG_SCHED_BORE
+	update_slice_score(se);
+#endif // CONFIG_SCHED_BORE
 
 	for_each_sched_entity(se) {
 		if (se->on_rq)
@@ -12593,6 +12594,9 @@ static void task_fork_fair(struct task_struct *p)
 	curr = cfs_rq->curr;
 	if (curr)
 		update_curr(cfs_rq);
+#ifdef CONFIG_SCHED_BORE
+	update_slice_score(se);
+#endif // CONFIG_SCHED_BORE
 	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
 	rq_unlock(rq, &rf);
 }
