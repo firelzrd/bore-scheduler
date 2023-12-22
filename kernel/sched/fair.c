@@ -151,16 +151,6 @@ static inline void update_slice_score(struct sched_entity *se) {
 	se->slice_score = penalty >> 2;
 }
 
-static inline void update_slice_score_mid_slice(struct sched_entity *se) {
-	u64 wremain, vremain = se->deadline - se->vruntime;
-	u8 prev_score = se->slice_score;
-	update_slice_score(se);
-	if (prev_score > se->slice_score) {
-		wremain = __unscale_slice(vremain, prev_score);
-		se->deadline = se->vruntime + scale_slice(wremain, se);
-	}
-}
-
 static inline u32 binary_smooth(u32 new, u32 old) {
   int increment = new - old;
   return (0 <= increment)?
@@ -173,6 +163,17 @@ static void restart_burst(struct sched_entity *se) {
 		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
 	se->curr_burst_penalty = 0;
 	se->burst_time = 0;
+	update_slice_score(se);
+}
+
+static inline void restart_burst_rescale_deadline(struct sched_entity *se) {
+	u64 wremain, vremain = se->deadline - se->vruntime;
+	u8 prev_score = se->slice_score;
+	restart_burst(se);
+	if (prev_score > se->slice_score) {
+		wremain = __unscale_slice(vremain, prev_score);
+		se->deadline = se->vruntime + scale_slice(wremain, se);
+	}
 }
 #endif // CONFIG_SCHED_BORE
 
@@ -6682,10 +6683,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
-#ifdef CONFIG_SCHED_BORE
-	update_slice_score(se);
-#endif // CONFIG_SCHED_BORE
-
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
@@ -8522,11 +8519,8 @@ static void yield_task_fair(struct rq *rq)
 	 */
 	rq_clock_skip_update(rq);
 #ifdef CONFIG_SCHED_BORE
-	restart_burst(se);
-	if (likely(sched_bore)) {
-		update_slice_score_mid_slice(se);
-		if (unlikely(rq->nr_running == 1)) return;
-	}
+	restart_burst_rescale_deadline(se);
+	if (unlikely(rq->nr_running == 1)) return;
 #endif // CONFIG_SCHED_BORE
 
 	se->deadline += calc_delta_fair(se->slice, se);
