@@ -5125,7 +5125,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	se->slice = sysctl_sched_base_slice;
 #ifdef CONFIG_SCHED_BORE
-	update_slice_score(se);
+	if (flags & ENQUEUE_WAKEUP) update_slice_score(se);
 #endif // CONFIG_SCHED_BORE
 	vslice = calc_delta_fair(se->slice, se);
 
