@@ -9,7 +9,7 @@
  *  Copyright (C) 2005 Eric Biederman <ebiederm@xmission.com>
  */
 
-
+#include <linux/export.h>
 #include <linux/linkage.h>
 #include <linux/threads.h>
 #include <linux/init.h>
@@ -22,7 +22,6 @@
 #include <asm/percpu.h>
 #include <asm/nops.h>
 #include "../entry/calling.h"
-#include <asm/export.h>
 #include <asm/nospec-branch.h>
 #include <asm/apicdef.h>
 #include <asm/fixmap.h>
@@ -180,8 +179,8 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movl	$0, %ecx
 #endif
 
-	/* Enable PAE mode, PGE and LA57 */
-	orl	$(X86_CR4_PAE | X86_CR4_PGE), %ecx
+	/* Enable PAE mode, PSE, PGE and LA57 */
+	orl	$(X86_CR4_PAE | X86_CR4_PSE | X86_CR4_PGE), %ecx
 #ifdef CONFIG_X86_5LEVEL
 	testl	$1, __pgtable_l5_enabled(%rip)
 	jz	1f
@@ -256,6 +255,22 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	testl	$X2APIC_ENABLE, %eax
 	jnz	.Lread_apicid_msr
 
+#ifdef CONFIG_X86_X2APIC
+	/*
+	 * If system is in X2APIC mode then MMIO base might not be
+	 * mapped causing the MMIO read below to fault. Faults can't
+	 * be handled at that point.
+	 */
+	cmpl	$0, x2apic_mode(%rip)
+	jz	.Lread_apicid_mmio
+
+	/* Force the AP into X2APIC mode. */
+	orl	$X2APIC_ENABLE, %eax
+	wrmsr
+	jmp	.Lread_apicid_msr
+#endif
+
+.Lread_apicid_mmio:
 	/* Read the APIC ID from the fix-mapped MMIO space. */
 	movq	apic_mmio_base(%rip), %rcx
 	addq	$APIC_ID, %rcx

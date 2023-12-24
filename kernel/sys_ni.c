@@ -51,8 +51,6 @@ COND_SYSCALL_COMPAT(io_pgetevents);
 COND_SYSCALL(io_uring_setup);
 COND_SYSCALL(io_uring_enter);
 COND_SYSCALL(io_uring_register);
-COND_SYSCALL(lookup_dcookie);
-COND_SYSCALL_COMPAT(lookup_dcookie);
 COND_SYSCALL(eventfd2);
 COND_SYSCALL(epoll_create1);
 COND_SYSCALL(epoll_ctl);
@@ -87,6 +85,9 @@ COND_SYSCALL_COMPAT(set_robust_list);
 COND_SYSCALL(get_robust_list);
 COND_SYSCALL_COMPAT(get_robust_list);
 COND_SYSCALL(futex_waitv);
+COND_SYSCALL(futex_wake);
+COND_SYSCALL(futex_wait);
+COND_SYSCALL(futex_requeue);
 COND_SYSCALL(kexec_load);
 COND_SYSCALL_COMPAT(kexec_load);
 COND_SYSCALL(init_module);
@@ -199,6 +200,20 @@ COND_SYSCALL(recvmmsg);
 COND_SYSCALL(recvmmsg_time32);
 COND_SYSCALL_COMPAT(recvmmsg_time32);
 COND_SYSCALL_COMPAT(recvmmsg_time64);
+
+/* Posix timer syscalls may be configured out */
+COND_SYSCALL(timer_create);
+COND_SYSCALL(timer_gettime);
+COND_SYSCALL(timer_getoverrun);
+COND_SYSCALL(timer_settime);
+COND_SYSCALL(timer_delete);
+COND_SYSCALL(clock_adjtime);
+COND_SYSCALL(getitimer);
+COND_SYSCALL(setitimer);
+COND_SYSCALL(alarm);
+COND_SYSCALL_COMPAT(timer_create);
+COND_SYSCALL_COMPAT(getitimer);
+COND_SYSCALL_COMPAT(setitimer);
 
 /*
  * Architecture specific syscalls: see further below

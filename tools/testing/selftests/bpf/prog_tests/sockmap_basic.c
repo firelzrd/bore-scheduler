@@ -359,7 +359,7 @@ out:
 static void test_sockmap_skb_verdict_shutdown(void)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
-	int n, err, map, verdict, s, c1, p1;
+	int n, err, map, verdict, s, c1 = -1, p1 = -1;
 	struct test_sockmap_pass_prog *skel;
 	int epollfd;
 	int zero = 0;
@@ -414,9 +414,9 @@ out:
 static void test_sockmap_skb_verdict_fionread(bool pass_prog)
 {
 	int expected, zero = 0, sent, recvd, avail;
-	int err, map, verdict, s, c0, c1, p0, p1;
-	struct test_sockmap_pass_prog *pass;
-	struct test_sockmap_drop_prog *drop;
+	int err, map, verdict, s, c0 = -1, c1 = -1, p0 = -1, p1 = -1;
+	struct test_sockmap_pass_prog *pass = NULL;
+	struct test_sockmap_drop_prog *drop = NULL;
 	char buf[256] = "0123456789";
 
 	if (pass_prog) {
@@ -524,6 +524,37 @@ out:
 	test_sockmap_pass_prog__destroy(pass);
 }
 
+static void test_sockmap_unconnected_unix(void)
+{
+	int err, map, stream = 0, dgram = 0, zero = 0;
+	struct test_sockmap_pass_prog *skel;
+
+	skel = test_sockmap_pass_prog__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	map = bpf_map__fd(skel->maps.sock_map_rx);
+
+	stream = xsocket(AF_UNIX, SOCK_STREAM, 0);
+	if (stream < 0)
+		return;
+
+	dgram = xsocket(AF_UNIX, SOCK_DGRAM, 0);
+	if (dgram < 0) {
+		close(stream);
+		return;
+	}
+
+	err = bpf_map_update_elem(map, &zero, &stream, BPF_ANY);
+	ASSERT_ERR(err, "bpf_map_update_elem(stream)");
+
+	err = bpf_map_update_elem(map, &zero, &dgram, BPF_ANY);
+	ASSERT_OK(err, "bpf_map_update_elem(dgram)");
+
+	close(stream);
+	close(dgram);
+}
+
 void test_sockmap_basic(void)
 {
 	if (test__start_subtest("sockmap create_update_free"))
@@ -566,4 +597,7 @@ void test_sockmap_basic(void)
 		test_sockmap_skb_verdict_fionread(false);
 	if (test__start_subtest("sockmap skb_verdict msg_f_peek"))
 		test_sockmap_skb_verdict_peek();
+
+	if (test__start_subtest("sockmap unconnected af_unix"))
+		test_sockmap_unconnected_unix();
 }

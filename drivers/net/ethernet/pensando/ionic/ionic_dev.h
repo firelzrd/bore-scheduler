@@ -7,6 +7,7 @@
 #include <linux/atomic.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/skbuff.h>
 
 #include "ionic_if.h"
 #include "ionic_regs.h"
@@ -217,12 +218,12 @@ struct ionic_desc_info {
 	};
 	unsigned int bytes;
 	unsigned int nbufs;
-	struct ionic_buf_info bufs[IONIC_MAX_FRAGS];
+	struct ionic_buf_info bufs[MAX_SKB_FRAGS + 1];
 	ionic_desc_cb cb;
 	void *cb_arg;
 };
 
-#define IONIC_QUEUE_NAME_MAX_SZ		32
+#define IONIC_QUEUE_NAME_MAX_SZ		16
 
 struct ionic_queue {
 	struct device *dev;

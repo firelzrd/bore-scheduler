@@ -572,8 +572,8 @@ xfs_vn_getattr(
 	stat->uid = vfsuid_into_kuid(vfsuid);
 	stat->gid = vfsgid_into_kgid(vfsgid);
 	stat->ino = ip->i_ino;
-	stat->atime = inode->i_atime;
-	stat->mtime = inode->i_mtime;
+	stat->atime = inode_get_atime(inode);
+	stat->mtime = inode_get_mtime(inode);
 	stat->ctime = inode_get_ctime(inode);
 	stat->blocks = XFS_FSB_TO_BB(mp, ip->i_nblocks + ip->i_delayed_blks);
 
@@ -1067,9 +1067,9 @@ xfs_vn_update_time(
 		now = current_time(inode);
 
 	if (flags & S_MTIME)
-		inode->i_mtime = now;
+		inode_set_mtime_to_ts(inode, now);
 	if (flags & S_ATIME)
-		inode->i_atime = now;
+		inode_set_atime_to_ts(inode, now);
 
 	xfs_trans_ijoin(tp, ip, XFS_ILOCK_EXCL);
 	xfs_trans_log_inode(tp, ip, log_flags);
@@ -1297,6 +1297,13 @@ xfs_setup_inode(
 	 */
 	gfp_mask = mapping_gfp_mask(inode->i_mapping);
 	mapping_set_gfp_mask(inode->i_mapping, (gfp_mask & ~(__GFP_FS)));
+
+	/*
+	 * For real-time inodes update the stable write flags to that of the RT
+	 * device instead of the data device.
+	 */
+	if (S_ISREG(inode->i_mode) && XFS_IS_REALTIME_INODE(ip))
+		xfs_update_stable_writes(ip);
 
 	/*
 	 * If there is no attribute fork no ACL can exist on this inode,
