@@ -568,6 +568,7 @@ struct sched_entity {
 	u8				child_burst;
 	u16				child_burst_cnt;
 	u64				child_burst_last_cached;
+	u32				slice_load;
 #endif // CONFIG_SCHED_BORE
 	s64				vlag;
 	u64				slice;

@@ -145,10 +145,24 @@ static inline u64 __unscale_slice(u64 delta, u8 score) {
 	return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);
 }
 
-static inline void update_slice_score(struct sched_entity *se) {
+static inline u64 unscale_slice(u64 delta, struct sched_entity *se) {
+	return __unscale_slice(delta, se->slice_score);
+}
+
+static void avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se);
+static void avg_vruntime_sub(struct cfs_rq *cfs_rq, struct sched_entity *se);
+
+static void update_slice_score(struct sched_entity *se) {
+	struct cfs_rq *cfs_rq = cfs_rq_of(se);
+	u8 prev_score = se->slice_score;
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
 	se->slice_score = penalty >> 2;
+
+	if (se->slice_score != prev_score && se->slice_load) {
+		avg_vruntime_sub(cfs_rq, se);
+		avg_vruntime_add(cfs_rq, se);
+	}
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
@@ -793,10 +807,20 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * As measured, the max (key * weight) value was ~44 bits for a kernel build.
  */
+static unsigned long __avg_load_weight(struct sched_entity *se) {
+	unsigned long weight = scale_load_down(se->load.weight);
+#ifdef CONFIG_SCHED_BORE
+	weight <<= 4;
+	if (likely(sched_bore)) weight = unscale_slice(weight, se);
+#endif // CONFIG_SCHED_BORE
+	return weight;
+}
+
 static void
 avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	unsigned long weight = scale_load_down(se->load.weight);
+	unsigned long weight = __avg_load_weight(se);
+	se->slice_load = weight;
 	s64 key = entity_key(cfs_rq, se);
 
 	cfs_rq->avg_vruntime += key * weight;
@@ -806,7 +830,13 @@ avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static void
 avg_vruntime_sub(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	unsigned long weight = scale_load_down(se->load.weight);
+	unsigned long weight;
+#if !defined(CONFIG_SCHED_BORE)
+	weight = scale_load_down(se->load.weight);
+#else // CONFIG_SCHED_BORE
+	weight = se->slice_load;
+	se->slice_load = 0;
+#endif // CONFIG_SCHED_BORE
 	s64 key = entity_key(cfs_rq, se);
 
 	cfs_rq->avg_vruntime -= key * weight;
@@ -833,7 +863,7 @@ static u64 avg_key(struct cfs_rq *cfs_rq)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = scale_load_down(curr->load.weight);
+		unsigned long weight = __avg_load_weight(curr);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -899,7 +929,7 @@ int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = scale_load_down(curr->load.weight);
+		unsigned long weight = __avg_load_weight(curr);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -5200,9 +5230,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		 */
 		load = cfs_rq->avg_load;
 		if (curr && curr->on_rq)
-			load += scale_load_down(curr->load.weight);
+			load += __avg_load_weight(curr);
 
-		lag *= load + scale_load_down(se->load.weight);
+		lag *= load + __avg_load_weight(se);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		lag = div_s64(lag, load);

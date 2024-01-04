@@ -4500,6 +4500,7 @@ void __init sched_init_bore(void) {
 	init_task.se.burst_penalty = 0;
 	init_task.se.slice_score = 0;
 	init_task.se.child_burst_last_cached = 0;
+	init_task.se.slice_load = 0;
 }
 
 void inline sched_fork_bore(struct task_struct *p) {
@@ -4507,6 +4508,7 @@ void inline sched_fork_bore(struct task_struct *p) {
 	p->se.curr_burst_penalty = 0;
 	p->se.slice_score = 0;
 	p->se.child_burst_last_cached = 0;
+	p->se.slice_load = 0;
 }
 
 static u32 count_child_tasks(struct task_struct *p) {
