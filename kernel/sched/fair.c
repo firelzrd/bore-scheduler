@@ -810,7 +810,7 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static unsigned long __avg_load_weight(struct sched_entity *se) {
 	unsigned long weight = scale_load_down(se->load.weight);
 #ifdef CONFIG_SCHED_BORE
-	weight <<= 4;
+	weight <<= 5;
 	if (likely(sched_bore)) weight = unscale_slice(weight, se);
 #endif // CONFIG_SCHED_BORE
 	return weight;
