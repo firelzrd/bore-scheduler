@@ -807,7 +807,7 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * As measured, the max (key * weight) value was ~44 bits for a kernel build.
  */
-static unsigned long __avg_load_weight(struct sched_entity *se) {
+static unsigned long calc_avg_load_weight(struct sched_entity *se) {
 	unsigned long weight = scale_load_down(se->load.weight);
 #ifdef CONFIG_SCHED_BORE
 	weight <<= 5;
@@ -819,7 +819,7 @@ static unsigned long __avg_load_weight(struct sched_entity *se) {
 static void
 avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	unsigned long weight = __avg_load_weight(se);
+	unsigned long weight = calc_avg_load_weight(se);
 #ifdef CONFIG_SCHED_BORE
 	se->slice_load = weight;
 #endif // CONFIG_SCHED_BORE
@@ -865,7 +865,7 @@ static u64 avg_key(struct cfs_rq *cfs_rq)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = __avg_load_weight(curr);
+		unsigned long weight = calc_avg_load_weight(curr);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -931,7 +931,7 @@ int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = __avg_load_weight(curr);
+		unsigned long weight = calc_avg_load_weight(curr);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -5232,9 +5232,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		 */
 		load = cfs_rq->avg_load;
 		if (curr && curr->on_rq)
-			load += __avg_load_weight(curr);
+			load += calc_avg_load_weight(curr);
 
-		lag *= load + __avg_load_weight(se);
+		lag *= load + calc_avg_load_weight(se);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		lag = div_s64(lag, load);
