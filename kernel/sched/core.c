@@ -4582,6 +4582,8 @@ static void sched_post_fork_bore(struct task_struct *p) {
 	u32 cnt = 0, sum = 0, depth;
 	u8 burst_cache;
 
+	if (p->sched_class != &fair_sched_class) return;
+
 	if (likely(sched_bore)) {
 		now = ktime_get_ns();
 		read_lock(&tasklist_lock);
