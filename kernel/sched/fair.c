@@ -820,7 +820,9 @@ static void
 avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	unsigned long weight = __avg_load_weight(se);
+#ifdef CONFIG_SCHED_BORE
 	se->slice_load = weight;
+#endif // CONFIG_SCHED_BORE
 	s64 key = entity_key(cfs_rq, se);
 
 	cfs_rq->avg_vruntime += key * weight;
