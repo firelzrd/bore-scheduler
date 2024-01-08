@@ -4127,7 +4127,6 @@ M:	Franky Lin <franky.lin@broadcom.com>
 M:	Hante Meuleman <hante.meuleman@broadcom.com>
 L:	linux-wireless@vger.kernel.org
 L:	brcm80211-dev-list.pdl@broadcom.com
-L:	SHA-cyfmac-dev-list@infineon.com
 S:	Supported
 F:	drivers/net/wireless/broadcom/brcm80211/
 
@@ -6902,8 +6901,8 @@ T:	git git://anongit.freedesktop.org/drm/drm-misc
 F:	drivers/gpu/drm/vboxvideo/
 
 DRM DRIVER FOR VMWARE VIRTUAL GPU
-M:	Zack Rusin <zackr@vmware.com>
-R:	VMware Graphics Reviewers <linux-graphics-maintainer@vmware.com>
+M:	Zack Rusin <zack.rusin@broadcom.com>
+R:	Broadcom internal kernel review list <bcm-kernel-feedback-list@broadcom.com>
 L:	dri-devel@lists.freedesktop.org
 S:	Supported
 T:	git git://anongit.freedesktop.org/drm/drm-misc
@@ -9768,7 +9767,6 @@ F:	Documentation/networking/device_drivers/ethernet/huawei/hinic.rst
 F:	drivers/net/ethernet/huawei/hinic/
 
 HUGETLB SUBSYSTEM
-M:	Mike Kravetz <mike.kravetz@oracle.com>
 M:	Muchun Song <muchun.song@linux.dev>
 L:	linux-mm@kvack.org
 S:	Maintained
@@ -9792,8 +9790,8 @@ T:	git git://linuxtv.org/media_tree.git
 F:	drivers/media/platform/st/sti/hva
 
 HWPOISON MEMORY FAILURE HANDLING
-M:	Naoya Horiguchi <naoya.horiguchi@nec.com>
-R:	Miaohe Lin <linmiaohe@huawei.com>
+M:	Miaohe Lin <linmiaohe@huawei.com>
+R:	Naoya Horiguchi <naoya.horiguchi@nec.com>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	mm/hwpoison-inject.c
@@ -12824,7 +12822,7 @@ S:	Maintained
 F:	drivers/net/ethernet/marvell/mvneta.*
 
 MARVELL MVPP2 ETHERNET DRIVER
-M:	Marcin Wojtas <mw@semihalf.com>
+M:	Marcin Wojtas <marcin.s.wojtas@gmail.com>
 M:	Russell King <linux@armlinux.org.uk>
 L:	netdev@vger.kernel.org
 S:	Maintained
@@ -15087,6 +15085,7 @@ K:	\bmdo_
 NETWORKING [MPTCP]
 M:	Matthieu Baerts <matttbe@kernel.org>
 M:	Mat Martineau <martineau@kernel.org>
+R:	Geliang Tang <geliang.tang@linux.dev>
 L:	netdev@vger.kernel.org
 L:	mptcp@lists.linux.dev
 S:	Maintained
@@ -15434,7 +15433,7 @@ F:	Documentation/devicetree/bindings/net/bluetooth/nxp,88w8987-bt.yaml
 F:	drivers/bluetooth/btnxpuart.c
 
 NXP C45 TJA11XX PHY DRIVER
-M:	Radu Pirea <radu-nicolae.pirea@oss.nxp.com>
+M:	Andrei Botila <andrei.botila@oss.nxp.com>
 L:	netdev@vger.kernel.org
 S:	Maintained
 F:	drivers/net/phy/nxp-c45-tja11xx.c
@@ -16458,11 +16457,10 @@ F:	Documentation/devicetree/bindings/pci/pci-armada8k.txt
 F:	drivers/pci/controller/dwc/pcie-armada8k.c
 
 PCI DRIVER FOR CADENCE PCIE IP
-M:	Tom Joseph <tjoseph@cadence.com>
 L:	linux-pci@vger.kernel.org
-S:	Maintained
+S:	Orphan
 F:	Documentation/devicetree/bindings/pci/cdns,*
-F:	drivers/pci/controller/cadence/
+F:	drivers/pci/controller/cadence/*cadence*
 
 PCI DRIVER FOR FREESCALE LAYERSCAPE
 M:	Minghuan Lian <minghuan.Lian@nxp.com>
@@ -23216,9 +23214,8 @@ F:	drivers/misc/vmw_vmci/
 F:	include/linux/vmw_vmci*
 
 VMWARE VMMOUSE SUBDRIVER
-M:	Zack Rusin <zackr@vmware.com>
-R:	VMware Graphics Reviewers <linux-graphics-maintainer@vmware.com>
-R:	VMware PV-Drivers Reviewers <pv-drivers@vmware.com>
+M:	Zack Rusin <zack.rusin@broadcom.com>
+R:	Broadcom internal kernel review list <bcm-kernel-feedback-list@broadcom.com>
 L:	linux-input@vger.kernel.org
 S:	Supported
 F:	drivers/input/mouse/vmmouse.c
