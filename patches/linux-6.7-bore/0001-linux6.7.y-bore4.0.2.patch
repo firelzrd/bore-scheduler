@@ -1,7 +1,7 @@
-From 3121f10f1387ca4364161e49436e64a4f8a8fbc1 Mon Sep 17 00:00:00 2001
+From e2606c0562f29a4ff16e5c2944c81023f1390e0e Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sun, 14 Jan 2024 03:30:34 +0900
-Subject: [PATCH] linux6.7.y-bore4.0.1
+Date: Sun, 14 Jan 2024 06:36:03 +0900
+Subject: [PATCH] linux6.7.y-bore4.0.2
 
 ---
  include/linux/sched.h   |  11 ++
@@ -65,7 +65,7 @@ index 9ffb103fc9..4492c5de88 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index a708d225c2..a2d5d65fea 100644
+index a708d225c2..4f86adc7cf 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4480,6 +4480,135 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -230,7 +230,7 @@ index a708d225c2..a2d5d65fea 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.0.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.0.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -251,7 +251,7 @@ index 4580a45070..cf2c694c94 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index d7a3c63a21..3357ace912 100644
+index d7a3c63a21..82de19ff0c 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -625,7 +625,7 @@ index d7a3c63a21..3357ace912 100644
  
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
-@@ -8494,16 +8701,23 @@ static void yield_task_fair(struct rq *rq)
+@@ -8494,11 +8701,12 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -640,17 +640,19 @@ index d7a3c63a21..3357ace912 100644
  	update_rq_clock(rq);
  	/*
  	 * Update run-time statistics of the 'current'.
+@@ -8510,6 +8718,12 @@ static void yield_task_fair(struct rq *rq)
+ 	 * and double the fastpath cost.
  	 */
- 	update_curr(cfs_rq);
+ 	rq_clock_skip_update(rq);
 +#ifdef CONFIG_SCHED_BORE
 +	restart_burst_rescale_deadline(se);
 +	if (unlikely(rq->nr_running == 1)) return;
 +#endif // CONFIG_SCHED_BORE
 +
 +	clear_buddies(cfs_rq, se);
- 	/*
- 	 * Tell update_rq_clock() that we've just updated,
- 	 * so we don't do microscopic update in schedule()
+ 
+ 	se->deadline += calc_delta_fair(se->slice, se);
+ }
 @@ -12590,6 +12804,9 @@ static void task_fork_fair(struct task_struct *p)
  	curr = cfs_rq->curr;
  	if (curr)
