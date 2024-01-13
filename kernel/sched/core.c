@@ -4531,7 +4531,7 @@ static void __update_child_burst_cache(
 	p->se.child_burst_last_cached = now;
 }
 
-static void update_child_burst_cache(struct task_struct *p, u64 now) {
+static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	struct task_struct *child;
 	u32 cnt = 0;
 	u32 sum = 0;
@@ -4545,7 +4545,15 @@ static void update_child_burst_cache(struct task_struct *p, u64 now) {
 	__update_child_burst_cache(p, cnt, sum, now);
 }
 
-static void update_child_burst_cache_atavistic(
+static inline u8 __inherit_burst_direct(struct task_struct *p, u64 now) {
+	struct task_struct *parent = p->real_parent;
+	if (child_burst_cache_expired(parent, now))
+		update_child_burst_direct(parent, now);
+
+	return parent->se.child_burst;
+}
+
+static inline void update_child_burst_topological(
 	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
 	struct task_struct *child, *dec;
 	u32 cnt = 0, dcnt = 0;
@@ -4567,7 +4575,7 @@ static void update_child_burst_cache_atavistic(
 			sum += (u32)dec->se.child_burst * dec->se.child_burst_cnt;
 			continue;
 		}
-		update_child_burst_cache_atavistic(dec, now, depth - 1, &cnt, &sum);
+		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
 	}
 
 	__update_child_burst_cache(p, cnt, sum, now);
@@ -4575,35 +4583,37 @@ static void update_child_burst_cache_atavistic(
 	*asum += sum;
 }
 
-static void sched_post_fork_bore(struct task_struct *p) {
-	struct sched_entity *se = &p->se;
-	struct task_struct *anc;
-	u64 now;
-	u32 cnt = 0, sum = 0, depth;
+static inline u8 __inherit_burst_topological(struct task_struct *p, u64 now) {
+	struct task_struct *anc = p->real_parent;
+	u32 cnt = 0, sum = 0;
+
+	while (anc->real_parent != anc && count_child_tasks(anc) == 1)
+		anc = anc->real_parent;
+
+	if (child_burst_cache_expired(anc, now))
+		update_child_burst_topological(
+			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
+
+	return anc->se.child_burst;
+}
+
+static inline void inherit_burst(struct task_struct *p) {
 	u8 burst_cache;
+	u64 now = ktime_get_ns();
 
-	if (p->sched_class == &fair_sched_class && likely(sched_bore)) {
-		now = ktime_get_ns();
-		read_lock(&tasklist_lock);
+	read_lock(&tasklist_lock);
+	burst_cache = likely(sched_burst_fork_atavistic)?
+		__inherit_burst_topological(p, now):
+		__inherit_burst_direct(p, now);
+	read_unlock(&tasklist_lock);
 
-		anc = p->real_parent;
-		depth = sched_burst_fork_atavistic;
-		if (likely(depth)) {
-			while ((anc->real_parent != anc) && (count_child_tasks(anc) == 1))
-				anc = anc->real_parent;
-			if (child_burst_cache_expired(anc, now))
-				update_child_burst_cache_atavistic(
-					anc, now, depth - 1, &cnt, &sum);
-		} else
-			if (child_burst_cache_expired(anc, now))
-				update_child_burst_cache(anc, now);
+	p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, burst_cache);
+}
 
-		burst_cache = anc->se.child_burst;
-
-		read_unlock(&tasklist_lock);
-		se->prev_burst_penalty = max(se->prev_burst_penalty, burst_cache);
-	}
-	se->burst_penalty = se->prev_burst_penalty;
+static inline void sched_post_fork_bore(struct task_struct *p) {
+	if (p->sched_class == &fair_sched_class && likely(sched_bore))
+		inherit_burst(p);
+	p->se.burst_penalty = p->se.prev_burst_penalty;
 }
 #endif // CONFIG_SCHED_BORE
 
