@@ -10,6 +10,10 @@ This score represents a broad range of temporal characteristics, spanning from n
 Leveraging this burstiness metric, BORE dynamically adjusts scheduling properties such as weights and delays for each task.
 Consequently, in systems experiencing diverse types of loads, BORE prioritizes tasks requiring high responsiveness, thereby improving overall system responsiveness and enhancing the user experience.
 
+## Demo
+
+https://youtu.be/vbs4zj79tfo
+
 ## How it works
 
 ![alt Burst time bitcount vs Burst score](https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/burst-time-bitcount-vs-burst-score.png)
