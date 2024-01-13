@@ -5174,7 +5174,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		u64 limit = calc_delta_fair(max_t(u64, se->slice*2, TICK_NSEC), se);
 		s64 overmet = limit, undermet = limit;
 #ifdef CONFIG_SCHED_BORE
-		if (likely(sched_bore)) overmet /= 2;
+		if (likely(sched_bore)) overmet = div_s64(overmet, 2);
 #endif // CONFIG_SCHED_BORE
 		lag = clamp(se->vlag, -overmet, undermet);
 
