@@ -8537,8 +8537,6 @@ static void yield_task_fair(struct rq *rq)
 	if (unlikely(rq->nr_running == 1))
 		return;
 
-	clear_buddies(cfs_rq, se);
-
 	update_rq_clock(rq);
 	/*
 	 * Update run-time statistics of the 'current'.
@@ -8554,6 +8552,8 @@ static void yield_task_fair(struct rq *rq)
 	restart_burst_rescale_deadline(se);
 	if (unlikely(rq->nr_running == 1)) return;
 #endif // CONFIG_SCHED_BORE
+
+	clear_buddies(cfs_rq, se);
 
 	se->deadline += calc_delta_fair(se->slice, se);
 }
