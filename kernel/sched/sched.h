@@ -140,16 +140,18 @@ extern int sched_rr_timeslice;
  * increase coverage and consistency always enable it on 64-bit platforms.
  */
 #ifdef CONFIG_64BIT
-# define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT + SCHED_FIXEDPOINT_SHIFT)
-# define scale_load(w)		((w) << SCHED_FIXEDPOINT_SHIFT)
+# define SCHED_LOAD_PRECISION_SHIFT 5
+# define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT + SCHED_LOAD_PRECISION_SHIFT)
+# define scale_load(w)		((w) << SCHED_LOAD_PRECISION_SHIFT)
 # define scale_load_down(w) \
 ({ \
 	unsigned long __w = (w); \
 	if (__w) \
-		__w = max(2UL, __w >> SCHED_FIXEDPOINT_SHIFT); \
+		__w = max(2UL, __w >> SCHED_LOAD_PRECISION_SHIFT); \
 	__w; \
 })
 #else
+# define SCHED_LOAD_PRECISION_SHIFT 0
 # define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT)
 # define scale_load(w)		(w)
 # define scale_load_down(w)	(w)
