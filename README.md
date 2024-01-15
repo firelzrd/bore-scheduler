@@ -75,6 +75,7 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 * Ching-Chun "jserv" Huang from National Cheng Kung University of Taiwan, and Hui Chun "foxhoundsk" Feng from National Taiwan Ocean University, for detailed analysis and explanation of the scheduler in their excellent treatise.
 * Piotr Górski a.k.a. "sir_lucjan" from the CachyOS community, for hosting BORE-powered CachyOS kernels for Fedora, as well as helping me shoot some bugs.
 * dim-geo, for assisting me with optimization hints.
+* Array, for helping me investigate a serious lockup bug and providing me usefultest reports.
 * And many whom I haven't added here yet.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
