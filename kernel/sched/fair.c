@@ -81,7 +81,7 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (BORE  default: 3 msec constant, units: nanoseconds)
+ * (BORE  default: max(1 sec / HZ, min_base_slice) constant, units: nanoseconds)
  * (EEVDF default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 #ifdef CONFIG_SCHED_BORE
