@@ -85,7 +85,7 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  * (EEVDF default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 #ifdef CONFIG_SCHED_BORE
-unsigned int            sysctl_sched_base_slice	= 1000000000ULL / HZ;
+unsigned int            sysctl_sched_base_slice = 1000000000ULL / HZ;
 static unsigned int configured_sched_base_slice = 1000000000ULL / HZ;
 unsigned int        sysctl_sched_min_base_slice =    2000000ULL;
 #else // CONFIG_SCHED_BORE
