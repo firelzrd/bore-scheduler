@@ -8552,16 +8552,16 @@ static void yield_task_fair(struct rq *rq)
 	 * Update run-time statistics of the 'current'.
 	 */
 	update_curr(cfs_rq);
+#ifdef CONFIG_SCHED_BORE
+	restart_burst_rescale_deadline(se);
+	if (unlikely(rq->nr_running == 1)) return;
+#endif // CONFIG_SCHED_BORE
 	/*
 	 * Tell update_rq_clock() that we've just updated,
 	 * so we don't do microscopic update in schedule()
 	 * and double the fastpath cost.
 	 */
 	rq_clock_skip_update(rq);
-#ifdef CONFIG_SCHED_BORE
-	restart_burst_rescale_deadline(se);
-	if (unlikely(rq->nr_running == 1)) return;
-#endif // CONFIG_SCHED_BORE
 
 	clear_buddies(cfs_rq, se);
 
