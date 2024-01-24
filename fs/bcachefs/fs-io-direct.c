@@ -77,7 +77,8 @@ static int bch2_direct_IO_read(struct kiocb *req, struct iov_iter *iter)
 
 	bch2_inode_opts_get(&opts, c, &inode->ei_inode);
 
-	if ((offset|iter->count) & (block_bytes(c) - 1))
+	/* bios must be 512 byte aligned: */
+	if ((offset|iter->count) & (SECTOR_SIZE - 1))
 		return -EINVAL;
 
 	ret = min_t(loff_t, iter->count,
