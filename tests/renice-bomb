@@ -1,0 +1,82 @@
+#!/usr/bin/env ruby
+
+# Usage:
+#   renice-bomb [VIBRANCE [PARALLEL [INTERVAL]]]
+#   VIBRANCE: number (range: 0-20, default: 20)
+#   POWER   : number (default: 1 -> Parallel = `nproc`*2**POWER)
+#   Interval: number (default: 100 ms)
+
+# Required external commands:
+#   ausyscall - for system call name->number lookup
+#   nproc     - for processor count acquisition
+
+module Process
+	def self.root?
+		self.uid.zero?
+	end
+end
+
+module Kernel
+	def self.processor_count
+		`nproc`.to_i
+	end
+
+	def self.lookup_syscall(name)
+		`ausyscall --exact #{name}`.to_i
+	end
+end
+
+class App
+	NR_setpriority = Kernel.lookup_syscall('setpriority')
+	PRIO_PROCESS = 0
+
+	def setpriority_pid(pid, prio)
+		syscall(NR_setpriority, PRIO_PROCESS, pid, prio)
+	end
+
+	def initialize(argv)
+		Process.root? or (
+			STDERR.puts "Root privilege required."
+			exit
+		)
+
+		@pid = Process.pid
+		@processor_count = Kernel.processor_count
+		@vibrance = [20, (argv.shift || 20).to_i].min
+		@power    = (argv.shift || 1).to_i
+		@parallel = @processor_count * 2**@power
+		@interval_int = (argv.shift || 100).to_i
+		@interval = (@interval_int).to_f / 1000
+		@children = []
+		
+		puts <<~EOS
+			Self PID: #{@pid}
+			Vibrance: #{@vibrance}
+			Parallel: #{@parallel} (= #{@processor_count} cores * 2^#{@power})
+			Interval: #{@interval_int} ms
+		EOS
+	end
+	
+	def run()
+		Signal.trap(:INT) {exit}
+		begin
+			setpriority_pid(@pid, -20)
+
+			@parallel.times {
+				@children << fork {loop{}}
+			}
+
+			loop {
+				sleep @interval
+				@children.each { |cpid|
+					prio = rand(@vibrance * 2).to_i - @vibrance
+					setpriority_pid(cpid, prio)
+				}
+			}
+		ensure
+			Process.kill(:TERM, -@pid)
+		end
+	end
+end
+App.new(ARGV).run
+
