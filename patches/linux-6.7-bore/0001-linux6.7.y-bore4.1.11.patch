@@ -1,7 +1,7 @@
-From d789f750f771599928976fedbbffcb32bfbc0088 Mon Sep 17 00:00:00 2001
+From 3801849cf263bf6a8be20abdf045efb25724e312 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 5 Feb 2024 13:22:13 +0900
-Subject: [PATCH] linux6.7.y-bore4.1.10r3
+Date: Tue, 6 Feb 2024 21:51:55 +0900
+Subject: [PATCH] linux6.7.y-bore4.1.11
 
 ---
  include/linux/sched.h   |  12 ++
@@ -67,7 +67,7 @@ index 9ffb103fc9..4492c5de88 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index a708d225c2..df6ee92d11 100644
+index a708d225c2..cd9a93105a 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4480,6 +4480,141 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -238,7 +238,7 @@ index a708d225c2..df6ee92d11 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.1.10 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.1.11 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -342,7 +342,7 @@ index 4580a45070..f079b57758 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 4182fb118c..6aaefa6f34 100644
+index 4182fb118c..db63eeb7d6 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -886,7 +886,7 @@ index a3ddf84de4..841a428579 100644
  /*
   * Prefer to schedule the task we woke last (assuming it failed
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 2e5a95486a..2edca71259 100644
+index 2e5a95486a..af264f1d6c 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -138,10 +138,16 @@ extern int sched_rr_timeslice;
@@ -894,15 +894,15 @@ index 2e5a95486a..2edca71259 100644
  	__w; \
  })
 +# ifdef CONFIG_SCHED_BORE
-+#  define SCHED_AVG_LOAD_SHIFT 5
++#  define SCHED_AVG_LOAD_SHIFT (SCHED_FIXEDPOINT_SHIFT - 5)
++# else // CONFIG_SCHED_BORE
++#  define SCHED_AVG_LOAD_SHIFT SCHED_FIXEDPOINT_SHIFT
 +# endif // CONFIG_SCHED_BORE
  #else
  # define NICE_0_LOAD_SHIFT	(SCHED_FIXEDPOINT_SHIFT)
  # define scale_load(w)		(w)
  # define scale_load_down(w)	(w)
-+# ifdef CONFIG_SCHED_BORE
-+#  define SCHED_AVG_LOAD_SHIFT 0
-+# endif // CONFIG_SCHED_BORE
++# define SCHED_AVG_LOAD_SHIFT 0
  #endif
  
  /*
