@@ -590,7 +590,7 @@ struct hnae3_ae_ops {
 				   u32 *tx_usecs_high, u32 *rx_usecs_high);
 
 	void (*get_mac_addr)(struct hnae3_handle *handle, u8 *p);
-	int (*set_mac_addr)(struct hnae3_handle *handle, void *p,
+	int (*set_mac_addr)(struct hnae3_handle *handle, const void *p,
 			    bool is_first);
 	int (*do_ioctl)(struct hnae3_handle *handle,
 			struct ifreq *ifr, int cmd);
@@ -757,6 +757,7 @@ struct hnae3_tc_info {
 	u16 tqp_offset[HNAE3_MAX_TC];
 	u8 num_tc; /* Total number of enabled TCs */
 	bool mqprio_active;
+	bool dcb_ets_active;
 };
 
 struct hnae3_knic_private_info {

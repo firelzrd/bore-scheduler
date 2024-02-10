@@ -768,7 +768,7 @@ static void bgmac_umac_cmd_maskset(struct bgmac *bgmac, u32 mask, u32 set,
 	udelay(2);
 }
 
-static void bgmac_write_mac_address(struct bgmac *bgmac, u8 *addr)
+static void bgmac_write_mac_address(struct bgmac *bgmac, const u8 *addr)
 {
 	u32 tmp;
 
@@ -1448,7 +1448,7 @@ int bgmac_phy_connect_direct(struct bgmac *bgmac)
 	int err;
 
 	phy_dev = fixed_phy_register(PHY_POLL, &fphy_status, NULL);
-	if (!phy_dev || IS_ERR(phy_dev)) {
+	if (IS_ERR(phy_dev)) {
 		dev_err(bgmac->dev, "Failed to register fixed PHY device\n");
 		return -ENODEV;
 	}
