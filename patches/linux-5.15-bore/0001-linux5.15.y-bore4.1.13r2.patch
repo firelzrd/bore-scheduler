@@ -1,7 +1,7 @@
 From e94a9cb085e59a757f82595001843a2a263143b8 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 10 Feb 2024 17:57:35 +0900
-Subject: [PATCH] linux5.15.y-bore4.1.13
+Subject: [PATCH] linux5.15.y-bore4.1.13r2
 
 ---
  include/linux/sched.h        |  10 +++
@@ -459,7 +459,7 @@ index 928798f89c..41666c8fa3 100644
 +	{
 +		.procname	= "sched_bore",
 +		.data		= &sched_bore,
-+		.maxlen		= sizeof(bool),
++		.maxlen		= sizeof(int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dobool,
 +	},
@@ -500,21 +500,21 @@ index 928798f89c..41666c8fa3 100644
 +	{
 +		.procname	= "sched_burst_score_rounding",
 +		.data		= &sched_burst_score_rounding,
-+		.maxlen		= sizeof(bool),
++		.maxlen		= sizeof(int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dobool,
 +	},
 +	{
 +		.procname	= "sched_burst_smoothness_long",
 +		.data		= &sched_burst_smoothness_long,
-+		.maxlen		= sizeof(bool),
++		.maxlen		= sizeof(int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dobool,
 +	},
 +	{
 +		.procname	= "sched_burst_smoothness_short",
 +		.data		= &sched_burst_smoothness_short,
-+		.maxlen		= sizeof(bool),
++		.maxlen		= sizeof(int),
 +		.mode		= 0644,
 +		.proc_handler	= &proc_dobool,
 +	},
