@@ -5,6 +5,8 @@
 #include <uapi/asm/svm.h>
 #include <uapi/asm/kvm.h>
 
+#include <asm/hyperv-tlfs.h>
+
 /*
  * 32-bit intercept words in the VMCB Control Area, starting
  * at Byte offset 000h.
@@ -161,7 +163,10 @@ struct __attribute__ ((__packed__)) vmcb_control_area {
 	 * Offset 0x3e0, 32 bytes reserved
 	 * for use by hypervisor/software.
 	 */
-	u8 reserved_sw[32];
+	union {
+		struct hv_vmcb_enlightenments hv_enlightenments;
+		u8 reserved_sw[32];
+	};
 };
 
 
@@ -254,6 +259,7 @@ enum avic_ipi_failure_cause {
 	AVIC_IPI_FAILURE_TARGET_NOT_RUNNING,
 	AVIC_IPI_FAILURE_INVALID_TARGET,
 	AVIC_IPI_FAILURE_INVALID_BACKING_PAGE,
+	AVIC_IPI_FAILURE_INVALID_IPI_VECTOR,
 };
 
 #define AVIC_PHYSICAL_MAX_INDEX_MASK	GENMASK_ULL(8, 0)

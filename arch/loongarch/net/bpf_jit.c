@@ -402,7 +402,6 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 	const u8 dst = regmap[insn->dst_reg];
 	const s16 off = insn->off;
 	const s32 imm = insn->imm;
-	const u64 imm64 = (u64)(insn + 1)->imm << 32 | (u32)insn->imm;
 	const bool is32 = BPF_CLASS(insn->code) == BPF_ALU || BPF_CLASS(insn->code) == BPF_JMP32;
 
 	switch (code) {
@@ -796,8 +795,6 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 
 	/* function return */
 	case BPF_JMP | BPF_EXIT:
-		emit_sext_32(ctx, regmap[BPF_REG_0], true);
-
 		if (i == ctx->prog->len - 1)
 			break;
 
@@ -808,8 +805,12 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 
 	/* dst = imm64 */
 	case BPF_LD | BPF_IMM | BPF_DW:
+	{
+		const u64 imm64 = (u64)(insn + 1)->imm << 32 | (u32)insn->imm;
+
 		move_imm(ctx, dst, imm64, is32);
 		return 1;
+	}
 
 	/* dst = *(size *)(src + off) */
 	case BPF_LDX | BPF_MEM | BPF_B:
@@ -844,14 +845,8 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 			}
 			break;
 		case BPF_DW:
-			if (is_signed_imm12(off)) {
-				emit_insn(ctx, ldd, dst, src, off);
-			} else if (is_signed_imm14(off)) {
-				emit_insn(ctx, ldptrd, dst, src, off);
-			} else {
-				move_imm(ctx, t1, off, is32);
-				emit_insn(ctx, ldxd, dst, src, t1);
-			}
+			move_imm(ctx, t1, off, is32);
+			emit_insn(ctx, ldxd, dst, src, t1);
 			break;
 		}
 		break;
@@ -953,6 +948,10 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx, bool ext
 	case BPF_STX | BPF_ATOMIC | BPF_W:
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
 		emit_atomic(insn, ctx);
+		break;
+
+	/* Speculation barrier */
+	case BPF_ST | BPF_NOSPEC:
 		break;
 
 	default:

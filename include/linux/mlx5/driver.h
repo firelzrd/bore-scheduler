@@ -282,18 +282,23 @@ struct mlx5_cmd_stats {
 struct mlx5_cmd {
 	struct mlx5_nb    nb;
 
+	/* members which needs to be queried or reinitialized each reload */
+	struct {
+		u16		cmdif_rev;
+		u8		log_sz;
+		u8		log_stride;
+		int		max_reg_cmds;
+		unsigned long	bitmask;
+		struct semaphore sem;
+		struct semaphore pages_sem;
+		struct semaphore throttle_sem;
+	} vars;
 	enum mlx5_cmdif_state	state;
 	void	       *cmd_alloc_buf;
 	dma_addr_t	alloc_dma;
 	int		alloc_size;
 	void	       *cmd_buf;
 	dma_addr_t	dma;
-	u16		cmdif_rev;
-	u8		log_sz;
-	u8		log_stride;
-	int		max_reg_cmds;
-	int		events;
-	u32 __iomem    *vector;
 
 	/* protect command queue allocations
 	 */
@@ -303,11 +308,8 @@ struct mlx5_cmd {
 	 */
 	spinlock_t	token_lock;
 	u8		token;
-	unsigned long	bitmask;
 	char		wq_name[MLX5_CMD_WQ_MAX_NAME];
 	struct workqueue_struct *wq;
-	struct semaphore sem;
-	struct semaphore pages_sem;
 	int	mode;
 	u16     allowed_opcode;
 	struct mlx5_cmd_work_ent *ent_arr[MLX5_MAX_COMMANDS];
@@ -1228,6 +1230,18 @@ static inline bool mlx5_ecpf_vport_exists(const struct mlx5_core_dev *dev)
 static inline u16 mlx5_core_max_vfs(const struct mlx5_core_dev *dev)
 {
 	return dev->priv.sriov.max_vfs;
+}
+
+static inline int mlx5_lag_is_lacp_owner(struct mlx5_core_dev *dev)
+{
+	/* LACP owner conditions:
+	 * 1) Function is physical.
+	 * 2) LAG is supported by FW.
+	 * 3) LAG is managed by driver (currently the only option).
+	 */
+	return  MLX5_CAP_GEN(dev, vport_group_manager) &&
+		   (MLX5_CAP_GEN(dev, num_lag_ports) > 1) &&
+		    MLX5_CAP_GEN(dev, lag_master);
 }
 
 static inline int mlx5_get_gid_table_len(u16 param)

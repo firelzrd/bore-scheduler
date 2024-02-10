@@ -117,7 +117,7 @@ static inline u32 read_cpucfg(u32 reg)
 #define  CPUCFG1_EP			BIT(22)
 #define  CPUCFG1_RPLV			BIT(23)
 #define  CPUCFG1_HUGEPG			BIT(24)
-#define  CPUCFG1_IOCSRBRD		BIT(25)
+#define  CPUCFG1_CRC32			BIT(25)
 #define  CPUCFG1_MSGINT			BIT(26)
 
 #define LOONGARCH_CPUCFG2		0x2
@@ -1488,7 +1488,7 @@ __BUILD_CSR_OP(tlbidx)
 #define write_fcsr(dest, val) \
 do {	\
 	__asm__ __volatile__(	\
-	"	movgr2fcsr	%0, "__stringify(dest)"	\n"	\
+	"	movgr2fcsr	"__stringify(dest)", %0	\n"	\
 	: : "r" (val));	\
 } while (0)
 

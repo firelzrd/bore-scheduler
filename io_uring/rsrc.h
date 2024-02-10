@@ -79,17 +79,10 @@ int io_sqe_files_register(struct io_ring_ctx *ctx, void __user *arg,
 
 int __io_scm_file_account(struct io_ring_ctx *ctx, struct file *file);
 
-#if defined(CONFIG_UNIX)
-static inline bool io_file_need_scm(struct file *filp)
-{
-	return !!unix_get_socket(filp);
-}
-#else
 static inline bool io_file_need_scm(struct file *filp)
 {
 	return false;
 }
-#endif
 
 static inline int io_scm_file_account(struct io_ring_ctx *ctx,
 				      struct file *file)
@@ -143,15 +136,13 @@ static inline void io_req_set_rsrc_node(struct io_kiocb *req,
 					unsigned int issue_flags)
 {
 	if (!req->rsrc_node) {
+		io_ring_submit_lock(ctx, issue_flags);
+
+		lockdep_assert_held(&ctx->uring_lock);
+
 		req->rsrc_node = ctx->rsrc_node;
-
-		if (!(issue_flags & IO_URING_F_UNLOCKED)) {
-			lockdep_assert_held(&ctx->uring_lock);
-
-			io_charge_rsrc_node(ctx);
-		} else {
-			percpu_ref_get(&req->rsrc_node->refs);
-		}
+		io_charge_rsrc_node(ctx);
+		io_ring_submit_unlock(ctx, issue_flags);
 	}
 }
 

@@ -263,6 +263,26 @@ static inline void *spi_get_drvdata(struct spi_device *spi)
 	return dev_get_drvdata(&spi->dev);
 }
 
+static inline u8 spi_get_chipselect(const struct spi_device *spi, u8 idx)
+{
+	return spi->chip_select;
+}
+
+static inline void spi_set_chipselect(struct spi_device *spi, u8 idx, u8 chipselect)
+{
+	spi->chip_select = chipselect;
+}
+
+static inline struct gpio_desc *spi_get_csgpiod(const struct spi_device *spi, u8 idx)
+{
+	return spi->cs_gpiod;
+}
+
+static inline void spi_set_csgpiod(struct spi_device *spi, u8 idx, struct gpio_desc *csgpiod)
+{
+	spi->cs_gpiod = csgpiod;
+}
+
 struct spi_message;
 
 /**
@@ -531,6 +551,7 @@ struct spi_controller {
 #define SPI_CONTROLLER_MUST_TX		BIT(4)	/* Requires tx */
 
 #define SPI_MASTER_GPIO_SS		BIT(5)	/* GPIO CS must select slave */
+#define SPI_CONTROLLER_SUSPENDED	BIT(6)	/* Currently suspended */
 
 	/* Flag indicating if the allocation of this struct is devres-managed */
 	bool			devm_allocated;
@@ -1513,6 +1534,9 @@ extern void spi_unregister_device(struct spi_device *spi);
 
 extern const struct spi_device_id *
 spi_get_device_id(const struct spi_device *sdev);
+
+extern const void *
+spi_get_device_match_data(const struct spi_device *sdev);
 
 static inline bool
 spi_transfer_is_last(struct spi_controller *ctlr, struct spi_transfer *xfer)

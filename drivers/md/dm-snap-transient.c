@@ -84,11 +84,11 @@ static int transient_ctr(struct dm_exception_store *store, char *options)
 	return 0;
 }
 
-static unsigned transient_status(struct dm_exception_store *store,
+static unsigned int transient_status(struct dm_exception_store *store,
 				 status_type_t status, char *result,
-				 unsigned maxlen)
+				 unsigned int maxlen)
 {
-	unsigned sz = 0;
+	unsigned int sz = 0;
 
 	switch (status) {
 	case STATUSTYPE_INFO:
@@ -140,8 +140,7 @@ int dm_transient_snapshot_init(void)
 
 	r = dm_exception_store_type_register(&_transient_compat_type);
 	if (r) {
-		DMWARN("Unable to register old-style transient "
-		       "exception store type");
+		DMWARN("Unable to register old-style transient exception store type");
 		dm_exception_store_type_unregister(&_transient_type);
 		return r;
 	}

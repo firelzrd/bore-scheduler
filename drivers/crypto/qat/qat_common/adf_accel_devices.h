@@ -27,7 +27,7 @@
 #define ADF_PCI_MAX_BARS 3
 #define ADF_DEVICE_NAME_LENGTH 32
 #define ADF_ETR_MAX_RINGS_PER_BANK 16
-#define ADF_MAX_MSIX_VECTOR_NAME 16
+#define ADF_MAX_MSIX_VECTOR_NAME 48
 #define ADF_DEVICE_NAME_PREFIX "qat_"
 
 enum adf_accel_capabilities {
@@ -296,6 +296,7 @@ struct adf_accel_dev {
 			u8 pf_compat_ver;
 		} vf;
 	};
+	struct mutex state_lock; /* protect state of the device */
 	bool is_vf;
 	u32 accel_id;
 };

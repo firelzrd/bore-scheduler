@@ -164,9 +164,8 @@ static int bnxt_set_coalesce(struct net_device *dev,
 reset_coalesce:
 	if (test_bit(BNXT_STATE_OPEN, &bp->state)) {
 		if (update_stats) {
-			rc = bnxt_close_nic(bp, true, false);
-			if (!rc)
-				rc = bnxt_open_nic(bp, true, false);
+			bnxt_close_nic(bp, true, false);
+			rc = bnxt_open_nic(bp, true, false);
 		} else {
 			rc = bnxt_hwrm_set_coal(bp);
 		}
@@ -956,12 +955,7 @@ static int bnxt_set_channels(struct net_device *dev,
 			 * before PF unload
 			 */
 		}
-		rc = bnxt_close_nic(bp, true, false);
-		if (rc) {
-			netdev_err(bp->dev, "Set channel failure rc :%x\n",
-				   rc);
-			return rc;
-		}
+		bnxt_close_nic(bp, true, false);
 	}
 
 	if (sh) {
@@ -1712,6 +1706,8 @@ u32 bnxt_fw_to_ethtool_speed(u16 fw_link_speed)
 		return SPEED_50000;
 	case BNXT_LINK_SPEED_100GB:
 		return SPEED_100000;
+	case BNXT_LINK_SPEED_200GB:
+		return SPEED_200000;
 	default:
 		return SPEED_UNKNOWN;
 	}
@@ -2820,7 +2816,7 @@ static int bnxt_get_nvram_directory(struct net_device *dev, u32 len, u8 *data)
 	if (rc)
 		return rc;
 
-	buflen = dir_entries * entry_length;
+	buflen = mul_u32_u32(dir_entries, entry_length);
 	buf = hwrm_req_dma_slice(bp, req, buflen, &dma_handle);
 	if (!buf) {
 		hwrm_req_drop(bp, req);
@@ -3632,11 +3628,7 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 		bnxt_run_fw_tests(bp, test_mask, &test_results);
 	} else {
 		bnxt_ulp_stop(bp);
-		rc = bnxt_close_nic(bp, true, false);
-		if (rc) {
-			bnxt_ulp_start(bp, rc);
-			return;
-		}
+		bnxt_close_nic(bp, true, false);
 		bnxt_run_fw_tests(bp, test_mask, &test_results);
 
 		buf[BNXT_MACLPBK_TEST_IDX] = 1;
@@ -3724,7 +3716,7 @@ static int bnxt_reset(struct net_device *dev, u32 *flags)
 		}
 	}
 
-	if (req & BNXT_FW_RESET_AP) {
+	if (!BNXT_CHIP_P4_PLUS(bp) && (req & BNXT_FW_RESET_AP)) {
 		/* This feature is not supported in older firmware versions */
 		if (bp->hwrm_spec_code >= 0x10803) {
 			if (!bnxt_firmware_reset_ap(dev)) {

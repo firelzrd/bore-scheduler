@@ -1147,7 +1147,7 @@ static int vmw_translate_mob_ptr(struct vmw_private *dev_priv,
 				 SVGAMobId *id,
 				 struct vmw_buffer_object **vmw_bo_p)
 {
-	struct vmw_buffer_object *vmw_bo;
+	struct vmw_buffer_object *vmw_bo, *tmp_bo;
 	uint32_t handle = *id;
 	struct vmw_relocation *reloc;
 	int ret;
@@ -1159,8 +1159,8 @@ static int vmw_translate_mob_ptr(struct vmw_private *dev_priv,
 		return PTR_ERR(vmw_bo);
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, true, false);
-	ttm_bo_put(&vmw_bo->base);
-	drm_gem_object_put(&vmw_bo->base.base);
+	tmp_bo = vmw_bo;
+	vmw_user_bo_unref(&tmp_bo);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -1202,7 +1202,7 @@ static int vmw_translate_guest_ptr(struct vmw_private *dev_priv,
 				   SVGAGuestPtr *ptr,
 				   struct vmw_buffer_object **vmw_bo_p)
 {
-	struct vmw_buffer_object *vmw_bo;
+	struct vmw_buffer_object *vmw_bo, *tmp_bo;
 	uint32_t handle = ptr->gmrId;
 	struct vmw_relocation *reloc;
 	int ret;
@@ -1214,8 +1214,8 @@ static int vmw_translate_guest_ptr(struct vmw_private *dev_priv,
 		return PTR_ERR(vmw_bo);
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, false, false);
-	ttm_bo_put(&vmw_bo->base);
-	drm_gem_object_put(&vmw_bo->base.base);
+	tmp_bo = vmw_bo;
+	vmw_user_bo_unref(&tmp_bo);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -1614,7 +1614,7 @@ static int vmw_cmd_tex_state(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdSetTextureState);
 	SVGA3dTextureState *last_state = (SVGA3dTextureState *)
-	  ((unsigned long) header + header->size + sizeof(header));
+	  ((unsigned long) header + header->size + sizeof(*header));
 	SVGA3dTextureState *cur_state = (SVGA3dTextureState *)
 		((unsigned long) header + sizeof(*cmd));
 	struct vmw_resource *ctx;
@@ -1985,7 +1985,7 @@ static int vmw_cmd_set_shader(struct vmw_private *dev_priv,
 
 	cmd = container_of(header, typeof(*cmd), header);
 
-	if (cmd->body.type >= SVGA3D_SHADERTYPE_PREDX_MAX) {
+	if (!vmw_shadertype_is_valid(VMW_SM_LEGACY, cmd->body.type)) {
 		VMW_DEBUG_USER("Illegal shader type %u.\n",
 			       (unsigned int) cmd->body.type);
 		return -EINVAL;
@@ -2108,8 +2108,6 @@ vmw_cmd_dx_set_single_constant_buffer(struct vmw_private *dev_priv,
 				      SVGA3dCmdHeader *header)
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdDXSetSingleConstantBuffer);
-	SVGA3dShaderType max_shader_num = has_sm5_context(dev_priv) ?
-		SVGA3D_NUM_SHADERTYPE : SVGA3D_NUM_SHADERTYPE_DX10;
 
 	struct vmw_resource *res = NULL;
 	struct vmw_ctx_validation_info *ctx_node = VMW_GET_CTX_NODE(sw_context);
@@ -2126,6 +2124,14 @@ vmw_cmd_dx_set_single_constant_buffer(struct vmw_private *dev_priv,
 	if (unlikely(ret != 0))
 		return ret;
 
+	if (!vmw_shadertype_is_valid(dev_priv->sm_type, cmd->body.type) ||
+	    cmd->body.slot >= SVGA3D_DX_MAX_CONSTBUFFERS) {
+		VMW_DEBUG_USER("Illegal const buffer shader %u slot %u.\n",
+			       (unsigned int) cmd->body.type,
+			       (unsigned int) cmd->body.slot);
+		return -EINVAL;
+	}
+
 	binding.bi.ctx = ctx_node->ctx;
 	binding.bi.res = res;
 	binding.bi.bt = vmw_ctx_binding_cb;
@@ -2133,14 +2139,6 @@ vmw_cmd_dx_set_single_constant_buffer(struct vmw_private *dev_priv,
 	binding.offset = cmd->body.offsetInBytes;
 	binding.size = cmd->body.sizeInBytes;
 	binding.slot = cmd->body.slot;
-
-	if (binding.shader_slot >= max_shader_num ||
-	    binding.slot >= SVGA3D_DX_MAX_CONSTBUFFERS) {
-		VMW_DEBUG_USER("Illegal const buffer shader %u slot %u.\n",
-			       (unsigned int) cmd->body.type,
-			       (unsigned int) binding.slot);
-		return -EINVAL;
-	}
 
 	vmw_binding_add(ctx_node->staged, &binding.bi, binding.shader_slot,
 			binding.slot);
@@ -2200,15 +2198,13 @@ static int vmw_cmd_dx_set_shader_res(struct vmw_private *dev_priv,
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdDXSetShaderResources) =
 		container_of(header, typeof(*cmd), header);
-	SVGA3dShaderType max_allowed = has_sm5_context(dev_priv) ?
-		SVGA3D_SHADERTYPE_MAX : SVGA3D_SHADERTYPE_DX10_MAX;
 
 	u32 num_sr_view = (cmd->header.size - sizeof(cmd->body)) /
 		sizeof(SVGA3dShaderResourceViewId);
 
 	if ((u64) cmd->body.startView + (u64) num_sr_view >
 	    (u64) SVGA3D_DX_MAX_SRVIEWS ||
-	    cmd->body.type >= max_allowed) {
+	    !vmw_shadertype_is_valid(dev_priv->sm_type, cmd->body.type)) {
 		VMW_DEBUG_USER("Invalid shader binding.\n");
 		return -EINVAL;
 	}
@@ -2232,8 +2228,6 @@ static int vmw_cmd_dx_set_shader(struct vmw_private *dev_priv,
 				 SVGA3dCmdHeader *header)
 {
 	VMW_DECLARE_CMD_VAR(*cmd, SVGA3dCmdDXSetShader);
-	SVGA3dShaderType max_allowed = has_sm5_context(dev_priv) ?
-		SVGA3D_SHADERTYPE_MAX : SVGA3D_SHADERTYPE_DX10_MAX;
 	struct vmw_resource *res = NULL;
 	struct vmw_ctx_validation_info *ctx_node = VMW_GET_CTX_NODE(sw_context);
 	struct vmw_ctx_bindinfo_shader binding;
@@ -2244,8 +2238,7 @@ static int vmw_cmd_dx_set_shader(struct vmw_private *dev_priv,
 
 	cmd = container_of(header, typeof(*cmd), header);
 
-	if (cmd->body.type >= max_allowed ||
-	    cmd->body.type < SVGA3D_SHADERTYPE_MIN) {
+	if (!vmw_shadertype_is_valid(dev_priv->sm_type, cmd->body.type)) {
 		VMW_DEBUG_USER("Illegal shader type %u.\n",
 			       (unsigned int) cmd->body.type);
 		return -EINVAL;

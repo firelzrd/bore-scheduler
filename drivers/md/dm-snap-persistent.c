@@ -303,7 +303,7 @@ static int read_header(struct pstore *ps, int *new_snapshot)
 {
 	int r;
 	struct disk_header *dh;
-	unsigned chunk_size;
+	unsigned int chunk_size;
 	int chunk_size_supplied = 1;
 	char *chunk_err;
 
@@ -354,8 +354,7 @@ static int read_header(struct pstore *ps, int *new_snapshot)
 		return 0;
 
 	if (chunk_size_supplied)
-		DMWARN("chunk size %u in device metadata overrides "
-		       "table chunk size of %u.",
+		DMWARN("chunk size %u in device metadata overrides table chunk size of %u.",
 		       chunk_size, ps->store->chunk_size);
 
 	/* We had a bogus chunk_size. Fix stuff up. */
@@ -895,11 +894,11 @@ err_workqueue:
 	return r;
 }
 
-static unsigned persistent_status(struct dm_exception_store *store,
+static unsigned int persistent_status(struct dm_exception_store *store,
 				  status_type_t status, char *result,
-				  unsigned maxlen)
+				  unsigned int maxlen)
 {
-	unsigned sz = 0;
+	unsigned int sz = 0;
 
 	switch (status) {
 	case STATUSTYPE_INFO:
@@ -958,8 +957,7 @@ int dm_persistent_snapshot_init(void)
 
 	r = dm_exception_store_type_register(&_persistent_compat_type);
 	if (r) {
-		DMERR("Unable to register old-style persistent exception "
-		      "store type");
+		DMERR("Unable to register old-style persistent exception store type");
 		dm_exception_store_type_unregister(&_persistent_type);
 		return r;
 	}

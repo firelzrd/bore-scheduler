@@ -23,6 +23,7 @@
 #define	PCI_DEVID_OCTEONTX2_LBK			0xA061
 
 /* Subsystem Device ID */
+#define PCI_SUBSYS_DEVID_98XX                  0xB100
 #define PCI_SUBSYS_DEVID_96XX                  0xB200
 #define PCI_SUBSYS_DEVID_CN10K_A	       0xB900
 #define PCI_SUBSYS_DEVID_CNF10K_B              0xBC00
@@ -324,6 +325,7 @@ struct nix_hw {
 	struct nix_txvlan txvlan;
 	struct nix_ipolicer *ipolicer;
 	u64    *tx_credits;
+	u8	cc_mcs_cnt;
 };
 
 /* RVU block's capabilities or functionality,
@@ -478,7 +480,7 @@ struct rvu {
 	u8			cgx_mapped_pfs;
 	u8			cgx_cnt_max;	 /* CGX port count max */
 	u8			*pf2cgxlmac_map; /* pf to cgx_lmac map */
-	u16			*cgxlmac2pf_map; /* bitmap of mapped pfs for
+	u64			*cgxlmac2pf_map; /* bitmap of mapped pfs for
 						  * every cgx lmac port
 						  */
 	unsigned long		pf_notify_bmap; /* Flags for PF notification */
@@ -644,6 +646,16 @@ static inline u16 rvu_nix_chan_sdp(struct rvu *rvu, u8 chan)
 static inline u16 rvu_nix_chan_cpt(struct rvu *rvu, u8 chan)
 {
 	return rvu->hw->cpt_chan_base + chan;
+}
+
+static inline bool is_rvu_supports_nix1(struct rvu *rvu)
+{
+	struct pci_dev *pdev = rvu->pdev;
+
+	if (pdev->subsystem_device == PCI_SUBSYS_DEVID_98XX)
+		return true;
+
+	return false;
 }
 
 /* Function Prototypes
@@ -838,6 +850,7 @@ u32  rvu_cgx_get_fifolen(struct rvu *rvu);
 void *rvu_first_cgx_pdata(struct rvu *rvu);
 int cgxlmac_to_pf(struct rvu *rvu, int cgx_id, int lmac_id);
 int rvu_cgx_config_tx(void *cgxd, int lmac_id, bool enable);
+int rvu_cgx_tx_enable(struct rvu *rvu, u16 pcifunc, bool enable);
 int rvu_cgx_prio_flow_ctrl_cfg(struct rvu *rvu, u16 pcifunc, u8 tx_pause, u8 rx_pause,
 			       u16 pfc_en);
 int rvu_cgx_cfg_pause_frm(struct rvu *rvu, u16 pcifunc, u8 tx_pause, u8 rx_pause);
@@ -851,6 +864,7 @@ int npc_install_mcam_drop_rule(struct rvu *rvu, int mcam_idx, u16 *counter_idx,
 			       u64 chan_val, u64 chan_mask, u64 exact_val, u64 exact_mask,
 			       u64 bcast_mcast_val, u64 bcast_mcast_mask);
 void npc_mcam_rsrcs_reserve(struct rvu *rvu, int blkaddr, int entry_idx);
+bool npc_is_feature_supported(struct rvu *rvu, u64 features, u8 intf);
 
 /* CPT APIs */
 int rvu_cpt_register_interrupts(struct rvu *rvu);
@@ -892,6 +906,7 @@ int rvu_get_hwvf(struct rvu *rvu, int pcifunc);
 /* CN10K MCS */
 int rvu_mcs_init(struct rvu *rvu);
 int rvu_mcs_flr_handler(struct rvu *rvu, u16 pcifunc);
+void rvu_mcs_ptp_cfg(struct rvu *rvu, u8 rpm_id, u8 lmac_id, bool ena);
 void rvu_mcs_exit(struct rvu *rvu);
 
 #endif /* RVU_H */

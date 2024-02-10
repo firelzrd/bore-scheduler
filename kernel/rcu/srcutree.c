@@ -223,7 +223,7 @@ static bool init_srcu_struct_nodes(struct srcu_struct *ssp, gfp_t gfp_flags)
 				snp->grplo = cpu;
 			snp->grphi = cpu;
 		}
-		sdp->grpmask = 1 << (cpu - sdp->mynode->grplo);
+		sdp->grpmask = 1UL << (cpu - sdp->mynode->grplo);
 	}
 	smp_store_release(&ssp->srcu_size_state, SRCU_SIZE_WAIT_BARRIER);
 	return true;
@@ -722,7 +722,7 @@ static void srcu_schedule_cbs_snp(struct srcu_struct *ssp, struct srcu_node *snp
 	int cpu;
 
 	for (cpu = snp->grplo; cpu <= snp->grphi; cpu++) {
-		if (!(mask & (1 << (cpu - snp->grplo))))
+		if (!(mask & (1UL << (cpu - snp->grplo))))
 			continue;
 		srcu_schedule_cbs_sdp(per_cpu_ptr(ssp->sda, cpu), delay);
 	}
@@ -1100,10 +1100,37 @@ static unsigned long srcu_gp_start_if_needed(struct srcu_struct *ssp,
 	spin_lock_irqsave_sdp_contention(sdp, &flags);
 	if (rhp)
 		rcu_segcblist_enqueue(&sdp->srcu_cblist, rhp);
+	/*
+	 * The snapshot for acceleration must be taken _before_ the read of the
+	 * current gp sequence used for advancing, otherwise advancing may fail
+	 * and acceleration may then fail too.
+	 *
+	 * This could happen if:
+	 *
+	 *  1) The RCU_WAIT_TAIL segment has callbacks (gp_num = X + 4) and the
+	 *     RCU_NEXT_READY_TAIL also has callbacks (gp_num = X + 8).
+	 *
+	 *  2) The grace period for RCU_WAIT_TAIL is seen as started but not
+	 *     completed so rcu_seq_current() returns X + SRCU_STATE_SCAN1.
+	 *
+	 *  3) This value is passed to rcu_segcblist_advance() which can't move
+	 *     any segment forward and fails.
+	 *
+	 *  4) srcu_gp_start_if_needed() still proceeds with callback acceleration.
+	 *     But then the call to rcu_seq_snap() observes the grace period for the
+	 *     RCU_WAIT_TAIL segment as completed and the subsequent one for the
+	 *     RCU_NEXT_READY_TAIL segment as started (ie: X + 4 + SRCU_STATE_SCAN1)
+	 *     so it returns a snapshot of the next grace period, which is X + 12.
+	 *
+	 *  5) The value of X + 12 is passed to rcu_segcblist_accelerate() but the
+	 *     freshly enqueued callback in RCU_NEXT_TAIL can't move to
+	 *     RCU_NEXT_READY_TAIL which already has callbacks for a previous grace
+	 *     period (gp_num = X + 8). So acceleration fails.
+	 */
+	s = rcu_seq_snap(&ssp->srcu_gp_seq);
 	rcu_segcblist_advance(&sdp->srcu_cblist,
 			      rcu_seq_current(&ssp->srcu_gp_seq));
-	s = rcu_seq_snap(&ssp->srcu_gp_seq);
-	(void)rcu_segcblist_accelerate(&sdp->srcu_cblist, s);
+	WARN_ON_ONCE(!rcu_segcblist_accelerate(&sdp->srcu_cblist, s) && rhp);
 	if (ULONG_CMP_LT(sdp->srcu_gp_seq_needed, s)) {
 		sdp->srcu_gp_seq_needed = s;
 		needgp = true;

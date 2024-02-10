@@ -5183,8 +5183,8 @@ S:	Supported
 W:	https://wiki.samba.org/index.php/LinuxCIFS
 T:	git git://git.samba.org/sfrench/cifs-2.6.git
 F:	Documentation/admin-guide/cifs/
-F:	fs/cifs/
-F:	fs/smbfs_common/
+F:	fs/smb/client/
+F:	fs/smb/common/
 F:	include/uapi/linux/cifs
 
 COMPACTPCI HOTPLUG CORE
@@ -6027,7 +6027,7 @@ S:	Supported
 F:	Documentation/networking/devlink
 F:	include/net/devlink.h
 F:	include/uapi/linux/devlink.h
-F:	net/core/devlink.c
+F:	net/devlink/
 
 DH ELECTRONICS IMX6 DHCOM BOARD SUPPORT
 M:	Christoph Niedermaier <cniedermaier@dh-electronics.com>
@@ -9362,7 +9362,7 @@ F:	drivers/net/wireless/intersil/hostap/
 HP COMPAQ TC1100 TABLET WMI EXTRAS DRIVER
 L:	platform-driver-x86@vger.kernel.org
 S:	Orphan
-F:	drivers/platform/x86/tc1100-wmi.c
+F:	drivers/platform/x86/hp/tc1100-wmi.c
 
 HPET:	High Precision Event Timers driver
 M:	Clemens Ladisch <clemens@ladisch.de>
@@ -10803,6 +10803,8 @@ L:	linux-kernel@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git irq/core
 F:	kernel/irq/
+F:	include/linux/group_cpus.h
+F:	lib/group_cpus.c
 
 IRQCHIP DRIVERS
 M:	Thomas Gleixner <tglx@linutronix.de>
@@ -11168,8 +11170,8 @@ L:	linux-cifs@vger.kernel.org
 S:	Maintained
 T:	git git://git.samba.org/ksmbd.git
 F:	Documentation/filesystems/cifs/ksmbd.rst
-F:	fs/ksmbd/
-F:	fs/smbfs_common/
+F:	fs/smb/common/
+F:	fs/smb/server/
 
 KERNEL UNIT TESTING FRAMEWORK (KUnit)
 M:	Brendan Higgins <brendanhiggins@google.com>
@@ -11858,7 +11860,7 @@ M:	Eric Piel <eric.piel@tremplin-utc.net>
 S:	Maintained
 F:	Documentation/misc-devices/lis3lv02d.rst
 F:	drivers/misc/lis3lv02d/
-F:	drivers/platform/x86/hp_accel.c
+F:	drivers/platform/x86/hp/hp_accel.c
 
 LIST KUNIT TEST
 M:	David Gow <davidgow@google.com>

@@ -523,7 +523,7 @@ void replace_extent_mapping(struct extent_map_tree *tree,
 	setup_extent_mapping(tree, new, modified);
 }
 
-static struct extent_map *next_extent_map(struct extent_map *em)
+static struct extent_map *next_extent_map(const struct extent_map *em)
 {
 	struct rb_node *next;
 
@@ -531,6 +531,35 @@ static struct extent_map *next_extent_map(struct extent_map *em)
 	if (!next)
 		return NULL;
 	return container_of(next, struct extent_map, rb_node);
+}
+
+/*
+ * Get the extent map that immediately follows another one.
+ *
+ * @tree:       The extent map tree that the extent map belong to.
+ *              Holding read or write access on the tree's lock is required.
+ * @em:         An extent map from the given tree. The caller must ensure that
+ *              between getting @em and between calling this function, the
+ *              extent map @em is not removed from the tree - for example, by
+ *              holding the tree's lock for the duration of those 2 operations.
+ *
+ * Returns the extent map that immediately follows @em, or NULL if @em is the
+ * last extent map in the tree.
+ */
+struct extent_map *btrfs_next_extent_map(const struct extent_map_tree *tree,
+					 const struct extent_map *em)
+{
+	struct extent_map *next;
+
+	/* The lock must be acquired either in read mode or write mode. */
+	lockdep_assert_held(&tree->lock);
+	ASSERT(extent_map_in_tree(em));
+
+	next = next_extent_map(em);
+	if (next)
+		refcount_inc(&next->refs);
+
+	return next;
 }
 
 static struct extent_map *prev_extent_map(struct extent_map *em)
@@ -755,8 +784,6 @@ void btrfs_drop_extent_map_range(struct btrfs_inode *inode, u64 start, u64 end,
 
 		if (skip_pinned && test_bit(EXTENT_FLAG_PINNED, &em->flags)) {
 			start = em_end;
-			if (end != (u64)-1)
-				len = start + len - em_end;
 			goto next;
 		}
 
@@ -824,8 +851,8 @@ void btrfs_drop_extent_map_range(struct btrfs_inode *inode, u64 start, u64 end,
 				if (!split)
 					goto remove_em;
 			}
-			split->start = start + len;
-			split->len = em_end - (start + len);
+			split->start = end;
+			split->len = em_end - end;
 			split->block_start = em->block_start;
 			split->flags = flags;
 			split->compress_type = em->compress_type;

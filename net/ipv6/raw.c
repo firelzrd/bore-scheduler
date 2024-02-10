@@ -141,10 +141,9 @@ EXPORT_SYMBOL(rawv6_mh_filter_unregister);
 static bool ipv6_raw_deliver(struct sk_buff *skb, int nexthdr)
 {
 	struct net *net = dev_net(skb->dev);
-	struct hlist_nulls_head *hlist;
-	struct hlist_nulls_node *hnode;
 	const struct in6_addr *saddr;
 	const struct in6_addr *daddr;
+	struct hlist_head *hlist;
 	struct sock *sk;
 	bool delivered = false;
 	__u8 hash;
@@ -152,10 +151,10 @@ static bool ipv6_raw_deliver(struct sk_buff *skb, int nexthdr)
 	saddr = &ipv6_hdr(skb)->saddr;
 	daddr = saddr + 1;
 
-	hash = nexthdr & (RAW_HTABLE_SIZE - 1);
+	hash = raw_hashfunc(net, nexthdr);
 	hlist = &raw_v6_hashinfo.ht[hash];
 	rcu_read_lock();
-	sk_nulls_for_each(sk, hnode, hlist) {
+	sk_for_each_rcu(sk, hlist) {
 		int filtered;
 
 		if (!raw_v6_match(net, sk, nexthdr, daddr, saddr,
@@ -194,10 +193,8 @@ static bool ipv6_raw_deliver(struct sk_buff *skb, int nexthdr)
 			struct sk_buff *clone = skb_clone(skb, GFP_ATOMIC);
 
 			/* Not releasing hash table! */
-			if (clone) {
-				nf_reset_ct(clone);
+			if (clone)
 				rawv6_rcv(sk, clone);
-			}
 		}
 	}
 	rcu_read_unlock();
@@ -333,15 +330,14 @@ void raw6_icmp_error(struct sk_buff *skb, int nexthdr,
 		u8 type, u8 code, int inner_offset, __be32 info)
 {
 	struct net *net = dev_net(skb->dev);
-	struct hlist_nulls_head *hlist;
-	struct hlist_nulls_node *hnode;
+	struct hlist_head *hlist;
 	struct sock *sk;
 	int hash;
 
-	hash = nexthdr & (RAW_HTABLE_SIZE - 1);
+	hash = raw_hashfunc(net, nexthdr);
 	hlist = &raw_v6_hashinfo.ht[hash];
 	rcu_read_lock();
-	sk_nulls_for_each(sk, hnode, hlist) {
+	sk_for_each_rcu(sk, hlist) {
 		/* Note: ipv6_hdr(skb) != skb->data */
 		const struct ipv6hdr *ip6h = (const struct ipv6hdr *)skb->data;
 
@@ -389,6 +385,7 @@ int rawv6_rcv(struct sock *sk, struct sk_buff *skb)
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}
+	nf_reset_ct(skb);
 
 	if (!rp->checksum)
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
@@ -615,7 +612,7 @@ static int rawv6_send_hdrinc(struct sock *sk, struct msghdr *msg, int length,
 	skb_reserve(skb, hlen);
 
 	skb->protocol = htons(ETH_P_IPV6);
-	skb->priority = sk->sk_priority;
+	skb->priority = READ_ONCE(sk->sk_priority);
 	skb->mark = sockc->mark;
 	skb->tstamp = sockc->transmit_time;
 
@@ -775,12 +772,12 @@ static int rawv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	 */
 	memset(&fl6, 0, sizeof(fl6));
 
-	fl6.flowi6_mark = sk->sk_mark;
+	fl6.flowi6_mark = READ_ONCE(sk->sk_mark);
 	fl6.flowi6_uid = sk->sk_uid;
 
 	ipcm6_init(&ipc6);
-	ipc6.sockc.tsflags = sk->sk_tsflags;
-	ipc6.sockc.mark = sk->sk_mark;
+	ipc6.sockc.tsflags = READ_ONCE(sk->sk_tsflags);
+	ipc6.sockc.mark = fl6.flowi6_mark;
 
 	if (sin6) {
 		if (addr_len < SIN6_LEN_RFC2133)
@@ -794,7 +791,8 @@ static int rawv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 
 		if (!proto)
 			proto = inet->inet_num;
-		else if (proto != inet->inet_num)
+		else if (proto != inet->inet_num &&
+			 inet->inet_num != IPPROTO_RAW)
 			return -EINVAL;
 
 		if (proto > 255)
@@ -1177,8 +1175,6 @@ static void raw6_destroy(struct sock *sk)
 	lock_sock(sk);
 	ip6_flush_pending_frames(sk);
 	release_sock(sk);
-
-	inet6_destroy_sock(sk);
 }
 
 static int rawv6_init_sk(struct sock *sk)

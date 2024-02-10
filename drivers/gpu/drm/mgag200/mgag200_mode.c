@@ -28,8 +28,8 @@
  * This file contains setup code for the CRTC.
  */
 
-static void mgag200_crtc_set_gamma_linear(struct mga_device *mdev,
-					  const struct drm_format_info *format)
+void mgag200_crtc_set_gamma_linear(struct mga_device *mdev,
+				   const struct drm_format_info *format)
 {
 	int i;
 
@@ -65,9 +65,9 @@ static void mgag200_crtc_set_gamma_linear(struct mga_device *mdev,
 	}
 }
 
-static void mgag200_crtc_set_gamma(struct mga_device *mdev,
-				   const struct drm_format_info *format,
-				   struct drm_color_lut *lut)
+void mgag200_crtc_set_gamma(struct mga_device *mdev,
+			    const struct drm_format_info *format,
+			    struct drm_color_lut *lut)
 {
 	int i;
 
@@ -639,6 +639,11 @@ void mgag200_crtc_helper_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_
 
 	if (funcs->pixpllc_atomic_update)
 		funcs->pixpllc_atomic_update(crtc, old_state);
+
+	if (crtc_state->gamma_lut)
+		mgag200_crtc_set_gamma(mdev, format, crtc_state->gamma_lut->data);
+	else
+		mgag200_crtc_set_gamma_linear(mdev, format);
 
 	mgag200_enable_display(mdev);
 

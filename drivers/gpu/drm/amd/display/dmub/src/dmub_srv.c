@@ -32,6 +32,7 @@
 #include "dmub_dcn302.h"
 #include "dmub_dcn303.h"
 #include "dmub_dcn31.h"
+#include "dmub_dcn314.h"
 #include "dmub_dcn315.h"
 #include "dmub_dcn316.h"
 #include "dmub_dcn32.h"
@@ -166,6 +167,7 @@ static bool dmub_srv_hw_setup(struct dmub_srv *dmub, enum dmub_asic asic)
 		funcs->backdoor_load = dmub_dcn20_backdoor_load;
 		funcs->setup_windows = dmub_dcn20_setup_windows;
 		funcs->setup_mailbox = dmub_dcn20_setup_mailbox;
+		funcs->get_inbox1_wptr = dmub_dcn20_get_inbox1_wptr;
 		funcs->get_inbox1_rptr = dmub_dcn20_get_inbox1_rptr;
 		funcs->set_inbox1_wptr = dmub_dcn20_set_inbox1_wptr;
 		funcs->is_supported = dmub_dcn20_is_supported;
@@ -226,17 +228,23 @@ static bool dmub_srv_hw_setup(struct dmub_srv *dmub, enum dmub_asic asic)
 	case DMUB_ASIC_DCN314:
 	case DMUB_ASIC_DCN315:
 	case DMUB_ASIC_DCN316:
-		if (asic == DMUB_ASIC_DCN315)
+		if (asic == DMUB_ASIC_DCN314) {
+			dmub->regs_dcn31 = &dmub_srv_dcn314_regs;
+			funcs->is_psrsu_supported = dmub_dcn314_is_psrsu_supported;
+		} else if (asic == DMUB_ASIC_DCN315) {
 			dmub->regs_dcn31 = &dmub_srv_dcn315_regs;
-		else if (asic == DMUB_ASIC_DCN316)
+		} else if (asic == DMUB_ASIC_DCN316) {
 			dmub->regs_dcn31 = &dmub_srv_dcn316_regs;
-		else
+		} else {
 			dmub->regs_dcn31 = &dmub_srv_dcn31_regs;
+			funcs->is_psrsu_supported = dmub_dcn31_is_psrsu_supported;
+		}
 		funcs->reset = dmub_dcn31_reset;
 		funcs->reset_release = dmub_dcn31_reset_release;
 		funcs->backdoor_load = dmub_dcn31_backdoor_load;
 		funcs->setup_windows = dmub_dcn31_setup_windows;
 		funcs->setup_mailbox = dmub_dcn31_setup_mailbox;
+		funcs->get_inbox1_wptr = dmub_dcn31_get_inbox1_wptr;
 		funcs->get_inbox1_rptr = dmub_dcn31_get_inbox1_rptr;
 		funcs->set_inbox1_wptr = dmub_dcn31_set_inbox1_wptr;
 		funcs->setup_out_mailbox = dmub_dcn31_setup_out_mailbox;
@@ -275,6 +283,7 @@ static bool dmub_srv_hw_setup(struct dmub_srv *dmub, enum dmub_asic asic)
 		funcs->backdoor_load_zfb_mode = dmub_dcn32_backdoor_load_zfb_mode;
 		funcs->setup_windows = dmub_dcn32_setup_windows;
 		funcs->setup_mailbox = dmub_dcn32_setup_mailbox;
+		funcs->get_inbox1_wptr = dmub_dcn32_get_inbox1_wptr;
 		funcs->get_inbox1_rptr = dmub_dcn32_get_inbox1_rptr;
 		funcs->set_inbox1_wptr = dmub_dcn32_set_inbox1_wptr;
 		funcs->setup_out_mailbox = dmub_dcn32_setup_out_mailbox;
@@ -378,7 +387,7 @@ dmub_srv_calc_region_info(struct dmub_srv *dmub,
 	uint32_t fw_state_size = DMUB_FW_STATE_SIZE;
 	uint32_t trace_buffer_size = DMUB_TRACE_BUFFER_SIZE;
 	uint32_t scratch_mem_size = DMUB_SCRATCH_MEM_SIZE;
-
+	uint32_t previous_top = 0;
 	if (!dmub->sw_init)
 		return DMUB_STATUS_INVALID;
 
@@ -403,8 +412,15 @@ dmub_srv_calc_region_info(struct dmub_srv *dmub,
 	bios->base = dmub_align(stack->top, 256);
 	bios->top = bios->base + params->vbios_size;
 
-	mail->base = dmub_align(bios->top, 256);
-	mail->top = mail->base + DMUB_MAILBOX_SIZE;
+	if (params->is_mailbox_in_inbox) {
+		mail->base = 0;
+		mail->top = mail->base + DMUB_MAILBOX_SIZE;
+		previous_top = bios->top;
+	} else {
+		mail->base = dmub_align(bios->top, 256);
+		mail->top = mail->base + DMUB_MAILBOX_SIZE;
+		previous_top = mail->top;
+	}
 
 	fw_info = dmub_get_fw_meta_info(params);
 
@@ -423,7 +439,7 @@ dmub_srv_calc_region_info(struct dmub_srv *dmub,
 			dmub->fw_version = fw_info->fw_version;
 	}
 
-	trace_buff->base = dmub_align(mail->top, 256);
+	trace_buff->base = dmub_align(previous_top, 256);
 	trace_buff->top = trace_buff->base + dmub_align(trace_buffer_size, 64);
 
 	fw_state->base = dmub_align(trace_buff->top, 256);
@@ -434,11 +450,14 @@ dmub_srv_calc_region_info(struct dmub_srv *dmub,
 
 	out->fb_size = dmub_align(scratch_mem->top, 4096);
 
+	if (params->is_mailbox_in_inbox)
+		out->inbox_size = dmub_align(mail->top, 4096);
+
 	return DMUB_STATUS_OK;
 }
 
-enum dmub_status dmub_srv_calc_fb_info(struct dmub_srv *dmub,
-				       const struct dmub_srv_fb_params *params,
+enum dmub_status dmub_srv_calc_mem_info(struct dmub_srv *dmub,
+				       const struct dmub_srv_memory_params *params,
 				       struct dmub_srv_fb_info *out)
 {
 	uint8_t *cpu_base;
@@ -453,8 +472,8 @@ enum dmub_status dmub_srv_calc_fb_info(struct dmub_srv *dmub,
 	if (params->region_info->num_regions != DMUB_NUM_WINDOWS)
 		return DMUB_STATUS_INVALID;
 
-	cpu_base = (uint8_t *)params->cpu_addr;
-	gpu_base = params->gpu_addr;
+	cpu_base = (uint8_t *)params->cpu_fb_addr;
+	gpu_base = params->gpu_fb_addr;
 
 	for (i = 0; i < DMUB_NUM_WINDOWS; ++i) {
 		const struct dmub_region *reg =
@@ -462,6 +481,12 @@ enum dmub_status dmub_srv_calc_fb_info(struct dmub_srv *dmub,
 
 		out->fb[i].cpu_addr = cpu_base + reg->base;
 		out->fb[i].gpu_addr = gpu_base + reg->base;
+
+		if (i == DMUB_WINDOW_4_MAILBOX && params->cpu_inbox_addr != 0) {
+			out->fb[i].cpu_addr = (uint8_t *)params->cpu_inbox_addr + reg->base;
+			out->fb[i].gpu_addr = params->gpu_inbox_addr + reg->base;
+		}
+
 		out->fb[i].size = reg->top - reg->base;
 	}
 
@@ -644,6 +669,27 @@ enum dmub_status dmub_srv_hw_init(struct dmub_srv *dmub,
 	return DMUB_STATUS_OK;
 }
 
+enum dmub_status dmub_srv_sync_inbox1(struct dmub_srv *dmub)
+{
+	if (!dmub->sw_init)
+		return DMUB_STATUS_INVALID;
+
+	if (dmub->hw_funcs.get_inbox1_rptr && dmub->hw_funcs.get_inbox1_wptr) {
+		uint32_t rptr = dmub->hw_funcs.get_inbox1_rptr(dmub);
+		uint32_t wptr = dmub->hw_funcs.get_inbox1_wptr(dmub);
+
+		if (rptr > dmub->inbox1_rb.capacity || wptr > dmub->inbox1_rb.capacity) {
+			return DMUB_STATUS_HW_FAILURE;
+		} else {
+			dmub->inbox1_rb.rptr = rptr;
+			dmub->inbox1_rb.wrpt = wptr;
+			dmub->inbox1_last_wptr = dmub->inbox1_rb.wrpt;
+		}
+	}
+
+	return DMUB_STATUS_OK;
+}
+
 enum dmub_status dmub_srv_hw_reset(struct dmub_srv *dmub)
 {
 	if (!dmub->sw_init)
@@ -671,6 +717,11 @@ enum dmub_status dmub_srv_cmd_queue(struct dmub_srv *dmub,
 {
 	if (!dmub->hw_init)
 		return DMUB_STATUS_INVALID;
+
+	if (dmub->inbox1_rb.rptr > dmub->inbox1_rb.capacity ||
+	    dmub->inbox1_rb.wrpt > dmub->inbox1_rb.capacity) {
+		return DMUB_STATUS_HW_FAILURE;
+	}
 
 	if (dmub_rb_push_front(&dmub->inbox1_rb, cmd))
 		return DMUB_STATUS_OK;
@@ -942,6 +993,7 @@ enum dmub_status dmub_srv_wait_for_inbox0_ack(struct dmub_srv *dmub, uint32_t ti
 		ack = dmub->hw_funcs.read_inbox0_ack_register(dmub);
 		if (ack)
 			return DMUB_STATUS_OK;
+		udelay(1);
 	}
 	return DMUB_STATUS_TIMEOUT;
 }

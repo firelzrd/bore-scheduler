@@ -214,8 +214,11 @@ static int __cxl_dpa_reserve(struct cxl_endpoint_decoder *cxled,
 
 	lockdep_assert_held_write(&cxl_dpa_rwsem);
 
-	if (!len)
-		goto success;
+	if (!len) {
+		dev_warn(dev, "decoder%d.%d: empty reservation attempted\n",
+			 port->id, cxled->cxld.id);
+		return -EINVAL;
+	}
 
 	if (cxled->dpa_res) {
 		dev_dbg(dev, "decoder%d.%d: existing allocation %pr assigned\n",
@@ -268,13 +271,12 @@ static int __cxl_dpa_reserve(struct cxl_endpoint_decoder *cxled,
 		cxled->mode = CXL_DECODER_MIXED;
 	}
 
-success:
 	port->hdm_end++;
 	get_device(&cxled->cxld.dev);
 	return 0;
 }
 
-static int devm_cxl_dpa_reserve(struct cxl_endpoint_decoder *cxled,
+int devm_cxl_dpa_reserve(struct cxl_endpoint_decoder *cxled,
 				resource_size_t base, resource_size_t len,
 				resource_size_t skipped)
 {
@@ -290,6 +292,7 @@ static int devm_cxl_dpa_reserve(struct cxl_endpoint_decoder *cxled,
 
 	return devm_add_action_or_reset(&port->dev, cxl_dpa_release, cxled);
 }
+EXPORT_SYMBOL_NS_GPL(devm_cxl_dpa_reserve, CXL);
 
 resource_size_t cxl_dpa_size(struct cxl_endpoint_decoder *cxled)
 {
@@ -724,6 +727,13 @@ static int init_hdm_decoder(struct cxl_port *port, struct cxl_decoder *cxld,
 		if (cxld->id != port->commit_end + 1) {
 			dev_warn(&port->dev,
 				 "decoder%d.%d: Committed out of order\n",
+				 port->id, cxld->id);
+			return -ENXIO;
+		}
+
+		if (size == 0) {
+			dev_warn(&port->dev,
+				 "decoder%d.%d: Committed with zero size\n",
 				 port->id, cxld->id);
 			return -ENXIO;
 		}

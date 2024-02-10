@@ -642,16 +642,10 @@ static void iavf_vlan_add_reject(struct iavf_adapter *adapter)
 
 	spin_lock_bh(&adapter->mac_vlan_list_lock);
 	list_for_each_entry_safe(f, ftmp, &adapter->vlan_filter_list, list) {
-		if (f->is_new_vlan) {
-			if (f->vlan.tpid == ETH_P_8021Q)
-				clear_bit(f->vlan.vid,
-					  adapter->vsi.active_cvlans);
-			else
-				clear_bit(f->vlan.vid,
-					  adapter->vsi.active_svlans);
-
+		if (f->state == IAVF_VLAN_IS_NEW) {
 			list_del(&f->list);
 			kfree(f);
+			adapter->num_vlan_filters--;
 		}
 	}
 	spin_unlock_bh(&adapter->mac_vlan_list_lock);
@@ -679,7 +673,7 @@ void iavf_add_vlans(struct iavf_adapter *adapter)
 	spin_lock_bh(&adapter->mac_vlan_list_lock);
 
 	list_for_each_entry(f, &adapter->vlan_filter_list, list) {
-		if (f->add)
+		if (f->state == IAVF_VLAN_ADD)
 			count++;
 	}
 	if (!count || !VLAN_FILTERING_ALLOWED(adapter)) {
@@ -710,11 +704,10 @@ void iavf_add_vlans(struct iavf_adapter *adapter)
 		vvfl->vsi_id = adapter->vsi_res->vsi_id;
 		vvfl->num_elements = count;
 		list_for_each_entry(f, &adapter->vlan_filter_list, list) {
-			if (f->add) {
+			if (f->state == IAVF_VLAN_ADD) {
 				vvfl->vlan_id[i] = f->vlan.vid;
 				i++;
-				f->add = false;
-				f->is_new_vlan = true;
+				f->state = IAVF_VLAN_IS_NEW;
 				if (i == count)
 					break;
 			}
@@ -760,7 +753,7 @@ void iavf_add_vlans(struct iavf_adapter *adapter)
 		vvfl_v2->vport_id = adapter->vsi_res->vsi_id;
 		vvfl_v2->num_elements = count;
 		list_for_each_entry(f, &adapter->vlan_filter_list, list) {
-			if (f->add) {
+			if (f->state == IAVF_VLAN_ADD) {
 				struct virtchnl_vlan_supported_caps *filtering_support =
 					&adapter->vlan_v2_caps.filtering.filtering_support;
 				struct virtchnl_vlan *vlan;
@@ -778,8 +771,7 @@ void iavf_add_vlans(struct iavf_adapter *adapter)
 				vlan->tpid = f->vlan.tpid;
 
 				i++;
-				f->add = false;
-				f->is_new_vlan = true;
+				f->state = IAVF_VLAN_IS_NEW;
 			}
 		}
 
@@ -822,10 +814,16 @@ void iavf_del_vlans(struct iavf_adapter *adapter)
 		 * filters marked for removal to enable bailing out before
 		 * sending a virtchnl message
 		 */
-		if (f->remove && !VLAN_FILTERING_ALLOWED(adapter)) {
+		if (f->state == IAVF_VLAN_REMOVE &&
+		    !VLAN_FILTERING_ALLOWED(adapter)) {
 			list_del(&f->list);
 			kfree(f);
-		} else if (f->remove) {
+			adapter->num_vlan_filters--;
+		} else if (f->state == IAVF_VLAN_DISABLE &&
+		    !VLAN_FILTERING_ALLOWED(adapter)) {
+			f->state = IAVF_VLAN_INACTIVE;
+		} else if (f->state == IAVF_VLAN_REMOVE ||
+			   f->state == IAVF_VLAN_DISABLE) {
 			count++;
 		}
 	}
@@ -857,11 +855,18 @@ void iavf_del_vlans(struct iavf_adapter *adapter)
 		vvfl->vsi_id = adapter->vsi_res->vsi_id;
 		vvfl->num_elements = count;
 		list_for_each_entry_safe(f, ftmp, &adapter->vlan_filter_list, list) {
-			if (f->remove) {
+			if (f->state == IAVF_VLAN_DISABLE) {
 				vvfl->vlan_id[i] = f->vlan.vid;
+				f->state = IAVF_VLAN_INACTIVE;
 				i++;
+				if (i == count)
+					break;
+			} else if (f->state == IAVF_VLAN_REMOVE) {
+				vvfl->vlan_id[i] = f->vlan.vid;
 				list_del(&f->list);
 				kfree(f);
+				adapter->num_vlan_filters--;
+				i++;
 				if (i == count)
 					break;
 			}
@@ -901,7 +906,8 @@ void iavf_del_vlans(struct iavf_adapter *adapter)
 		vvfl_v2->vport_id = adapter->vsi_res->vsi_id;
 		vvfl_v2->num_elements = count;
 		list_for_each_entry_safe(f, ftmp, &adapter->vlan_filter_list, list) {
-			if (f->remove) {
+			if (f->state == IAVF_VLAN_DISABLE ||
+			    f->state == IAVF_VLAN_REMOVE) {
 				struct virtchnl_vlan_supported_caps *filtering_support =
 					&adapter->vlan_v2_caps.filtering.filtering_support;
 				struct virtchnl_vlan *vlan;
@@ -915,8 +921,13 @@ void iavf_del_vlans(struct iavf_adapter *adapter)
 				vlan->tci = f->vlan.vid;
 				vlan->tpid = f->vlan.tpid;
 
-				list_del(&f->list);
-				kfree(f);
+				if (f->state == IAVF_VLAN_DISABLE) {
+					f->state = IAVF_VLAN_INACTIVE;
+				} else {
+					list_del(&f->list);
+					kfree(f);
+					adapter->num_vlan_filters--;
+				}
 				i++;
 				if (i == count)
 					break;
@@ -937,14 +948,14 @@ void iavf_del_vlans(struct iavf_adapter *adapter)
 /**
  * iavf_set_promiscuous
  * @adapter: adapter structure
- * @flags: bitmask to control unicast/multicast promiscuous.
  *
  * Request that the PF enable promiscuous mode for our VSI.
  **/
-void iavf_set_promiscuous(struct iavf_adapter *adapter, int flags)
+void iavf_set_promiscuous(struct iavf_adapter *adapter)
 {
+	struct net_device *netdev = adapter->netdev;
 	struct virtchnl_promisc_info vpi;
-	int promisc_all;
+	unsigned int flags;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
 		/* bail because we already have a command pending */
@@ -953,35 +964,56 @@ void iavf_set_promiscuous(struct iavf_adapter *adapter, int flags)
 		return;
 	}
 
-	promisc_all = FLAG_VF_UNICAST_PROMISC |
-		      FLAG_VF_MULTICAST_PROMISC;
-	if ((flags & promisc_all) == promisc_all) {
-		adapter->flags |= IAVF_FLAG_PROMISC_ON;
-		adapter->aq_required &= ~IAVF_FLAG_AQ_REQUEST_PROMISC;
+	/* prevent changes to promiscuous flags */
+	spin_lock_bh(&adapter->current_netdev_promisc_flags_lock);
+
+	/* sanity check to prevent duplicate AQ calls */
+	if (!iavf_promiscuous_mode_changed(adapter)) {
+		adapter->aq_required &= ~IAVF_FLAG_AQ_CONFIGURE_PROMISC_MODE;
+		dev_dbg(&adapter->pdev->dev, "No change in promiscuous mode\n");
+		/* allow changes to promiscuous flags */
+		spin_unlock_bh(&adapter->current_netdev_promisc_flags_lock);
+		return;
+	}
+
+	/* there are 2 bits, but only 3 states */
+	if (!(netdev->flags & IFF_PROMISC) &&
+	    netdev->flags & IFF_ALLMULTI) {
+		/* State 1  - only multicast promiscuous mode enabled
+		 * - !IFF_PROMISC && IFF_ALLMULTI
+		 */
+		flags = FLAG_VF_MULTICAST_PROMISC;
+		adapter->current_netdev_promisc_flags |= IFF_ALLMULTI;
+		adapter->current_netdev_promisc_flags &= ~IFF_PROMISC;
+		dev_info(&adapter->pdev->dev, "Entering multicast promiscuous mode\n");
+	} else if (!(netdev->flags & IFF_PROMISC) &&
+		   !(netdev->flags & IFF_ALLMULTI)) {
+		/* State 2 - unicast/multicast promiscuous mode disabled
+		 * - !IFF_PROMISC && !IFF_ALLMULTI
+		 */
+		flags = 0;
+		adapter->current_netdev_promisc_flags &=
+			~(IFF_PROMISC | IFF_ALLMULTI);
+		dev_info(&adapter->pdev->dev, "Leaving promiscuous mode\n");
+	} else {
+		/* State 3 - unicast/multicast promiscuous mode enabled
+		 * - IFF_PROMISC && IFF_ALLMULTI
+		 * - IFF_PROMISC && !IFF_ALLMULTI
+		 */
+		flags = FLAG_VF_UNICAST_PROMISC | FLAG_VF_MULTICAST_PROMISC;
+		adapter->current_netdev_promisc_flags |= IFF_PROMISC;
+		if (netdev->flags & IFF_ALLMULTI)
+			adapter->current_netdev_promisc_flags |= IFF_ALLMULTI;
+		else
+			adapter->current_netdev_promisc_flags &= ~IFF_ALLMULTI;
+
 		dev_info(&adapter->pdev->dev, "Entering promiscuous mode\n");
 	}
 
-	if (flags & FLAG_VF_MULTICAST_PROMISC) {
-		adapter->flags |= IAVF_FLAG_ALLMULTI_ON;
-		adapter->aq_required &= ~IAVF_FLAG_AQ_REQUEST_ALLMULTI;
-		dev_info(&adapter->pdev->dev, "%s is entering multicast promiscuous mode\n",
-			 adapter->netdev->name);
-	}
+	adapter->aq_required &= ~IAVF_FLAG_AQ_CONFIGURE_PROMISC_MODE;
 
-	if (!flags) {
-		if (adapter->flags & IAVF_FLAG_PROMISC_ON) {
-			adapter->flags &= ~IAVF_FLAG_PROMISC_ON;
-			adapter->aq_required &= ~IAVF_FLAG_AQ_RELEASE_PROMISC;
-			dev_info(&adapter->pdev->dev, "Leaving promiscuous mode\n");
-		}
-
-		if (adapter->flags & IAVF_FLAG_ALLMULTI_ON) {
-			adapter->flags &= ~IAVF_FLAG_ALLMULTI_ON;
-			adapter->aq_required &= ~IAVF_FLAG_AQ_RELEASE_ALLMULTI;
-			dev_info(&adapter->pdev->dev, "%s is leaving multicast promiscuous mode\n",
-				 adapter->netdev->name);
-		}
-	}
+	/* allow changes to promiscuous flags */
+	spin_unlock_bh(&adapter->current_netdev_promisc_flags_lock);
 
 	adapter->current_op = VIRTCHNL_OP_CONFIG_PROMISCUOUS_MODE;
 	vpi.vsi_id = adapter->vsi_res->vsi_id;
@@ -1720,8 +1752,8 @@ void iavf_add_fdir_filter(struct iavf_adapter *adapter)
  **/
 void iavf_del_fdir_filter(struct iavf_adapter *adapter)
 {
+	struct virtchnl_fdir_del f = {};
 	struct iavf_fdir_fltr *fdir;
-	struct virtchnl_fdir_del f;
 	bool process_fltr = false;
 	int len;
 
@@ -1738,10 +1770,15 @@ void iavf_del_fdir_filter(struct iavf_adapter *adapter)
 	list_for_each_entry(fdir, &adapter->fdir_list_head, list) {
 		if (fdir->state == IAVF_FDIR_FLTR_DEL_REQUEST) {
 			process_fltr = true;
-			memset(&f, 0, len);
 			f.vsi_id = fdir->vc_add_msg.vsi_id;
 			f.flow_id = fdir->flow_id;
 			fdir->state = IAVF_FDIR_FLTR_DEL_PENDING;
+			break;
+		} else if (fdir->state == IAVF_FDIR_FLTR_DIS_REQUEST) {
+			process_fltr = true;
+			f.vsi_id = fdir->vc_add_msg.vsi_id;
+			f.flow_id = fdir->flow_id;
+			fdir->state = IAVF_FDIR_FLTR_DIS_PENDING;
 			break;
 		}
 	}
@@ -1887,6 +1924,48 @@ static void iavf_netdev_features_vlan_strip_set(struct net_device *netdev,
 }
 
 /**
+ * iavf_activate_fdir_filters - Reactivate all FDIR filters after a reset
+ * @adapter: private adapter structure
+ *
+ * Called after a reset to re-add all FDIR filters and delete some of them
+ * if they were pending to be deleted.
+ */
+static void iavf_activate_fdir_filters(struct iavf_adapter *adapter)
+{
+	struct iavf_fdir_fltr *f, *ftmp;
+	bool add_filters = false;
+
+	spin_lock_bh(&adapter->fdir_fltr_lock);
+	list_for_each_entry_safe(f, ftmp, &adapter->fdir_list_head, list) {
+		if (f->state == IAVF_FDIR_FLTR_ADD_REQUEST ||
+		    f->state == IAVF_FDIR_FLTR_ADD_PENDING ||
+		    f->state == IAVF_FDIR_FLTR_ACTIVE) {
+			/* All filters and requests have been removed in PF,
+			 * restore them
+			 */
+			f->state = IAVF_FDIR_FLTR_ADD_REQUEST;
+			add_filters = true;
+		} else if (f->state == IAVF_FDIR_FLTR_DIS_REQUEST ||
+			   f->state == IAVF_FDIR_FLTR_DIS_PENDING) {
+			/* Link down state, leave filters as inactive */
+			f->state = IAVF_FDIR_FLTR_INACTIVE;
+		} else if (f->state == IAVF_FDIR_FLTR_DEL_REQUEST ||
+			   f->state == IAVF_FDIR_FLTR_DEL_PENDING) {
+			/* Delete filters that were pending to be deleted, the
+			 * list on PF is already cleared after a reset
+			 */
+			list_del(&f->list);
+			kfree(f);
+			adapter->fdir_active_fltr--;
+		}
+	}
+	spin_unlock_bh(&adapter->fdir_fltr_lock);
+
+	if (add_filters)
+		adapter->aq_required |= IAVF_FLAG_AQ_ADD_FDIR_FILTER;
+}
+
+/**
  * iavf_virtchnl_completion
  * @adapter: adapter structure
  * @v_opcode: opcode sent by PF
@@ -1950,9 +2029,8 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 		case VIRTCHNL_EVENT_RESET_IMPENDING:
 			dev_info(&adapter->pdev->dev, "Reset indication received from the PF\n");
 			if (!(adapter->flags & IAVF_FLAG_RESET_PENDING)) {
-				adapter->flags |= IAVF_FLAG_RESET_PENDING;
 				dev_info(&adapter->pdev->dev, "Scheduling reset task\n");
-				queue_work(adapter->wq, &adapter->reset_task);
+				iavf_schedule_reset(adapter, IAVF_FLAG_RESET_PENDING);
 			}
 			break;
 		default:
@@ -2064,7 +2142,8 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 			spin_lock_bh(&adapter->fdir_fltr_lock);
 			list_for_each_entry(fdir, &adapter->fdir_list_head,
 					    list) {
-				if (fdir->state == IAVF_FDIR_FLTR_DEL_PENDING) {
+				if (fdir->state == IAVF_FDIR_FLTR_DEL_PENDING ||
+				    fdir->state == IAVF_FDIR_FLTR_DIS_PENDING) {
 					fdir->state = IAVF_FDIR_FLTR_ACTIVE;
 					dev_info(&adapter->pdev->dev, "Failed to del Flow Director filter, error %s\n",
 						 iavf_stat_str(&adapter->hw,
@@ -2192,7 +2271,7 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 				list_for_each_entry(vlf,
 						    &adapter->vlan_filter_list,
 						    list)
-					vlf->add = true;
+					vlf->state = IAVF_VLAN_ADD;
 
 				adapter->aq_required |=
 					IAVF_FLAG_AQ_ADD_VLAN_FILTER;
@@ -2200,6 +2279,8 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 		}
 
 		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+
+		iavf_activate_fdir_filters(adapter);
 
 		iavf_parse_vf_resource_msg(adapter);
 
@@ -2226,6 +2307,10 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 
 		iavf_process_config(adapter);
 		adapter->flags |= IAVF_FLAG_SETUP_NETDEV_FEATURES;
+		iavf_schedule_finish_config(adapter);
+
+		iavf_set_queue_vlan_tag_loc(adapter);
+
 		was_mac_changed = !ether_addr_equal(netdev->dev_addr,
 						    adapter->hw.mac.addr);
 
@@ -2252,7 +2337,7 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 				list_for_each_entry(vlf,
 						    &adapter->vlan_filter_list,
 						    list)
-					vlf->add = true;
+					vlf->state = IAVF_VLAN_ADD;
 
 				aq_required |= IAVF_FLAG_AQ_ADD_VLAN_FILTER;
 			}
@@ -2271,6 +2356,7 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 	case VIRTCHNL_OP_ENABLE_QUEUES:
 		/* enable transmits */
 		iavf_irq_enable(adapter, true);
+		wake_up(&adapter->reset_waitqueue);
 		adapter->flags &= ~IAVF_FLAG_QUEUES_DISABLED;
 		break;
 	case VIRTCHNL_OP_DISABLE_QUEUES:
@@ -2385,7 +2471,9 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 		list_for_each_entry_safe(fdir, fdir_tmp, &adapter->fdir_list_head,
 					 list) {
 			if (fdir->state == IAVF_FDIR_FLTR_DEL_PENDING) {
-				if (del_fltr->status == VIRTCHNL_FDIR_SUCCESS) {
+				if (del_fltr->status == VIRTCHNL_FDIR_SUCCESS ||
+				    del_fltr->status ==
+				    VIRTCHNL_FDIR_FAILURE_RULE_NONEXIST) {
 					dev_info(&adapter->pdev->dev, "Flow Director filter with location %u is deleted\n",
 						 fdir->loc);
 					list_del(&fdir->list);
@@ -2394,6 +2482,17 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 				} else {
 					fdir->state = IAVF_FDIR_FLTR_ACTIVE;
 					dev_info(&adapter->pdev->dev, "Failed to delete Flow Director filter with status: %d\n",
+						 del_fltr->status);
+					iavf_print_fdir_fltr(adapter, fdir);
+				}
+			} else if (fdir->state == IAVF_FDIR_FLTR_DIS_PENDING) {
+				if (del_fltr->status == VIRTCHNL_FDIR_SUCCESS ||
+				    del_fltr->status ==
+				    VIRTCHNL_FDIR_FAILURE_RULE_NONEXIST) {
+					fdir->state = IAVF_FDIR_FLTR_INACTIVE;
+				} else {
+					fdir->state = IAVF_FDIR_FLTR_ACTIVE;
+					dev_info(&adapter->pdev->dev, "Failed to disable Flow Director filter with status: %d\n",
 						 del_fltr->status);
 					iavf_print_fdir_fltr(adapter, fdir);
 				}
@@ -2436,15 +2535,8 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 
 		spin_lock_bh(&adapter->mac_vlan_list_lock);
 		list_for_each_entry(f, &adapter->vlan_filter_list, list) {
-			if (f->is_new_vlan) {
-				f->is_new_vlan = false;
-				if (f->vlan.tpid == ETH_P_8021Q)
-					set_bit(f->vlan.vid,
-						adapter->vsi.active_cvlans);
-				else
-					set_bit(f->vlan.vid,
-						adapter->vsi.active_svlans);
-			}
+			if (f->state == IAVF_VLAN_IS_NEW)
+				f->state = IAVF_VLAN_ACTIVE;
 		}
 		spin_unlock_bh(&adapter->mac_vlan_list_lock);
 		}

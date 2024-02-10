@@ -223,7 +223,7 @@ struct log_c {
 	unsigned int region_count;
 	region_t sync_count;
 
-	unsigned bitset_uint32_count;
+	unsigned int bitset_uint32_count;
 	uint32_t *clean_bits;
 	uint32_t *sync_bits;
 	uint32_t *recovering_bits;	/* FIXME: this seems excessive */
@@ -255,20 +255,20 @@ struct log_c {
  * The touched member needs to be updated every time we access
  * one of the bitsets.
  */
-static inline int log_test_bit(uint32_t *bs, unsigned bit)
+static inline int log_test_bit(uint32_t *bs, unsigned int bit)
 {
 	return test_bit_le(bit, bs) ? 1 : 0;
 }
 
 static inline void log_set_bit(struct log_c *l,
-			       uint32_t *bs, unsigned bit)
+			       uint32_t *bs, unsigned int bit)
 {
 	__set_bit_le(bit, bs);
 	l->touched_cleaned = 1;
 }
 
 static inline void log_clear_bit(struct log_c *l,
-				 uint32_t *bs, unsigned bit)
+				 uint32_t *bs, unsigned int bit)
 {
 	__clear_bit_le(bit, bs);
 	l->touched_dirtied = 1;
@@ -382,8 +382,7 @@ static int create_log_context(struct dm_dirty_log *log, struct dm_target *ti,
 		else if (!strcmp(argv[1], "nosync"))
 			sync = NOSYNC;
 		else {
-			DMWARN("unrecognised sync argument to "
-			       "dirty region log: %s", argv[1]);
+			DMWARN("unrecognised sync argument to dirty region log: %s", argv[1]);
 			return -EINVAL;
 		}
 	}
@@ -582,7 +581,7 @@ static void fail_log_device(struct log_c *lc)
 static int disk_resume(struct dm_dirty_log *log)
 {
 	int r;
-	unsigned i;
+	unsigned int i;
 	struct log_c *lc = (struct log_c *) log->context;
 	size_t size = lc->bitset_uint32_count * sizeof(uint32_t);
 

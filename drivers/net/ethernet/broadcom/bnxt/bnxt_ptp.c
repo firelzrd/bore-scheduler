@@ -506,9 +506,8 @@ static int bnxt_hwrm_ptp_cfg(struct bnxt *bp)
 
 	if (netif_running(bp->dev)) {
 		if (ptp->rx_filter == HWTSTAMP_FILTER_ALL) {
-			rc = bnxt_close_nic(bp, false, false);
-			if (!rc)
-				rc = bnxt_open_nic(bp, false, false);
+			bnxt_close_nic(bp, false, false);
+			rc = bnxt_open_nic(bp, false, false);
 		} else {
 			bnxt_ptp_cfg_tstamp_filters(bp);
 		}
@@ -929,6 +928,7 @@ int bnxt_ptp_init(struct bnxt *bp, bool phc_cfg)
 	} else {
 		bnxt_ptp_timecounter_init(bp, true);
 	}
+	bnxt_hwrm_func_drv_rgtr(bp, NULL, 0, true);
 
 	ptp->ptp_info = bnxt_ptp_caps;
 	if ((bp->fw_cap & BNXT_FW_CAP_PTP_PPS)) {

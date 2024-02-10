@@ -1164,7 +1164,6 @@ static const struct key_entry ideapad_keymap[] = {
 	{ KE_KEY,  65, { KEY_PROG4 } },
 	{ KE_KEY,  66, { KEY_TOUCHPAD_OFF } },
 	{ KE_KEY,  67, { KEY_TOUCHPAD_ON } },
-	{ KE_KEY,  68, { KEY_TOUCHPAD_TOGGLE } },
 	{ KE_KEY, 128, { KEY_ESC } },
 
 	/*
@@ -1177,6 +1176,11 @@ static const struct key_entry ideapad_keymap[] = {
 	{ KE_IGNORE,	0x03 | IDEAPAD_WMI_KEY },
 	/* Customizable Lenovo Hotkey ("star" with 'S' inside) */
 	{ KE_KEY,	0x01 | IDEAPAD_WMI_KEY, { KEY_FAVORITES } },
+	{ KE_KEY,	0x04 | IDEAPAD_WMI_KEY, { KEY_SELECTIVE_SCREENSHOT } },
+	/* Lenovo Support */
+	{ KE_KEY,	0x07 | IDEAPAD_WMI_KEY, { KEY_HELP } },
+	{ KE_KEY,	0x0e | IDEAPAD_WMI_KEY, { KEY_PICKUP_PHONE } },
+	{ KE_KEY,	0x0f | IDEAPAD_WMI_KEY, { KEY_HANGUP_PHONE } },
 	/* Dark mode toggle */
 	{ KE_KEY,	0x13 | IDEAPAD_WMI_KEY, { KEY_PROG1 } },
 	/* Sound profile switch */
@@ -1520,18 +1524,16 @@ static void ideapad_sync_touchpad_state(struct ideapad_private *priv, bool send_
 	if (priv->features.ctrl_ps2_aux_port)
 		i8042_command(&param, value ? I8042_CMD_AUX_ENABLE : I8042_CMD_AUX_DISABLE);
 
-	if (send_events) {
-		/*
-		 * On older models the EC controls the touchpad and toggles it
-		 * on/off itself, in this case we report KEY_TOUCHPAD_ON/_OFF.
-		 * If the EC did not toggle, report KEY_TOUCHPAD_TOGGLE.
-		 */
-		if (value != priv->r_touchpad_val) {
-			ideapad_input_report(priv, value ? 67 : 66);
-			sysfs_notify(&priv->platform_device->dev.kobj, NULL, "touchpad");
-		} else {
-			ideapad_input_report(priv, 68);
-		}
+	/*
+	 * On older models the EC controls the touchpad and toggles it on/off
+	 * itself, in this case we report KEY_TOUCHPAD_ON/_OFF. Some models do
+	 * an acpi-notify with VPC bit 5 set on resume, so this function get
+	 * called with send_events=true on every resume. Therefor if the EC did
+	 * not toggle, do nothing to avoid sending spurious KEY_TOUCHPAD_TOGGLE.
+	 */
+	if (send_events && value != priv->r_touchpad_val) {
+		ideapad_input_report(priv, value ? 67 : 66);
+		sysfs_notify(&priv->platform_device->dev.kobj, NULL, "touchpad");
 	}
 
 	priv->r_touchpad_val = value;

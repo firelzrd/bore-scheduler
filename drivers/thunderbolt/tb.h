@@ -252,6 +252,8 @@ struct tb_switch {
  * @ctl_credits: Buffers reserved for control path
  * @dma_credits: Number of credits allocated for DMA tunneling for all
  *		 DMA paths through this port.
+ * @max_bw: Maximum possible bandwidth through this adapter if set to
+ *	    non-zero.
  *
  * In USB4 terminology this structure represents an adapter (protocol or
  * lane adapter).
@@ -277,6 +279,7 @@ struct tb_port {
 	unsigned int total_credits;
 	unsigned int ctl_credits;
 	unsigned int dma_credits;
+	unsigned int max_bw;
 };
 
 /**
@@ -1055,7 +1058,7 @@ void tb_port_lane_bonding_disable(struct tb_port *port);
 int tb_port_wait_for_link_width(struct tb_port *port, int width,
 				int timeout_msec);
 int tb_port_update_credits(struct tb_port *port);
-bool tb_port_is_clx_enabled(struct tb_port *port, enum tb_clx clx);
+bool tb_port_is_clx_enabled(struct tb_port *port, unsigned int clx);
 
 int tb_switch_find_vse_cap(struct tb_switch *sw, enum tb_switch_vse_cap vsec);
 int tb_switch_find_cap(struct tb_switch *sw, enum tb_switch_cap cap);

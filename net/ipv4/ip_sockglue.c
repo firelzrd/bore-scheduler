@@ -317,7 +317,14 @@ int ip_cmsg_send(struct sock *sk, struct msghdr *msg, struct ipcm_cookie *ipc,
 			ipc->tos = val;
 			ipc->priority = rt_tos2priority(ipc->tos);
 			break;
-
+		case IP_PROTOCOL:
+			if (cmsg->cmsg_len != CMSG_LEN(sizeof(int)))
+				return -EINVAL;
+			val = *(int *)CMSG_DATA(cmsg);
+			if (val < 1 || val > 255)
+				return -EINVAL;
+			ipc->protocol = val;
+			break;
 		default:
 			return -EINVAL;
 		}
@@ -502,7 +509,7 @@ static bool ipv4_datagram_support_cmsg(const struct sock *sk,
 	 * or without payload (SOF_TIMESTAMPING_OPT_TSONLY).
 	 */
 	info = PKTINFO_SKB_CB(skb);
-	if (!(sk->sk_tsflags & SOF_TIMESTAMPING_OPT_CMSG) ||
+	if (!(READ_ONCE(sk->sk_tsflags) & SOF_TIMESTAMPING_OPT_CMSG) ||
 	    !info->ipi_ifindex)
 		return false;
 
@@ -584,7 +591,7 @@ void __ip_sock_set_tos(struct sock *sk, int val)
 	}
 	if (inet_sk(sk)->tos != val) {
 		inet_sk(sk)->tos = val;
-		sk->sk_priority = rt_tos2priority(val);
+		WRITE_ONCE(sk->sk_priority, rt_tos2priority(val));
 		sk_dst_reset(sk);
 	}
 }
@@ -922,6 +929,7 @@ int do_ip_setsockopt(struct sock *sk, int level, int optname,
 	case IP_CHECKSUM:
 	case IP_RECVFRAGSIZE:
 	case IP_RECVERR_RFC4884:
+	case IP_LOCAL_PORT_RANGE:
 		if (optlen >= sizeof(int)) {
 			if (copy_from_sockptr(&val, optval, sizeof(val)))
 				return -EFAULT;
@@ -1364,6 +1372,20 @@ int do_ip_setsockopt(struct sock *sk, int level, int optname,
 		WRITE_ONCE(inet->min_ttl, val);
 		break;
 
+	case IP_LOCAL_PORT_RANGE:
+	{
+		const __u16 lo = val;
+		const __u16 hi = val >> 16;
+
+		if (optlen != sizeof(__u32))
+			goto e_inval;
+		if (lo != 0 && hi != 0 && lo > hi)
+			goto e_inval;
+
+		inet->local_port_range.lo = lo;
+		inet->local_port_range.hi = hi;
+		break;
+	}
 	default:
 		err = -ENOPROTOOPT;
 		break;
@@ -1384,12 +1406,13 @@ e_inval:
  * ipv4_pktinfo_prepare - transfer some info from rtable to skb
  * @sk: socket
  * @skb: buffer
+ * @drop_dst: if true, drops skb dst
  *
  * To support IP_CMSG_PKTINFO option, we store rt_iif and specific
  * destination in skb->cb[] before dst drop.
  * This way, receiver doesn't make cache line misses to read rtable.
  */
-void ipv4_pktinfo_prepare(const struct sock *sk, struct sk_buff *skb)
+void ipv4_pktinfo_prepare(const struct sock *sk, struct sk_buff *skb, bool drop_dst)
 {
 	struct in_pktinfo *pktinfo = PKTINFO_SKB_CB(skb);
 	bool prepare = (inet_sk(sk)->cmsg_flags & IP_CMSG_PKTINFO) ||
@@ -1418,7 +1441,8 @@ void ipv4_pktinfo_prepare(const struct sock *sk, struct sk_buff *skb)
 		pktinfo->ipi_ifindex = 0;
 		pktinfo->ipi_spec_dst.s_addr = 0;
 	}
-	skb_dst_drop(skb);
+	if (drop_dst)
+		skb_dst_drop(skb);
 }
 
 int ip_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
@@ -1741,6 +1765,12 @@ int do_ip_getsockopt(struct sock *sk, int level, int optname,
 		break;
 	case IP_MINTTL:
 		val = inet->min_ttl;
+		break;
+	case IP_LOCAL_PORT_RANGE:
+		val = inet->local_port_range.hi << 16 | inet->local_port_range.lo;
+		break;
+	case IP_PROTOCOL:
+		val = inet_sk(sk)->inet_num;
 		break;
 	default:
 		sockopt_release_sock(sk);

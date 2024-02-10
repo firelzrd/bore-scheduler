@@ -969,6 +969,11 @@ static inline void vmw_bo_prio_del(struct vmw_buffer_object *vbo, int prio)
 /**
  * GEM related functionality - vmwgfx_gem.c
  */
+extern int vmw_gem_object_create(struct vmw_private *dev_priv,
+				  size_t size, struct ttm_placement *placement,
+				  bool interruptible, bool pin,
+				  void (*bo_free)(struct ttm_buffer_object *bo),
+				  struct vmw_buffer_object **p_bo);
 extern int vmw_gem_object_create_with_handle(struct vmw_private *dev_priv,
 					     struct drm_file *filp,
 					     uint32_t size,
@@ -1221,9 +1226,6 @@ int vmw_kms_write_svga(struct vmw_private *vmw_priv,
 bool vmw_kms_validate_mode_vram(struct vmw_private *dev_priv,
 				uint32_t pitch,
 				uint32_t height);
-u32 vmw_get_vblank_counter(struct drm_crtc *crtc);
-int vmw_enable_vblank(struct drm_crtc *crtc);
-void vmw_disable_vblank(struct drm_crtc *crtc);
 int vmw_kms_present(struct vmw_private *dev_priv,
 		    struct drm_file *file_priv,
 		    struct vmw_framebuffer *vfb,
@@ -1603,6 +1605,21 @@ vmw_bo_reference(struct vmw_buffer_object *buf)
 	return buf;
 }
 
+static inline struct vmw_buffer_object *vmw_user_bo_ref(struct vmw_buffer_object *vbo)
+{
+	drm_gem_object_get(&vbo->base.base);
+	return vbo;
+}
+
+static inline void vmw_user_bo_unref(struct vmw_buffer_object **buf)
+{
+	struct vmw_buffer_object *tmp_buf = *buf;
+
+	*buf = NULL;
+	if (tmp_buf)
+		drm_gem_object_put(&tmp_buf->base.base);
+}
+
 static inline void vmw_fifo_resource_inc(struct vmw_private *dev_priv)
 {
 	atomic_inc(&dev_priv->num_fifo_resources);
@@ -1684,6 +1701,18 @@ static inline bool vmw_has_fences(struct vmw_private *vmw)
 				  SVGA_CAP_CMD_BUFFERS_2)) != 0)
 		return true;
 	return (vmw_fifo_caps(vmw) & SVGA_FIFO_CAP_FENCE) != 0;
+}
+
+static inline bool vmw_shadertype_is_valid(enum vmw_sm_type shader_model,
+					   u32 shader_type)
+{
+	SVGA3dShaderType max_allowed = SVGA3D_SHADERTYPE_PREDX_MAX;
+
+	if (shader_model >= VMW_SM_5)
+		max_allowed = SVGA3D_SHADERTYPE_MAX;
+	else if (shader_model >= VMW_SM_4)
+		max_allowed = SVGA3D_SHADERTYPE_DX10_MAX;
+	return shader_type >= SVGA3D_SHADERTYPE_MIN && shader_type < max_allowed;
 }
 
 #endif

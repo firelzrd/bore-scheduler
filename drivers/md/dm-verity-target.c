@@ -41,7 +41,7 @@
 #define DM_VERITY_OPTS_MAX		(4 + DM_VERITY_OPTS_FEC + \
 					 DM_VERITY_ROOT_HASH_VERIFICATION_OPTS)
 
-static unsigned dm_verity_prefetch_cluster = DM_VERITY_DEFAULT_PREFETCH_SIZE;
+static unsigned int dm_verity_prefetch_cluster = DM_VERITY_DEFAULT_PREFETCH_SIZE;
 
 module_param_named(prefetch_cluster, dm_verity_prefetch_cluster, uint, S_IRUGO | S_IWUSR);
 
@@ -51,7 +51,7 @@ struct dm_verity_prefetch_work {
 	struct work_struct work;
 	struct dm_verity *v;
 	sector_t block;
-	unsigned n_blocks;
+	unsigned int n_blocks;
 };
 
 /*
@@ -132,20 +132,21 @@ static int verity_hash_update(struct dm_verity *v, struct ahash_request *req,
  * Wrapper for crypto_ahash_init, which handles verity salting.
  */
 static int verity_hash_init(struct dm_verity *v, struct ahash_request *req,
-				struct crypto_wait *wait)
+				struct crypto_wait *wait, bool may_sleep)
 {
 	int r;
 
 	ahash_request_set_tfm(req, v->tfm);
-	ahash_request_set_callback(req, CRYPTO_TFM_REQ_MAY_SLEEP |
-					CRYPTO_TFM_REQ_MAY_BACKLOG,
-					crypto_req_done, (void *)wait);
+	ahash_request_set_callback(req,
+		may_sleep ? CRYPTO_TFM_REQ_MAY_SLEEP | CRYPTO_TFM_REQ_MAY_BACKLOG : 0,
+		crypto_req_done, (void *)wait);
 	crypto_init_wait(wait);
 
 	r = crypto_wait_req(crypto_ahash_init(req), wait);
 
 	if (unlikely(r < 0)) {
-		DMERR("crypto_ahash_init failed: %d", r);
+		if (r != -ENOMEM)
+			DMERR("crypto_ahash_init failed: %d", r);
 		return r;
 	}
 
@@ -176,12 +177,12 @@ out:
 }
 
 int verity_hash(struct dm_verity *v, struct ahash_request *req,
-		const u8 *data, size_t len, u8 *digest)
+		const u8 *data, size_t len, u8 *digest, bool may_sleep)
 {
 	int r;
 	struct crypto_wait wait;
 
-	r = verity_hash_init(v, req, &wait);
+	r = verity_hash_init(v, req, &wait, may_sleep);
 	if (unlikely(r < 0))
 		goto out;
 
@@ -196,10 +197,10 @@ out:
 }
 
 static void verity_hash_at_level(struct dm_verity *v, sector_t block, int level,
-				 sector_t *hash_block, unsigned *offset)
+				 sector_t *hash_block, unsigned int *offset)
 {
 	sector_t position = verity_position_at_level(v, block, level);
-	unsigned idx;
+	unsigned int idx;
 
 	*hash_block = v->hash_level_block[level] + (position >> v->hash_per_block_bits);
 
@@ -287,7 +288,7 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 	u8 *data;
 	int r;
 	sector_t hash_block;
-	unsigned offset;
+	unsigned int offset;
 
 	verity_hash_at_level(v, block, level, &hash_block, &offset);
 
@@ -317,7 +318,7 @@ static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 
 		r = verity_hash(v, verity_io_hash_req(v, io),
 				data, 1 << v->hash_dev_block_bits,
-				verity_io_real_digest(v, io));
+				verity_io_real_digest(v, io), !io->in_tasklet);
 		if (unlikely(r < 0))
 			goto release_ret_r;
 
@@ -445,13 +446,13 @@ int verity_for_bv_block(struct dm_verity *v, struct dm_verity_io *io,
 				       struct dm_verity_io *io, u8 *data,
 				       size_t len))
 {
-	unsigned todo = 1 << v->data_dev_block_bits;
+	unsigned int todo = 1 << v->data_dev_block_bits;
 	struct bio *bio = dm_bio_from_per_bio_data(io, v->ti->per_io_data_size);
 
 	do {
 		int r;
 		u8 *page;
-		unsigned len;
+		unsigned int len;
 		struct bio_vec bv = bio_iter_iovec(bio, *iter);
 
 		page = bvec_kmap_local(&bv);
@@ -523,7 +524,7 @@ static int verity_verify_io(struct dm_verity_io *io)
 		sector_t cur_block = io->block + b;
 		struct ahash_request *req = verity_io_hash_req(v, io);
 
-		if (v->validated_blocks &&
+		if (v->validated_blocks && bio->bi_status == BLK_STS_OK &&
 		    likely(test_bit(cur_block, v->validated_blocks))) {
 			verity_bv_skip_block(v, io, iter);
 			continue;
@@ -548,7 +549,7 @@ static int verity_verify_io(struct dm_verity_io *io)
 			continue;
 		}
 
-		r = verity_hash_init(v, req, &wait);
+		r = verity_hash_init(v, req, &wait, !io->in_tasklet);
 		if (unlikely(r < 0))
 			return r;
 
@@ -630,7 +631,6 @@ static void verity_work(struct work_struct *w)
 
 	io->in_tasklet = false;
 
-	verity_fec_init_io(io);
 	verity_finish_io(io, errno_to_blk_status(verity_verify_io(io)));
 }
 
@@ -641,7 +641,7 @@ static void verity_tasklet(unsigned long data)
 
 	io->in_tasklet = true;
 	err = verity_verify_io(io);
-	if (err == -EAGAIN) {
+	if (err == -EAGAIN || err == -ENOMEM) {
 		/* fallback to retrying with work-queue */
 		INIT_WORK(&io->work, verity_work);
 		queue_work(io->v->verify_wq, &io->work);
@@ -656,7 +656,9 @@ static void verity_end_io(struct bio *bio)
 	struct dm_verity_io *io = bio->bi_private;
 
 	if (bio->bi_status &&
-	    (!verity_fec_is_enabled(io->v) || verity_is_system_shutting_down())) {
+	    (!verity_fec_is_enabled(io->v) ||
+	     verity_is_system_shutting_down() ||
+	     (bio->bi_opf & REQ_RAHEAD))) {
 		verity_finish_io(io, bio->bi_status);
 		return;
 	}
@@ -688,7 +690,7 @@ static void verity_prefetch_io(struct work_struct *work)
 		verity_hash_at_level(v, pw->block, i, &hash_block_start, NULL);
 		verity_hash_at_level(v, pw->block + pw->n_blocks - 1, i, &hash_block_end, NULL);
 		if (!i) {
-			unsigned cluster = READ_ONCE(dm_verity_prefetch_cluster);
+			unsigned int cluster = READ_ONCE(dm_verity_prefetch_cluster);
 
 			cluster >>= v->data_dev_block_bits;
 			if (unlikely(!cluster))
@@ -753,7 +755,7 @@ static int verity_map(struct dm_target *ti, struct bio *bio)
 	bio_set_dev(bio, v->data_dev->bdev);
 	bio->bi_iter.bi_sector = verity_map_sector(v, bio->bi_iter.bi_sector);
 
-	if (((unsigned)bio->bi_iter.bi_sector | bio_sectors(bio)) &
+	if (((unsigned int)bio->bi_iter.bi_sector | bio_sectors(bio)) &
 	    ((1 << (v->data_dev_block_bits - SECTOR_SHIFT)) - 1)) {
 		DMERR_LIMIT("unaligned io");
 		return DM_MAPIO_KILL;
@@ -778,6 +780,8 @@ static int verity_map(struct dm_target *ti, struct bio *bio)
 	bio->bi_private = io;
 	io->iter = bio->bi_iter;
 
+	verity_fec_init_io(io);
+
 	verity_submit_prefetch(v, io);
 
 	submit_bio_noacct(bio);
@@ -789,12 +793,12 @@ static int verity_map(struct dm_target *ti, struct bio *bio)
  * Status: V (valid) or C (corruption found)
  */
 static void verity_status(struct dm_target *ti, status_type_t type,
-			  unsigned status_flags, char *result, unsigned maxlen)
+			  unsigned int status_flags, char *result, unsigned int maxlen)
 {
 	struct dm_verity *v = ti->private;
-	unsigned args = 0;
-	unsigned sz = 0;
-	unsigned x;
+	unsigned int args = 0;
+	unsigned int sz = 0;
+	unsigned int x;
 
 	switch (type) {
 	case STATUSTYPE_INFO:
@@ -1018,7 +1022,7 @@ static int verity_alloc_zero_digest(struct dm_verity *v)
 		goto out;
 
 	r = verity_hash(v, req, zero_data, 1 << v->data_dev_block_bits,
-			v->zero_digest);
+			v->zero_digest, true);
 
 out:
 	kfree(req);
@@ -1054,7 +1058,7 @@ static int verity_parse_opt_args(struct dm_arg_set *as, struct dm_verity *v,
 				 bool only_modifier_opts)
 {
 	int r = 0;
-	unsigned argc;
+	unsigned int argc;
 	struct dm_target *ti = v->ti;
 	const char *arg_name;
 
@@ -1156,7 +1160,7 @@ static int verity_parse_opt_args(struct dm_arg_set *as, struct dm_verity *v,
  *	<digest>
  *	<salt>		Hex string or "-" if no salt.
  */
-static int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
+static int verity_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct dm_verity *v;
 	struct dm_verity_sig_opts verify_args = {0};

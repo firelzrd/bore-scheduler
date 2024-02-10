@@ -1585,9 +1585,12 @@ static int null_poll(struct blk_mq_hw_ctx *hctx, struct io_comp_batch *iob)
 	struct nullb_queue *nq = hctx->driver_data;
 	LIST_HEAD(list);
 	int nr = 0;
+	struct request *rq;
 
 	spin_lock(&nq->poll_lock);
 	list_splice_init(&nq->poll_list, &list);
+	list_for_each_entry(rq, &list, queuelist)
+		blk_mq_set_request_complete(rq);
 	spin_unlock(&nq->poll_lock);
 
 	while (!list_empty(&list)) {
@@ -1613,15 +1616,20 @@ static enum blk_eh_timer_return null_timeout_rq(struct request *rq)
 	struct blk_mq_hw_ctx *hctx = rq->mq_hctx;
 	struct nullb_cmd *cmd = blk_mq_rq_to_pdu(rq);
 
-	pr_info("rq %p timed out\n", rq);
-
 	if (hctx->type == HCTX_TYPE_POLL) {
 		struct nullb_queue *nq = hctx->driver_data;
 
 		spin_lock(&nq->poll_lock);
+		/* The request may have completed meanwhile. */
+		if (blk_mq_request_completed(rq)) {
+			spin_unlock(&nq->poll_lock);
+			return BLK_EH_DONE;
+		}
 		list_del_init(&rq->queuelist);
 		spin_unlock(&nq->poll_lock);
 	}
+
+	pr_info("rq %p timed out\n", rq);
 
 	/*
 	 * If the device is marked as blocking (i.e. memory backed or zoned
@@ -1945,6 +1953,11 @@ static int null_init_tag_set(struct nullb *nullb, struct blk_mq_tag_set *set)
 
 static int null_validate_conf(struct nullb_device *dev)
 {
+	if (dev->queue_mode == NULL_Q_RQ) {
+		pr_err("legacy IO path is no longer available\n");
+		return -EINVAL;
+	}
+
 	dev->blocksize = round_down(dev->blocksize, 512);
 	dev->blocksize = clamp_t(unsigned int, dev->blocksize, 512, 4096);
 
@@ -2101,11 +2114,8 @@ static int null_add_dev(struct nullb_device *dev)
 
 	blk_queue_logical_block_size(nullb->q, dev->blocksize);
 	blk_queue_physical_block_size(nullb->q, dev->blocksize);
-	if (!dev->max_sectors)
-		dev->max_sectors = queue_max_hw_sectors(nullb->q);
-	dev->max_sectors = min_t(unsigned int, dev->max_sectors,
-				 BLK_DEF_MAX_SECTORS);
-	blk_queue_max_hw_sectors(nullb->q, dev->max_sectors);
+	if (dev->max_sectors)
+		blk_queue_max_hw_sectors(nullb->q, dev->max_sectors);
 
 	if (dev->virt_boundary)
 		blk_queue_virt_boundary(nullb->q, PAGE_SIZE - 1);
@@ -2189,6 +2199,7 @@ static void null_destroy_dev(struct nullb *nullb)
 	struct nullb_device *dev = nullb->dev;
 
 	null_del_dev(nullb);
+	null_free_device_storage(dev, false);
 	null_free_dev(dev);
 }
 
@@ -2202,12 +2213,6 @@ static int __init null_init(void)
 		pr_warn("invalid block size\n");
 		pr_warn("defaults block size to %lu\n", PAGE_SIZE);
 		g_bs = PAGE_SIZE;
-	}
-
-	if (g_max_sectors > BLK_DEF_MAX_SECTORS) {
-		pr_warn("invalid max sectors\n");
-		pr_warn("defaults max sectors to %u\n", BLK_DEF_MAX_SECTORS);
-		g_max_sectors = BLK_DEF_MAX_SECTORS;
 	}
 
 	if (g_home_node != NUMA_NO_NODE && g_home_node >= nr_online_nodes) {

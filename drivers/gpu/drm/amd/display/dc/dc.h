@@ -56,9 +56,7 @@ struct dmub_notification;
 #define MIN_VIEWPORT_SIZE 12
 #define MAX_NUM_EDP 2
 
-/*******************************************************************************
- * Display Core Interfaces
- ******************************************************************************/
+/* Display Core Interfaces */
 struct dc_versions {
 	const char *dc_ver;
 	struct dmcu_version dmcu_version;
@@ -232,6 +230,11 @@ struct dc_caps {
 	uint32_t dmdata_alloc_size;
 	unsigned int max_cursor_size;
 	unsigned int max_video_width;
+	/*
+	 * max video plane width that can be safely assumed to be always
+	 * supported by single DPP pipe.
+	 */
+	unsigned int max_optimizable_video_width;
 	unsigned int min_horizontal_blanking_period;
 	int linear_pitch_alignment;
 	bool dcc_const_color;
@@ -491,12 +494,17 @@ enum dcn_pwr_state {
 enum dcn_zstate_support_state {
 	DCN_ZSTATE_SUPPORT_UNKNOWN,
 	DCN_ZSTATE_SUPPORT_ALLOW,
+	DCN_ZSTATE_SUPPORT_ALLOW_Z8_ONLY,
+	DCN_ZSTATE_SUPPORT_ALLOW_Z8_Z10_ONLY,
 	DCN_ZSTATE_SUPPORT_ALLOW_Z10_ONLY,
 	DCN_ZSTATE_SUPPORT_DISALLOW,
 };
-/*
- * For any clocks that may differ per pipe
- * only the max is stored in this structure
+
+/**
+ * dc_clocks - DC pipe clocks
+ *
+ * For any clocks that may differ per pipe only the max is stored in this
+ * structure
  */
 struct dc_clocks {
 	int dispclk_khz;
@@ -523,6 +531,16 @@ struct dc_clocks {
 	bool prev_p_state_change_support;
 	bool fclk_prev_p_state_change_support;
 	int num_ways;
+
+	/**
+	 * @fw_based_mclk_switching
+	 *
+	 * DC has a mechanism that leverage the variable refresh rate to switch
+	 * memory clock in cases that we have a large latency to achieve the
+	 * memory clock change and a short vblank window. DC has some
+	 * requirements to enable this feature, and this field describes if the
+	 * system support or not such a feature.
+	 */
 	bool fw_based_mclk_switching;
 	bool fw_based_mclk_switching_shut_down;
 	int prev_num_ways;
@@ -764,7 +782,6 @@ struct dc_debug_options {
 	bool disable_mem_low_power;
 	bool pstate_enabled;
 	bool disable_dmcu;
-	bool disable_psr;
 	bool force_abm_enable;
 	bool disable_stereo_support;
 	bool vsr_support;
@@ -780,6 +797,7 @@ struct dc_debug_options {
 	unsigned int force_odm_combine; //bit vector based on otg inst
 	unsigned int seamless_boot_odm_combine;
 	unsigned int force_odm_combine_4to1; //bit vector based on otg inst
+	int minimum_z8_residency_time;
 	bool disable_z9_mpc;
 	unsigned int force_fclk_khz;
 	bool enable_tri_buf;
@@ -828,6 +846,7 @@ struct dc_debug_options {
 	int crb_alloc_policy_min_disp_count;
 	bool disable_z10;
 	bool enable_z9_disable_interface;
+	bool psr_skip_crtc_disable;
 	union dpia_debug_options dpia_debug;
 	bool disable_fixed_vs_aux_timeout_wa;
 	bool force_disable_subvp;
@@ -990,9 +1009,7 @@ void dc_init_callbacks(struct dc *dc,
 void dc_deinit_callbacks(struct dc *dc);
 void dc_destroy(struct dc **dc);
 
-/*******************************************************************************
- * Surface Interfaces
- ******************************************************************************/
+/* Surface Interfaces */
 
 enum {
 	TRANSFER_FUNC_POINTS = 1025
@@ -1271,12 +1288,23 @@ void dc_post_update_surfaces_to_stream(
 
 #include "dc_stream.h"
 
-/*
- * Structure to store surface/stream associations for validation
+/**
+ * struct dc_validation_set - Struct to store surface/stream associations for validation
  */
 struct dc_validation_set {
+	/**
+	 * @stream: Stream state properties
+	 */
 	struct dc_stream_state *stream;
+
+	/**
+	 * @plane_state: Surface state
+	 */
 	struct dc_plane_state *plane_states[MAX_SURFACES];
+
+	/**
+	 * @plane_count: Total of active planes
+	 */
 	uint8_t plane_count;
 };
 
@@ -1287,6 +1315,12 @@ bool dc_validate_boot_timing(const struct dc *dc,
 enum dc_status dc_validate_plane(struct dc *dc, const struct dc_plane_state *plane_state);
 
 void get_clock_requirements_for_state(struct dc_state *state, struct AsicStateEx *info);
+
+enum dc_status dc_validate_with_context(struct dc *dc,
+					const struct dc_validation_set set[],
+					int set_count,
+					struct dc_state *context,
+					bool fast_validate);
 
 bool dc_set_generic_gpio_for_stereo(bool enable,
 		struct gpio_service *gpio_service);
@@ -1323,15 +1357,12 @@ void dc_resource_state_destruct(struct dc_state *context);
 
 bool dc_resource_is_dsc_encoding_supported(const struct dc *dc);
 
-/*
- * TODO update to make it about validation sets
- * Set up streams and links associated to drive sinks
- * The streams parameter is an absolute set of all active streams.
- *
- * After this call:
- *   Phy, Encoder, Timing Generator are programmed and enabled.
- *   New streams are enabled with blank stream; no memory read.
- */
+enum dc_status dc_commit_streams(struct dc *dc,
+				 struct dc_stream_state *streams[],
+				 uint8_t stream_count);
+
+/* TODO: When the transition to the new commit sequence is done, remove this
+ * function in favor of dc_commit_streams. */
 bool dc_commit_state(struct dc *dc, struct dc_state *context);
 
 struct dc_state *dc_create_state(struct dc *dc);
@@ -1339,9 +1370,7 @@ struct dc_state *dc_copy_state(struct dc_state *src_ctx);
 void dc_retain_state(struct dc_state *context);
 void dc_release_state(struct dc_state *context);
 
-/*******************************************************************************
- * Link Interfaces
- ******************************************************************************/
+/* Link Interfaces */
 
 struct dpcd_caps {
 	union dpcd_rev dpcd_rev;
@@ -1443,9 +1472,7 @@ struct hdcp_caps {
 
 uint32_t dc_get_opp_for_plane(struct dc *dc, struct dc_plane_state *plane);
 
-/*******************************************************************************
- * Sink Interfaces - A sink corresponds to a display output device
- ******************************************************************************/
+/* Sink Interfaces - A sink corresponds to a display output device */
 
 struct dc_container_id {
 	// 128bit GUID in binary form
@@ -1517,8 +1544,6 @@ struct dc_sink_init_data {
 	bool converter_disable_audio;
 };
 
-bool dc_extended_blank_supported(struct dc *dc);
-
 struct dc_sink *dc_sink_create(const struct dc_sink_init_data *init_params);
 
 /* Newer interfaces  */
@@ -1528,9 +1553,7 @@ struct dc_cursor {
 };
 
 
-/*******************************************************************************
- * Interrupt interfaces
- ******************************************************************************/
+/* Interrupt interfaces */
 enum dc_irq_source dc_interrupt_to_irq_source(
 		struct dc *dc,
 		uint32_t src_id,
@@ -1542,9 +1565,7 @@ enum dc_irq_source dc_get_hpd_irq_source_at_index(
 
 void dc_notify_vsync_int_state(struct dc *dc, struct dc_stream_state *stream, bool enable);
 
-/*******************************************************************************
- * Power Interfaces
- ******************************************************************************/
+/* Power Interfaces */
 
 void dc_set_power_state(
 		struct dc *dc,
@@ -1617,14 +1638,10 @@ enum dc_status dc_process_dmub_set_mst_slots(const struct dc *dc,
 void dc_process_dmub_dpia_hpd_int_enable(const struct dc *dc,
 				uint32_t hpd_int_enable);
 
-/*******************************************************************************
- * DSC Interfaces
- ******************************************************************************/
+/* DSC Interfaces */
 #include "dc_dsc.h"
 
-/*******************************************************************************
- * Disable acc mode Interfaces
- ******************************************************************************/
+/* Disable acc mode Interfaces */
 void dc_disable_accelerated_mode(struct dc *dc);
 
 #endif /* DC_INTERFACE_H_ */

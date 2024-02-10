@@ -126,7 +126,7 @@ static int alloc_targets(struct dm_table *t, unsigned int num)
 }
 
 int dm_table_create(struct dm_table **result, fmode_t mode,
-		    unsigned num_targets, struct mapped_device *md)
+		    unsigned int num_targets, struct mapped_device *md)
 {
 	struct dm_table *t = kzalloc(sizeof(*t), GFP_KERNEL);
 
@@ -134,6 +134,7 @@ int dm_table_create(struct dm_table **result, fmode_t mode,
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&t->devices);
+	init_rwsem(&t->devices_lock);
 
 	if (!num_targets)
 		num_targets = KEYS_PER_NODE;
@@ -211,7 +212,7 @@ static struct dm_dev_internal *find_device(struct list_head *l, dev_t dev)
 {
 	struct dm_dev_internal *dd;
 
-	list_for_each_entry (dd, l, list)
+	list_for_each_entry(dd, l, list)
 		if (dd->dm_dev->bdev->bd_dev == dev)
 			return dd;
 
@@ -234,8 +235,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 		return 0;
 
 	if ((start >= dev_size) || (start + len > dev_size)) {
-		DMERR("%s: %pg too small for target: "
-		      "start=%llu, len=%llu, dev_size=%llu",
+		DMERR("%s: %pg too small for target: start=%llu, len=%llu, dev_size=%llu",
 		      dm_device_name(ti->table->md), bdev,
 		      (unsigned long long)start,
 		      (unsigned long long)len,
@@ -280,8 +280,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 		return 0;
 
 	if (start & (logical_block_size_sectors - 1)) {
-		DMERR("%s: start=%llu not aligned to h/w "
-		      "logical block size %u of %pg",
+		DMERR("%s: start=%llu not aligned to h/w logical block size %u of %pg",
 		      dm_device_name(ti->table->md),
 		      (unsigned long long)start,
 		      limits->logical_block_size, bdev);
@@ -289,8 +288,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
 	}
 
 	if (len & (logical_block_size_sectors - 1)) {
-		DMERR("%s: len=%llu not aligned to h/w "
-		      "logical block size %u of %pg",
+		DMERR("%s: len=%llu not aligned to h/w logical block size %u of %pg",
 		      dm_device_name(ti->table->md),
 		      (unsigned long long)len,
 		      limits->logical_block_size, bdev);
@@ -365,15 +363,19 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 			return -ENODEV;
 	}
 
+	down_write(&t->devices_lock);
+
 	dd = find_device(&t->devices, dev);
 	if (!dd) {
 		dd = kmalloc(sizeof(*dd), GFP_KERNEL);
-		if (!dd)
-			return -ENOMEM;
+		if (!dd) {
+			r = -ENOMEM;
+			goto unlock_ret_r;
+		}
 
 		if ((r = dm_get_table_device(t->md, dev, mode, &dd->dm_dev))) {
 			kfree(dd);
-			return r;
+			goto unlock_ret_r;
 		}
 
 		refcount_set(&dd->count, 1);
@@ -383,12 +385,17 @@ int dm_get_device(struct dm_target *ti, const char *path, fmode_t mode,
 	} else if (dd->dm_dev->mode != (mode | dd->dm_dev->mode)) {
 		r = upgrade_mode(dd, mode, t->md);
 		if (r)
-			return r;
+			goto unlock_ret_r;
 	}
 	refcount_inc(&dd->count);
 out:
+	up_write(&t->devices_lock);
 	*result = dd->dm_dev;
 	return 0;
+
+unlock_ret_r:
+	up_write(&t->devices_lock);
+	return r;
 }
 EXPORT_SYMBOL(dm_get_device);
 
@@ -424,8 +431,11 @@ static int dm_set_device_limits(struct dm_target *ti, struct dm_dev *dev,
 void dm_put_device(struct dm_target *ti, struct dm_dev *d)
 {
 	int found = 0;
-	struct list_head *devices = &ti->table->devices;
+	struct dm_table *t = ti->table;
+	struct list_head *devices = &t->devices;
 	struct dm_dev_internal *dd;
+
+	down_write(&t->devices_lock);
 
 	list_for_each_entry(dd, devices, list) {
 		if (dd->dm_dev == d) {
@@ -435,14 +445,17 @@ void dm_put_device(struct dm_target *ti, struct dm_dev *d)
 	}
 	if (!found) {
 		DMERR("%s: device %s not in table devices list",
-		      dm_device_name(ti->table->md), d->name);
-		return;
+		      dm_device_name(t->md), d->name);
+		goto unlock_ret;
 	}
 	if (refcount_dec_and_test(&dd->count)) {
-		dm_put_table_device(ti->table->md, d);
+		dm_put_table_device(t->md, d);
 		list_del(&dd->list);
 		kfree(dd);
 	}
+
+unlock_ret:
+	up_write(&t->devices_lock);
 }
 EXPORT_SYMBOL(dm_put_device);
 
@@ -470,10 +483,10 @@ static int adjoin(struct dm_table *t, struct dm_target *ti)
  * On the other hand, dm-switch needs to process bulk data using messages and
  * excessive use of GFP_NOIO could cause trouble.
  */
-static char **realloc_argv(unsigned *size, char **old_argv)
+static char **realloc_argv(unsigned int *size, char **old_argv)
 {
 	char **argv;
-	unsigned new_size;
+	unsigned int new_size;
 	gfp_t gfp;
 
 	if (*size) {
@@ -499,7 +512,7 @@ static char **realloc_argv(unsigned *size, char **old_argv)
 int dm_split_args(int *argc, char ***argvp, char *input)
 {
 	char *start, *end = input, *out, **argv = NULL;
-	unsigned array_size = 0;
+	unsigned int array_size = 0;
 
 	*argc = 0;
 
@@ -732,9 +745,8 @@ int dm_table_add_target(struct dm_table *t, const char *type,
 /*
  * Target argument parsing helpers.
  */
-static int validate_next_arg(const struct dm_arg *arg,
-			     struct dm_arg_set *arg_set,
-			     unsigned *value, char **error, unsigned grouped)
+static int validate_next_arg(const struct dm_arg *arg, struct dm_arg_set *arg_set,
+			     unsigned int *value, char **error, unsigned int grouped)
 {
 	const char *arg_str = dm_shift_arg(arg_set);
 	char dummy;
@@ -752,14 +764,14 @@ static int validate_next_arg(const struct dm_arg *arg,
 }
 
 int dm_read_arg(const struct dm_arg *arg, struct dm_arg_set *arg_set,
-		unsigned *value, char **error)
+		unsigned int *value, char **error)
 {
 	return validate_next_arg(arg, arg_set, value, error, 0);
 }
 EXPORT_SYMBOL(dm_read_arg);
 
 int dm_read_arg_group(const struct dm_arg *arg, struct dm_arg_set *arg_set,
-		      unsigned *value, char **error)
+		      unsigned int *value, char **error)
 {
 	return validate_next_arg(arg, arg_set, value, error, 1);
 }
@@ -780,7 +792,7 @@ const char *dm_shift_arg(struct dm_arg_set *as)
 }
 EXPORT_SYMBOL(dm_shift_arg);
 
-void dm_consume_args(struct dm_arg_set *as, unsigned num_args)
+void dm_consume_args(struct dm_arg_set *as, unsigned int num_args)
 {
 	BUG_ON(as->argc < num_args);
 	as->argc -= num_args;
@@ -856,7 +868,7 @@ static int device_is_rq_stackable(struct dm_target *ti, struct dm_dev *dev,
 
 static int dm_table_determine_type(struct dm_table *t)
 {
-	unsigned bio_based = 0, request_based = 0, hybrid = 0;
+	unsigned int bio_based = 0, request_based = 0, hybrid = 0;
 	struct dm_target *ti;
 	struct list_head *devices = dm_table_get_devices(t);
 	enum dm_queue_mode live_md_type = dm_get_md_type(t->md);
@@ -881,8 +893,7 @@ static int dm_table_determine_type(struct dm_table *t)
 			bio_based = 1;
 
 		if (bio_based && request_based) {
-			DMERR("Inconsistent table: different target types"
-			      " can't be mixed up");
+			DMERR("Inconsistent table: different target types can't be mixed up");
 			return -EINVAL;
 		}
 	}
@@ -1185,8 +1196,7 @@ static int dm_table_register_integrity(struct dm_table *t)
 	 * profile the new profile should not conflict.
 	 */
 	if (blk_integrity_compare(dm_disk(md), template_disk) < 0) {
-		DMERR("%s: conflict with existing integrity profile: "
-		      "%s profile mismatch",
+		DMERR("%s: conflict with existing integrity profile: %s profile mismatch",
 		      dm_device_name(t->md),
 		      template_disk->disk_name);
 		return 1;
@@ -1204,21 +1214,12 @@ struct dm_crypto_profile {
 	struct mapped_device *md;
 };
 
-struct dm_keyslot_evict_args {
-	const struct blk_crypto_key *key;
-	int err;
-};
-
 static int dm_keyslot_evict_callback(struct dm_target *ti, struct dm_dev *dev,
 				     sector_t start, sector_t len, void *data)
 {
-	struct dm_keyslot_evict_args *args = data;
-	int err;
+	const struct blk_crypto_key *key = data;
 
-	err = blk_crypto_evict_key(bdev_get_queue(dev->bdev), args->key);
-	if (!args->err)
-		args->err = err;
-	/* Always try to evict the key from all devices. */
+	blk_crypto_evict_key(dev->bdev, key);
 	return 0;
 }
 
@@ -1231,7 +1232,6 @@ static int dm_keyslot_evict(struct blk_crypto_profile *profile,
 {
 	struct mapped_device *md =
 		container_of(profile, struct dm_crypto_profile, profile)->md;
-	struct dm_keyslot_evict_args args = { key };
 	struct dm_table *t;
 	int srcu_idx;
 
@@ -1244,11 +1244,12 @@ static int dm_keyslot_evict(struct blk_crypto_profile *profile,
 
 		if (!ti->type->iterate_devices)
 			continue;
-		ti->type->iterate_devices(ti, dm_keyslot_evict_callback, &args);
+		ti->type->iterate_devices(ti, dm_keyslot_evict_callback,
+					  (void *)key);
 	}
 
 	dm_put_live_table(md, srcu_idx);
-	return args.err;
+	return 0;
 }
 
 static int
@@ -1535,7 +1536,7 @@ static bool dm_table_any_dev_attr(struct dm_table *t,
 static int count_device(struct dm_target *ti, struct dm_dev *dev,
 			sector_t start, sector_t len, void *data)
 {
-	unsigned *num_devices = data;
+	unsigned int *num_devices = data;
 
 	(*num_devices)++;
 
@@ -1565,7 +1566,7 @@ bool dm_table_has_no_data_devices(struct dm_table *t)
 {
 	for (unsigned int i = 0; i < t->num_targets; i++) {
 		struct dm_target *ti = dm_table_get_target(t, i);
-		unsigned num_devices = 0;
+		unsigned int num_devices = 0;
 
 		if (!ti->type->iterate_devices)
 			return false;
@@ -1708,8 +1709,7 @@ combine_limits:
 		 * for the table.
 		 */
 		if (blk_stack_limits(limits, &ti_limits, 0) < 0)
-			DMWARN("%s: adding target device "
-			       "(start sect %llu len %llu) "
+			DMWARN("%s: adding target device (start sect %llu len %llu) "
 			       "caused an alignment inconsistency",
 			       dm_device_name(t->md),
 			       (unsigned long long) ti->begin,

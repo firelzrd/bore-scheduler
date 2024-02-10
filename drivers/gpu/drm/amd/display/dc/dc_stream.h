@@ -41,6 +41,10 @@ struct timing_sync_info {
 struct dc_stream_status {
 	int primary_otg_inst;
 	int stream_enc_inst;
+
+	/**
+	 * @plane_count: Total of planes attached to a single stream
+	 */
 	int plane_count;
 	int audio_inst;
 	struct timing_sync_info timing_sync_info;
@@ -127,6 +131,7 @@ union stream_update_flags {
 		uint32_t dsc_changed : 1;
 		uint32_t mst_bw : 1;
 		uint32_t crtc_timing_adjust : 1;
+		uint32_t fams_changed : 1;
 	} bits;
 
 	uint32_t raw;
@@ -197,7 +202,18 @@ struct dc_stream_state {
 	bool use_vsc_sdp_for_colorimetry;
 	bool ignore_msa_timing_param;
 
+	/**
+	 * @allow_freesync:
+	 *
+	 * It say if Freesync is enabled or not.
+	 */
 	bool allow_freesync;
+
+	/**
+	 * @vrr_active_variable:
+	 *
+	 * It describes if VRR is in use.
+	 */
 	bool vrr_active_variable;
 	bool freesync_on_desktop;
 
