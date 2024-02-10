@@ -251,7 +251,7 @@ static struct ctl_table sched_fair_sysctls[] = {
 	{
 		.procname	= "sched_bore",
 		.data		= &sched_bore,
-		.maxlen		= sizeof(bool),
+		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dobool,
 	},
@@ -292,21 +292,21 @@ static struct ctl_table sched_fair_sysctls[] = {
 	{
 		.procname	= "sched_burst_score_rounding",
 		.data		= &sched_burst_score_rounding,
-		.maxlen		= sizeof(bool),
+		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dobool,
 	},
 	{
 		.procname	= "sched_burst_smoothness_long",
 		.data		= &sched_burst_smoothness_long,
-		.maxlen		= sizeof(bool),
+		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dobool,
 	},
 	{
 		.procname	= "sched_burst_smoothness_short",
 		.data		= &sched_burst_smoothness_short,
-		.maxlen		= sizeof(bool),
+		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= &proc_dobool,
 	},
