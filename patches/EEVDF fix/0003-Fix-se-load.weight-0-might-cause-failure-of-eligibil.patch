@@ -1,4 +1,4 @@
-From 451b8fc5d2d9adf660e2432d7ebc194c2ee144bb Mon Sep 17 00:00:00 2001
+From a2fdcfe8abf825e8a9d0a5de3f24ff15c83bb9f5 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 10 Feb 2024 11:44:22 +0900
 Subject: [PATCH] Fix: se->load.weight == 0 might cause failure of eligibility
@@ -9,7 +9,7 @@ Subject: [PATCH] Fix: se->load.weight == 0 might cause failure of eligibility
  1 file changed, 14 insertions(+), 6 deletions(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 81d4f0b738..eb5d32b607 100644
+index beaeaca235..d124a68dff 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -624,10 +624,18 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)

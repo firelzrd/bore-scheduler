@@ -1,0 +1,26 @@
+From 50ea6c80a3a54438aa81ae8f2c82a9ead330c7fa Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Sat, 10 Feb 2024 13:19:09 +0900
+Subject: [PATCH] Fix: reweight_eevdf(): Deadline only becomes earlier after
+ rescaling
+
+---
+ kernel/sched/fair.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 533547e3c9..5168e4da91 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -3774,7 +3774,7 @@ static void reweight_eevdf(struct cfs_rq *cfs_rq, struct sched_entity *se,
+ 	 */
+ 	vslice = (s64)(se->deadline - avruntime);
+ 	vslice = div_s64(vslice * old_weight, weight);
+-	se->deadline = avruntime + vslice;
++	se->deadline = min_vruntime(se->deadline, avruntime + vslice);
+ }
+ 
+ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
+-- 
+2.34.1
+

@@ -1,4 +1,4 @@
-From db391a8f1d1039638ccdf110f2113cc0ef3ee651 Mon Sep 17 00:00:00 2001
+From ba419a1d6e930068b2eb38e4a9c5b455b36b7785 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 10 Feb 2024 11:25:40 +0900
 Subject: [PATCH] Fix: Use div64_s64(s64, s64) instead of div_s64(s64, s32)
@@ -9,7 +9,7 @@ Subject: [PATCH] Fix: Use div64_s64(s64, s64) instead of div_s64(s64, s32)
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 8459cbb2aa..81d4f0b738 100644
+index 5168e4da91..beaeaca235 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -674,7 +674,7 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
