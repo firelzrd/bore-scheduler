@@ -1,0 +1,35 @@
+From db391a8f1d1039638ccdf110f2113cc0ef3ee651 Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Sat, 10 Feb 2024 11:25:40 +0900
+Subject: [PATCH] Fix: Use div64_s64(s64, s64) instead of div_s64(s64, s32)
+ where the divisor may reach 64 bits
+
+---
+ kernel/sched/fair.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 8459cbb2aa..81d4f0b738 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -674,7 +674,7 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
+ 		/* sign flips effective floor / ceil */
+ 		if (avg < 0)
+ 			avg -= (load - 1);
+-		avg = div_s64(avg, load);
++		avg = div64_s64(avg, load);
+ 	}
+ 
+ 	return cfs_rq->min_vruntime + avg;
+@@ -5236,7 +5236,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 		lag *= load + scale_load_down(se->load.weight);
+ 		if (WARN_ON_ONCE(!load))
+ 			load = 1;
+-		lag = div_s64(lag, load);
++		lag = div64_s64(lag, load);
+ 	}
+ 
+ 	se->vruntime = vruntime - lag;
+-- 
+2.34.1
+
