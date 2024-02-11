@@ -1,17 +1,16 @@
-From e94a9cb085e59a757f82595001843a2a263143b8 Mon Sep 17 00:00:00 2001
+From 75e3e5a8bf16d8a101928a31d8c668a26f3ef3b7 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 10 Feb 2024 17:57:35 +0900
-Subject: [PATCH] linux5.15.y-bore4.1.13r2
+Date: Sun, 11 Feb 2024 21:46:10 +0900
+Subject: [PATCH] linux5.15.y-bore4.1.13r3
 
 ---
- include/linux/sched.h        |  10 +++
- include/linux/sched/sysctl.h |  11 +++
- init/Kconfig                 |  19 +++++
- kernel/sched/core.c          | 142 +++++++++++++++++++++++++++++++++++
- kernel/sched/debug.c         |   3 +
- kernel/sched/fair.c          | 112 +++++++++++++++++++++++----
- kernel/sysctl.c              |  68 +++++++++++++++++
- 7 files changed, 350 insertions(+), 15 deletions(-)
+ include/linux/sched.h |  10 +++
+ init/Kconfig          |  19 ++++++
+ kernel/sched/core.c   | 142 ++++++++++++++++++++++++++++++++++++++++++
+ kernel/sched/debug.c  |   3 +
+ kernel/sched/fair.c   | 112 ++++++++++++++++++++++++++++-----
+ kernel/sysctl.c       |  78 +++++++++++++++++++++++
+ 6 files changed, 349 insertions(+), 15 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 7bfc2b45cd..8bbd2900a1 100644
@@ -34,28 +33,6 @@ index 7bfc2b45cd..8bbd2900a1 100644
  
  	u64				nr_migrations;
  
-diff --git a/include/linux/sched/sysctl.h b/include/linux/sched/sysctl.h
-index 304f431178..fbd80986ff 100644
---- a/include/linux/sched/sysctl.h
-+++ b/include/linux/sched/sysctl.h
-@@ -26,6 +26,17 @@ int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
- enum { sysctl_hung_task_timeout_secs = 0 };
- #endif
- 
-+#ifdef CONFIG_SCHED_BORE
-+extern bool sched_bore;
-+extern bool sched_burst_score_rounding;
-+extern bool sched_burst_smoothness_long;
-+extern bool sched_burst_smoothness_short;
-+extern u8   sched_burst_fork_atavistic;
-+extern u8   sched_burst_penalty_offset;
-+extern uint sched_burst_penalty_scale;
-+extern uint sched_burst_cache_lifetime;
-+#endif // CONFIG_SCHED_BORE
-+
- extern unsigned int sysctl_sched_child_runs_first;
- 
- enum sched_tunable_scaling {
 diff --git a/init/Kconfig b/init/Kconfig
 index dafc3ba6fa..7eb2a96bb2 100644
 --- a/init/Kconfig
@@ -437,21 +414,31 @@ index fd8b565664..d7e1aa4c56 100644
  	set_skip_buddy(se);
  }
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 928798f89c..41666c8fa3 100644
+index 928798f89c..af108f236a 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
-@@ -133,6 +133,10 @@ static int minolduid;
+@@ -133,6 +133,20 @@ static int minolduid;
  static int ngroups_max = NGROUPS_MAX;
  static const int cap_last_cap = CAP_LAST_CAP;
  
-+static u8   three          = 3;
-+static u8   sixty_four     = 64;
-+static uint maxval_12_bits = 4095;
++#ifdef CONFIG_SCHED_BORE
++extern bool sched_bore;
++extern bool sched_burst_score_rounding;
++extern bool sched_burst_smoothness_long;
++extern bool sched_burst_smoothness_short;
++extern u8   sched_burst_fork_atavistic;
++extern u8   sched_burst_penalty_offset;
++extern uint sched_burst_penalty_scale;
++extern uint sched_burst_cache_lifetime;
++static int three          = 3;
++static int sixty_four     = 64;
++static int maxval_12_bits = 4095;
++#endif // CONFIG_SCHED_BORE
 +
  /*
   * This is needed for proc_doulongvec_minmax of sysctl_hung_task_timeout_secs
   * and hung_task_check_interval_secs
-@@ -1775,6 +1779,70 @@ int proc_do_static_key(struct ctl_table *table, int write,
+@@ -1775,6 +1789,70 @@ int proc_do_static_key(struct ctl_table *table, int write,
  }
  
  static struct ctl_table kern_table[] = {
