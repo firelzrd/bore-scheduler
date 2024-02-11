@@ -133,9 +133,19 @@ static int minolduid;
 static int ngroups_max = NGROUPS_MAX;
 static const int cap_last_cap = CAP_LAST_CAP;
 
-static u8   three          = 3;
-static u8   sixty_four     = 64;
-static uint maxval_12_bits = 4095;
+#ifdef CONFIG_SCHED_BORE
+extern bool sched_bore;
+extern bool sched_burst_score_rounding;
+extern bool sched_burst_smoothness_long;
+extern bool sched_burst_smoothness_short;
+extern u8   sched_burst_fork_atavistic;
+extern u8   sched_burst_penalty_offset;
+extern uint sched_burst_penalty_scale;
+extern uint sched_burst_cache_lifetime;
+static int three          = 3;
+static int sixty_four     = 64;
+static int maxval_12_bits = 4095;
+#endif // CONFIG_SCHED_BORE
 
 /*
  * This is needed for proc_doulongvec_minmax of sysctl_hung_task_timeout_secs
