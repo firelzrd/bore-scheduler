@@ -7031,6 +7031,8 @@ static void yield_task_fair(struct rq *rq)
 #if !defined(CONFIG_SCHED_BORE)
 	if (unlikely(rq->nr_running == 1))
 		return;
+
+	clear_buddies(cfs_rq, se);
 #endif // CONFIG_SCHED_BORE
 
 	update_rq_clock(rq);
@@ -7042,8 +7044,9 @@ static void yield_task_fair(struct rq *rq)
 	restart_burst(se);
 	if (unlikely(rq->nr_running == 1))
 		return;
-#endif // CONFIG_SCHED_BORE
+
 	clear_buddies(cfs_rq, se);
+#endif // CONFIG_SCHED_BORE
 	/*
 	 * Tell update_rq_clock() that we've just updated,
 	 * so we don't do microscopic update in schedule()
