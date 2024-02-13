@@ -143,19 +143,19 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 }
 
 static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
 }
 
-static void update_slice_score(struct sched_entity *se) {
+static void update_burst_score(struct sched_entity *se) {
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
-	se->slice_score = penalty >> 2;
+	se->burst_score = penalty >> 2;
 }
 
 static void update_burst_penalty(struct sched_entity *se) {
 	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
 	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
-	update_slice_score(se);
+	update_burst_score(se);
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
@@ -170,7 +170,7 @@ static void restart_burst(struct sched_entity *se) {
 		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
 	se->curr_burst_penalty = 0;
 	se->burst_time = 0;
-	update_slice_score(se);
+	update_burst_score(se);
 }
 #endif // CONFIG_SCHED_BORE
 
