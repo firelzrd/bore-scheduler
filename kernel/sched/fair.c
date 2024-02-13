@@ -161,6 +161,10 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 	return min(MAX_BURST_PENALTY, scaled_penalty);
 }
 
+static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
+}
+
 static void update_slice_score(struct sched_entity *se) {
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
@@ -171,10 +175,6 @@ static void update_burst_penalty(struct sched_entity *se) {
 	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
 	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
 	update_slice_score(se);
-}
-
-static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->slice_score], 22);
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
