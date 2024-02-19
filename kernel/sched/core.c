@@ -4226,7 +4226,7 @@ extern bool sched_bore;
 extern u8   sched_burst_fork_atavistic;
 extern uint sched_burst_cache_lifetime;
 
-void __init sched_init_bore(void) {
+static void __init sched_init_bore(void) {
 	init_task.se.burst_time = 0;
 	init_task.se.prev_burst_penalty = 0;
 	init_task.se.curr_burst_penalty = 0;
