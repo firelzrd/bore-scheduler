@@ -138,8 +138,8 @@ u8   __read_mostly sched_burst_fork_atavistic   = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
-static uint sixty_four     = 64;
-static uint maxval_12_bits = 4095;
+static int __maybe_unused sixty_four     = 64;
+static int __maybe_unused maxval_12_bits = 4095;
 
 #define MAX_BURST_PENALTY (39U <<2)
 
