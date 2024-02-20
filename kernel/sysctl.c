@@ -134,10 +134,10 @@ static int ngroups_max = NGROUPS_MAX;
 static const int cap_last_cap = CAP_LAST_CAP;
 
 #ifdef CONFIG_SCHED_BORE
-extern bool sched_bore;
-extern bool sched_burst_score_rounding;
-extern bool sched_burst_smoothness_long;
-extern bool sched_burst_smoothness_short;
+extern u8   sched_bore;
+extern u8   sched_burst_score_rounding;
+extern u8   sched_burst_smoothness_long;
+extern u8   sched_burst_smoothness_short;
 extern u8   sched_burst_fork_atavistic;
 extern u8   sched_burst_penalty_offset;
 extern uint sched_burst_penalty_scale;
@@ -1793,30 +1793,38 @@ static struct ctl_table kern_table[] = {
 	{
 		.procname	= "sched_bore",
 		.data		= &sched_bore,
-		.maxlen		= sizeof(int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = proc_dobool,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_score_rounding",
 		.data		= &sched_burst_score_rounding,
-		.maxlen		= sizeof(int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = proc_dobool,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_smoothness_long",
 		.data		= &sched_burst_smoothness_long,
-		.maxlen		= sizeof(int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = proc_dobool,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_smoothness_short",
 		.data		= &sched_burst_smoothness_short,
-		.maxlen		= sizeof(int),
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = proc_dobool,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_fork_atavistic",
