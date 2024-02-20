@@ -1,7 +1,7 @@
-From 69a989bd62d9cc3d14fd1c928d59224051607cc3 Mon Sep 17 00:00:00 2001
+From e8be9e91ee1799916eaae3834fc058794a3399fc Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 14 Feb 2024 15:10:06 +0900
-Subject: [PATCH] linux4.19.y-bore4.2.0
+Date: Wed, 21 Feb 2024 07:09:34 +0900
+Subject: [PATCH] linux4.19.y-bore4.2.1
 
 ---
  include/linux/sched.h      |  10 +++
@@ -90,7 +90,7 @@ index b658716005..00c28e312d 100644
  	cgroup_threadgroup_change_end(current);
  	perf_event_fork(p);
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 8d5a9fa8a9..af7a154c13 100644
+index 8d5a9fa8a9..dc703a5109 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -2136,6 +2136,137 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -102,7 +102,7 @@ index 8d5a9fa8a9..af7a154c13 100644
 +extern u8   sched_burst_fork_atavistic;
 +extern uint sched_burst_cache_lifetime;
 +
-+void __init sched_init_bore(void) {
++static void __init sched_init_bore(void) {
 +	init_task.se.burst_time = 0;
 +	init_task.se.prev_burst_penalty = 0;
 +	init_task.se.curr_burst_penalty = 0;
@@ -261,7 +261,7 @@ index 8d5a9fa8a9..af7a154c13 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.1 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -458,7 +458,7 @@ index 03c2bf491b..23a7a11adb 100644
  
  	if (sysctl_sched_child_runs_first && curr && entity_before(curr, se)) {
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 4bb194f096..58bd8b3c6a 100644
+index 4bb194f096..3873ecfd75 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -149,6 +149,20 @@ static int minolduid;
@@ -474,9 +474,9 @@ index 4bb194f096..58bd8b3c6a 100644
 +extern uint sched_burst_penalty_offset;
 +extern uint sched_burst_penalty_scale;
 +extern uint sched_burst_cache_lifetime;
-+static uint three          = 3;
-+static uint sixty_four     = 64;
-+static uint maxval_12_bits = 4095;
++static int __maybe_unused three          = 3;
++static int __maybe_unused sixty_four     = 64;
++static int __maybe_unused maxval_12_bits = 4095;
 +#endif // CONFIG_SCHED_BORE
 +
  /*
