@@ -1,7 +1,7 @@
 From 5641e6cfebf43fa1e831418c9ed4d89e532ac662 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Wed, 14 Feb 2024 00:47:24 +0900
-Subject: [PATCH] linux6.8.y-bore4.2.0
+Subject: [PATCH] linux6.8.y-bore4.2.0r2
 
 ---
  include/linux/sched.h   |  11 ++
@@ -78,7 +78,7 @@ index 9116bcc903..258d1f86b8 100644
 +extern u8   sched_burst_fork_atavistic;
 +extern uint sched_burst_cache_lifetime;
 +
-+void __init sched_init_bore(void) {
++static void __init sched_init_bore(void) {
 +	init_task.se.burst_time = 0;
 +	init_task.se.prev_burst_penalty = 0;
 +	init_task.se.curr_burst_penalty = 0;
