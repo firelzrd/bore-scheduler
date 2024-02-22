@@ -5382,7 +5382,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 #ifdef CONFIG_SCHED_BORE
 	if (task_sleep) {
-		update_curr(cfs_rq_of(se));
+		cfs_rq = cfs_rq_of(se);
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
 		restart_burst(se);
 	}
 #endif // CONFIG_SCHED_BORE
