@@ -920,7 +920,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->burst_time += delta_exec;
 	update_burst_penalty(curr);
 	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
-#else // CONFIG_SCHED_BORE
+#else // !CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 #endif // CONFIG_SCHED_BORE
 	update_min_vruntime(cfs_rq);
