@@ -1,7 +1,7 @@
-From e8be9e91ee1799916eaae3834fc058794a3399fc Mon Sep 17 00:00:00 2001
+From 4d66b8e291f92462c0a6a5d8de58ca27904d80d9 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 21 Feb 2024 07:09:34 +0900
-Subject: [PATCH] linux4.19.y-bore4.2.1
+Date: Fri, 23 Feb 2024 06:58:09 +0900
+Subject: [PATCH] linux4.19.y-bore4.2.2
 
 ---
  include/linux/sched.h      |  10 +++
@@ -10,9 +10,9 @@ Subject: [PATCH] linux4.19.y-bore4.2.1
  kernel/fork.c              |   1 +
  kernel/sched/core.c        | 146 +++++++++++++++++++++++++++++++++++++
  kernel/sched/debug.c       |   3 +
- kernel/sched/fair.c        | 117 +++++++++++++++++++++++++----
+ kernel/sched/fair.c        | 119 ++++++++++++++++++++++++++----
  kernel/sysctl.c            |  86 ++++++++++++++++++++++
- 8 files changed, 370 insertions(+), 13 deletions(-)
+ 8 files changed, 372 insertions(+), 13 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index fd48992360..bcb639425d 100644
@@ -90,7 +90,7 @@ index b658716005..00c28e312d 100644
  	cgroup_threadgroup_change_end(current);
  	perf_event_fork(p);
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 8d5a9fa8a9..dc703a5109 100644
+index 8d5a9fa8a9..bea365ad22 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -2136,6 +2136,137 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -261,7 +261,7 @@ index 8d5a9fa8a9..dc703a5109 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -282,7 +282,7 @@ index b1ef4f2e7e..22f864a12e 100644
  	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 03c2bf491b..23a7a11adb 100644
+index 03c2bf491b..d044913947 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -382,19 +382,21 @@ index 03c2bf491b..23a7a11adb 100644
 +	curr->burst_time += delta_exec;
 +	update_burst_penalty(curr);
 +	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
-+#else // CONFIG_SCHED_BORE
++#else // !CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
 +#endif // CONFIG_SCHED_BORE
  	update_min_vruntime(cfs_rq);
  
  	if (entity_is_task(curr)) {
-@@ -5306,6 +5380,13 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -5306,6 +5380,15 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	struct sched_entity *se = &p->se;
  	int task_sleep = flags & DEQUEUE_SLEEP;
  
 +#ifdef CONFIG_SCHED_BORE
 +	if (task_sleep) {
-+		update_curr(cfs_rq_of(se));
++		cfs_rq = cfs_rq_of(se);
++		if (cfs_rq->curr == se)
++			update_curr(cfs_rq);
 +		restart_burst(se);
 +	}
 +#endif // CONFIG_SCHED_BORE
@@ -402,7 +404,7 @@ index 03c2bf491b..23a7a11adb 100644
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
  		dequeue_entity(cfs_rq, se, flags);
-@@ -6949,24 +7030,31 @@ static void yield_task_fair(struct rq *rq)
+@@ -6949,24 +7032,31 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -447,7 +449,7 @@ index 03c2bf491b..23a7a11adb 100644
  
  	set_skip_buddy(se);
  }
-@@ -9897,6 +9985,9 @@ static void task_fork_fair(struct task_struct *p)
+@@ -9897,6 +9987,9 @@ static void task_fork_fair(struct task_struct *p)
  		update_curr(cfs_rq);
  		se->vruntime = curr->vruntime;
  	}
