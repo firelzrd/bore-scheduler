@@ -1,7 +1,7 @@
-From 4d66b8e291f92462c0a6a5d8de58ca27904d80d9 Mon Sep 17 00:00:00 2001
+From 50d2586bd88c7355bf33b295aa76b07d5abb4c36 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 23 Feb 2024 06:58:09 +0900
-Subject: [PATCH] linux4.19.y-bore4.2.2
+Date: Fri, 23 Feb 2024 09:04:58 +0900
+Subject: [PATCH] linux4.19.y-bore4.2.3
 
 ---
  include/linux/sched.h      |  10 +++
@@ -90,7 +90,7 @@ index b658716005..00c28e312d 100644
  	cgroup_threadgroup_change_end(current);
  	perf_event_fork(p);
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 8d5a9fa8a9..bea365ad22 100644
+index 8d5a9fa8a9..2ef6bfafc9 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -2136,6 +2136,137 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -125,8 +125,8 @@ index 8d5a9fa8a9..bea365ad22 100644
 +	return cnt;
 +}
 +
-+static inline bool task_is_fair_runnable(struct task_struct *p) {
-+	return (p->on_rq || p->on_cpu) && (p->sched_class == &fair_sched_class);
++static inline bool task_is_inheritable(struct task_struct *p) {
++	return (p->sched_class == &fair_sched_class);
 +}
 +
 +static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
@@ -148,7 +148,7 @@ index 8d5a9fa8a9..bea365ad22 100644
 +	u32 sum = 0;
 +
 +	list_for_each_entry(child, &p->children, sibling) {
-+		if (!task_is_fair_runnable(child)) continue;
++		if (!task_is_inheritable(child)) continue;
 +		cnt++;
 +		sum += child->se.burst_penalty;
 +	}
@@ -176,7 +176,7 @@ index 8d5a9fa8a9..bea365ad22 100644
 +			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 +		
 +		if (!dcnt || !depth) {
-+			if (!task_is_fair_runnable(dec)) continue;
++			if (!task_is_inheritable(dec)) continue;
 +			cnt++;
 +			sum += dec->se.burst_penalty;
 +			continue;
@@ -261,7 +261,7 @@ index 8d5a9fa8a9..bea365ad22 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.2 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.3 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
