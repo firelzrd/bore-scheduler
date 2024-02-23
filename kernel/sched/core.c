@@ -4249,8 +4249,8 @@ static u32 count_child_tasks(struct task_struct *p) {
 	return cnt;
 }
 
-static inline bool task_is_fair_runnable(struct task_struct *p) {
-	return (p->on_rq || p->on_cpu) && (p->sched_class == &fair_sched_class);
+static inline bool task_is_inheritable(struct task_struct *p) {
+	return (p->sched_class == &fair_sched_class);
 }
 
 static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
@@ -4272,7 +4272,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	u32 sum = 0;
 
 	list_for_each_entry(child, &p->children, sibling) {
-		if (!task_is_fair_runnable(child)) continue;
+		if (!task_is_inheritable(child)) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
 	}
@@ -4300,7 +4300,7 @@ static void update_child_burst_topological(
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 		
 		if (!dcnt || !depth) {
-			if (!task_is_fair_runnable(dec)) continue;
+			if (!task_is_inheritable(dec)) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
 			continue;
