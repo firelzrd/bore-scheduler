@@ -1123,6 +1123,10 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 
 	P(se.load.weight);
 #ifdef CONFIG_SMP
+#ifdef CONFIG_SCHED_BORE
+	P(se.burst_load);
+	P(se.burst_score);
+#endif // CONFIG_SCHED_BORE
 	P(se.avg.load_sum);
 	P(se.avg.runnable_sum);
 	P(se.avg.util_sum);
