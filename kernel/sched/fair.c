@@ -837,7 +837,7 @@ static unsigned long entity_weight(struct sched_entity *se) {
 #ifdef CONFIG_64BIT
 	weight >>= SCHED_FIXEDPOINT_SHIFT - 5;
 #endif // CONFIG_64BIT
-	return max(1UL, weight);
+	return weight;
 }
 #endif // CONFIG_SCHED_BORE
 
