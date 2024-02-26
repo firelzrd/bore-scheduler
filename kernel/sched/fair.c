@@ -155,7 +155,7 @@ static void update_burst_score(struct sched_entity *se) {
 	if (sched_burst_score_rounding) penalty += 0x2U;
 	se->burst_score = penalty >> 2;
 
-	if ((se->burst_score != prev_score) && se->burst_load) {
+	if ((se->burst_score != prev_score) && se->on_cfs_rq) {
 		avg_vruntime_sub(cfs_rq, se);
 		avg_vruntime_add(cfs_rq, se);
 	}
@@ -1051,10 +1051,16 @@ static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->min_deadline = se->deadline;
 	rb_add_augmented_cached(&se->run_node, &cfs_rq->tasks_timeline,
 				__entity_less, &min_deadline_cb);
+#ifdef CONFIG_SCHED_BORE
+	se->on_cfs_rq = true;
+#endif // CONFIG_SCHED_BORE
 }
 
 static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+#ifdef CONFIG_SCHED_BORE
+	se->on_cfs_rq = false;
+#endif // CONFIG_SCHED_BORE
 	rb_erase_augmented_cached(&se->run_node, &cfs_rq->tasks_timeline,
 				  &min_deadline_cb);
 	avg_vruntime_sub(cfs_rq, se);

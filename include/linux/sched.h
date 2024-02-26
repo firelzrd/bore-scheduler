@@ -566,6 +566,7 @@ struct sched_entity {
 	u8				burst_penalty;
 	u8				burst_score;
 	u32				burst_load;
+	bool			on_cfs_rq;
 	u8				child_burst;
 	u32				child_burst_cnt;
 	u64				child_burst_last_cached;
