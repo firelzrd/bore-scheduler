@@ -833,7 +833,7 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
 #else // CONFIG_SCHED_BORE
 static unsigned long entity_weight(struct sched_entity *se) {
 	unsigned long weight = se->load.weight;
-	if (likely(weight && sched_bore)) weight = unscale_slice(weight, se);
+	if (likely(sched_bore)) weight = unscale_slice(weight, se);
 #ifdef CONFIG_64BIT
 	weight >>= SCHED_FIXEDPOINT_SHIFT - 5;
 #endif // CONFIG_64BIT
