@@ -5313,6 +5313,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
+		s64 drift;
 
 		lag = se->vlag;
 
@@ -5372,10 +5373,10 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (curr && curr->on_rq)
 			load += entity_weight(curr);
 
-		lag *= load + entity_weight(se);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
-		lag = div64_s64(lag, load);
+		drift = div64_s64(lag * entity_weight(se), load);
+		vruntime -= drift;
 	}
 
 	se->vruntime = vruntime - lag;
