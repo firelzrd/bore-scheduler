@@ -5315,9 +5315,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		unsigned long load;
 
 		lag = se->vlag;
-#ifdef CONFIG_SCHED_BORE
-		if (unlikely(!sched_bore)) {
-#endif // CONFIG_SCHED_BORE
 
 		/*
 		 * If we want to place a task and preserve lag, we have to
@@ -5379,9 +5376,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		lag = div64_s64(lag, load);
-#ifdef CONFIG_SCHED_BORE
-		}
-#endif // CONFIG_SCHED_BORE
 	}
 
 	se->vruntime = vruntime - lag;
