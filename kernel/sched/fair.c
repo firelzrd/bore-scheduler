@@ -3953,9 +3953,6 @@ static void reweight_eevdf(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	 */
 	vslice = (s64)(se->deadline - avruntime);
 	vslice = div_s64(vslice * old_weight, weight);
-#ifdef CONFIG_SCHED_BORE
-	if (unlikely(!sched_bore) || (s64)(avruntime + vslice - se->deadline) < 0)
-#endif // CONFIG_SCHED_BORE
 	se->deadline = avruntime + vslice;
 }
 
