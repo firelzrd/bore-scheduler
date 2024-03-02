@@ -110,6 +110,8 @@ u8   __read_mostly sched_burst_fork_atavistic   = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+u8   __read_mostly sched_vlag_deviation_limit   = 8;
+static int __maybe_unused thirty_two     = 32;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_12_bits = 4095;
 
@@ -325,6 +327,15 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.maxlen		= sizeof(uint),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec,
+	},
+	{
+		.procname	= "sched_vlag_deviation_limit",
+		.data		= &sched_vlag_deviation_limit,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &thirty_two,
 	},
 #endif // CONFIG_SCHED_BORE
 	{
@@ -5296,8 +5307,8 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	u64 vslice, vruntime = avg_vruntime(cfs_rq);
-	s64 lag = 0;
+	s64 lag = 0, key = avg_key(cfs_rq);
+	u64 vslice, vruntime = cfs_rq->min_vruntime + key;
 
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
@@ -5310,9 +5321,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 *
 	 * EEVDF: placement strategy #1 / #2
 	 */
-#ifdef CONFIG_SCHED_BORE
-	if (unlikely(!sched_bore) || se->vlag)
-#endif // CONFIG_SCHED_BORE
 	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
@@ -5375,18 +5383,16 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (curr && curr->on_rq)
 			load += entity_weight(curr);
 
-#ifdef CONFIG_SCHED_BORE
-		if (unlikely(!sched_bore))
-#endif // CONFIG_SCHED_BORE
 		lag *= load + entity_weight(se);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
-#ifdef CONFIG_SCHED_BORE
-		if (likely(sched_bore))
-			vruntime -= div64_s64(lag * entity_weight(se), load);
-		else
-#endif // CONFIG_SCHED_BORE
 		lag = div64_s64(lag, load);
+#ifdef CONFIG_SCHED_BORE
+		if (likely(sched_bore)) {
+			s64 limit = vslice << sched_vlag_deviation_limit;
+			lag = clamp(lag, -limit, limit);
+		}
+#endif // CONFIG_SCHED_BORE
 	}
 
 	se->vruntime = vruntime - lag;
