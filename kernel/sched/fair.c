@@ -5321,6 +5321,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 *
 	 * EEVDF: placement strategy #1 / #2
 	 */
+#ifdef CONFIG_SCHED_BORE
+	if (unlikely(!sched_bore) || se->vlag)
+#endif // CONFIG_SCHED_BORE
 	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
