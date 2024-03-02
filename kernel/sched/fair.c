@@ -5370,7 +5370,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (WARN_ON_ONCE(!load))
 			load = 1;
 		drift = div64_s64(lag * entity_weight(se), load);
-		drift = clamp(drift, -limit, limit);
 		vruntime -= drift;
 	}
 
