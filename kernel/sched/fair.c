@@ -5302,7 +5302,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
 		struct sched_entity *curr = cfs_rq->curr;
 		unsigned long load;
-		s64 drift, limit = se->slice;
+		s64 limit = se->slice;
 
 #ifdef CONFIG_SCHED_BORE
 		if (unlikely(!sched_bore)) limit <<= 1;
@@ -5367,10 +5367,18 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		if (curr && curr->on_rq)
 			load += entity_weight(curr);
 
+#ifdef CONFIG_SCHED_BORE
+		if (unlikely(!sched_bore))
+#endif // CONFIG_SCHED_BORE
+		lag *= load + entity_weight(se);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
-		drift = div64_s64(lag * entity_weight(se), load);
-		vruntime -= drift;
+#ifdef CONFIG_SCHED_BORE
+		if (likely(sched_bore))
+			vruntime -= div64_s64(lag * entity_weight(se), load);
+		else
+#endif // CONFIG_SCHED_BORE
+		lag = div64_s64(lag, load);
 	}
 
 	se->vruntime = vruntime - lag;
