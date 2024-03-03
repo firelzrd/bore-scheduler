@@ -3817,10 +3817,9 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
 #endif
 
 static void reweight_eevdf(struct cfs_rq *cfs_rq, struct sched_entity *se,
-			   unsigned long weight)
+			   unsigned long weight, u64 avruntime)
 {
 	unsigned long old_weight = se->load.weight;
-	u64 avruntime = avg_vruntime(cfs_rq);
 	s64 vlag, vslice;
 
 	/*
@@ -3928,11 +3927,13 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 {
 	bool curr = cfs_rq->curr == se;
 
+	if (curr)
+		update_curr(cfs_rq);
+	u64 avruntime = avg_vruntime(cfs_rq);
+
 	if (se->on_rq) {
 		/* commit outstanding execution time */
-		if (curr)
-			update_curr(cfs_rq);
-		else
+		if (!curr)
 			__dequeue_entity(cfs_rq, se);
 		update_load_sub(&cfs_rq->load, se->load.weight);
 	}
@@ -3945,7 +3946,7 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		 */
 		se->vlag = div_s64(se->vlag * se->load.weight, weight);
 	} else {
-		reweight_eevdf(cfs_rq, se, weight);
+		reweight_eevdf(cfs_rq, se, weight, avruntime);
 	}
 
 	update_load_set(&se->load, weight);
