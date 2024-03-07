@@ -5387,7 +5387,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 			load += entity_weight(curr);
 
 		lag *= load + entity_weight(se);
+#if !defined(CONFIG_SCHED_BORE)
 		if (WARN_ON_ONCE(!load))
+#else // CONFIG_SCHED_BORE
+		if (unlikely(!load))
+#endif // CONFIG_SCHED_BORE
 			load = 1;
 		lag = div64_s64(lag, load);
 #ifdef CONFIG_SCHED_BORE
