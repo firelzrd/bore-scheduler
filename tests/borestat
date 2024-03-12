@@ -21,7 +21,7 @@ def get_task_table(**options)
 			lines[2..].each { |line|
 				state = line[1]
 				name  = line[3..17].strip
-				rest  = line[19..].strip.split(/\s+/)
+				rest  = line[18..].strip.split(/\s+/)
 				tasks << [state, name, *rest]
 			}
 		end
