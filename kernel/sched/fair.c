@@ -859,7 +859,7 @@ void avg_vruntime_update(struct cfs_rq *cfs_rq, s64 delta)
  * Specifically: avg_runtime() + 0 must result in entity_eligible() := true
  * For this to be so, the result of this function must have a left bias.
  */
-static u64 avg_key(struct cfs_rq *cfs_rq)
+u64 avg_vruntime(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
 	s64 avg = cfs_rq->avg_vruntime;
@@ -879,12 +879,9 @@ static u64 avg_key(struct cfs_rq *cfs_rq)
 		avg = div64_s64(avg, load);
 	}
 
-	return avg;
+	return cfs_rq->min_vruntime + avg;
 }
 
-u64 avg_vruntime(struct cfs_rq *cfs_rq) {
-	return cfs_rq->min_vruntime + avg_key(cfs_rq);
-}
 /*
  * lag_i = S - s_i = w_i * (V - v_i)
  *
@@ -5267,8 +5264,8 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	s64 lag = 0, key = avg_key(cfs_rq);
-	u64 vslice, vruntime = cfs_rq->min_vruntime + key;
+	u64 vslice, vruntime = avg_vruntime(cfs_rq);
+	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
