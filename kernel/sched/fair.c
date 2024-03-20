@@ -876,7 +876,7 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
 		/* sign flips effective floor / ceil */
 		if (avg < 0)
 			avg -= (load - 1);
-		avg = div64_s64(avg, load);
+		avg = div_s64(avg, load);
 	}
 
 	return cfs_rq->min_vruntime + avg;
@@ -5346,7 +5346,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		lag *= load + scale_load_down(se->load.weight);
 		if (WARN_ON_ONCE(!load))
 			load = 1;
-		lag = div64_s64(lag, load);
+		lag = div_s64(lag, load);
 	}
 
 	se->vruntime = vruntime - lag;
