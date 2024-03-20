@@ -830,9 +830,6 @@ static void
 avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	unsigned long weight = scale_load_down(se->load.weight);
-#ifdef CONFIG_SCHED_BORE
-	se->burst_load = weight;
-#endif // CONFIG_SCHED_BORE
 	s64 key = entity_key(cfs_rq, se);
 
 	cfs_rq->avg_vruntime += key * weight;
@@ -842,12 +839,7 @@ avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static void
 avg_vruntime_sub(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_SCHED_BORE)
 	unsigned long weight = scale_load_down(se->load.weight);
-#else // CONFIG_SCHED_BORE
-	unsigned long weight = se->burst_load;
-	se->burst_load = 0;
-#endif // CONFIG_SCHED_BORE
 	s64 key = entity_key(cfs_rq, se);
 
 	cfs_rq->avg_vruntime -= key * weight;
@@ -1039,16 +1031,10 @@ static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->min_deadline = se->deadline;
 	rb_add_augmented_cached(&se->run_node, &cfs_rq->tasks_timeline,
 				__entity_less, &min_deadline_cb);
-#ifdef CONFIG_SCHED_BORE
-	se->on_cfs_rq = true;
-#endif // CONFIG_SCHED_BORE
 }
 
 static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#ifdef CONFIG_SCHED_BORE
-	se->on_cfs_rq = false;
-#endif // CONFIG_SCHED_BORE
 	rb_erase_augmented_cached(&se->run_node, &cfs_rq->tasks_timeline,
 				  &min_deadline_cb);
 	avg_vruntime_sub(cfs_rq, se);
