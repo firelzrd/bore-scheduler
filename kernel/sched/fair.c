@@ -110,7 +110,6 @@ u8   __read_mostly sched_burst_fork_atavistic   = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
-u8   __read_mostly sched_vlag_deviation_limit   = 11;
 static int __maybe_unused thirty_two     = 32;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_12_bits = 4095;
@@ -147,20 +146,20 @@ static inline u64 unscale_slice(u64 delta, struct sched_entity *se) {
 	return __unscale_slice(delta, se->burst_score);
 }
 
-static void avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se);
-static void avg_vruntime_sub(struct cfs_rq *cfs_rq, struct sched_entity *se);
+void reweight_task(struct task_struct *p, int prio);
 
 static void update_burst_score(struct sched_entity *se) {
-	struct cfs_rq *cfs_rq = cfs_rq_of(se);
-	u8 prev_score = se->burst_score;
+	struct task_struct *p = task_of(se);
+	u8 prio = p->static_prio - MAX_RT_PRIO;
+	u8 prev_prio = min(39, prio + se->burst_score);
+
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
 	se->burst_score = penalty >> 2;
 
-	if ((se->burst_score != prev_score) && se->on_cfs_rq) {
-		avg_vruntime_sub(cfs_rq, se);
-		avg_vruntime_add(cfs_rq, se);
-	}
+	u8 new_prio = min(39, prio + se->burst_score);
+	if (likely(sched_bore) && new_prio != prev_prio)
+		reweight_task(p, new_prio);
 }
 
 static void update_burst_penalty(struct sched_entity *se) {
@@ -327,15 +326,6 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.maxlen		= sizeof(uint),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec,
-	},
-	{
-		.procname	= "sched_vlag_deviation_limit",
-		.data		= &sched_vlag_deviation_limit,
-		.maxlen		= sizeof(u8),
-		.mode		= 0644,
-		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= &thirty_two,
 	},
 #endif // CONFIG_SCHED_BORE
 	{
@@ -514,9 +504,6 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 	if (unlikely(se->load.weight != NICE_0_LOAD))
 		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
 
-#ifdef CONFIG_SCHED_BORE
-	if (likely(sched_bore)) delta = scale_slice(delta, se);
-#endif // CONFIG_SCHED_BORE
 	return delta;
 }
 
@@ -839,23 +826,10 @@ static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * As measured, the max (key * weight) value was ~44 bits for a kernel build.
  */
-#if !defined(CONFIG_SCHED_BORE)
-#define entity_weight(se) scale_load_down(se->load.weight)
-#else // CONFIG_SCHED_BORE
-static unsigned long entity_weight(struct sched_entity *se) {
-	unsigned long weight = se->load.weight;
-	if (likely(sched_bore)) weight = unscale_slice(weight, se);
-#ifdef CONFIG_64BIT
-	weight >>= SCHED_FIXEDPOINT_SHIFT - 3;
-#endif // CONFIG_64BIT
-	return weight;
-}
-#endif // CONFIG_SCHED_BORE
-
 static void
 avg_vruntime_add(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	unsigned long weight = entity_weight(se);
+	unsigned long weight = scale_load_down(se->load.weight);
 #ifdef CONFIG_SCHED_BORE
 	se->burst_load = weight;
 #endif // CONFIG_SCHED_BORE
@@ -869,7 +843,7 @@ static void
 avg_vruntime_sub(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #if !defined(CONFIG_SCHED_BORE)
-	unsigned long weight = entity_weight(se);
+	unsigned long weight = scale_load_down(se->load.weight);
 #else // CONFIG_SCHED_BORE
 	unsigned long weight = se->burst_load;
 	se->burst_load = 0;
@@ -900,7 +874,7 @@ static u64 avg_key(struct cfs_rq *cfs_rq)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = entity_weight(curr);
+		unsigned long weight = scale_load_down(curr->load.weight);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -973,7 +947,7 @@ int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	long load = cfs_rq->avg_load;
 
 	if (curr && curr->on_rq) {
-		unsigned long weight = entity_weight(curr);
+		unsigned long weight = scale_load_down(curr->load.weight);
 
 		avg += entity_key(cfs_rq, curr) * weight;
 		load += weight;
@@ -5384,22 +5358,12 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		 */
 		load = cfs_rq->avg_load;
 		if (curr && curr->on_rq)
-			load += entity_weight(curr);
+			load += scale_load_down(curr->load.weight);
 
-		lag *= load + entity_weight(se);
-#if !defined(CONFIG_SCHED_BORE)
+		lag *= load + scale_load_down(se->load.weight);
 		if (WARN_ON_ONCE(!load))
-#else // CONFIG_SCHED_BORE
-		if (unlikely(!load))
-#endif // CONFIG_SCHED_BORE
 			load = 1;
 		lag = div64_s64(lag, load);
-#ifdef CONFIG_SCHED_BORE
-		if (likely(sched_bore)) {
-			s64 limit = vslice << sched_vlag_deviation_limit;
-			lag = clamp(lag, -limit, limit);
-		}
-#endif // CONFIG_SCHED_BORE
 	}
 
 	se->vruntime = vruntime - lag;
