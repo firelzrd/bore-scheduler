@@ -1,0 +1,34 @@
+From 49bb5fb420ee35d5b8d8752372d0cfc8f2fb0b1e Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Fri, 22 Mar 2024 05:55:21 +0900
+Subject: [PATCH] sched-ext coexistence fix
+
+---
+ kernel/sched/fair.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index c2cb1bc5b1..6e84d8ae53 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -145,7 +145,7 @@ static inline u64 unscale_slice(u64 delta, struct sched_entity *se) {
+ 	return __unscale_slice(delta, se->burst_score);
+ }
+ 
+-void reweight_task(struct task_struct *p, int prio);
++static void reweight_task_fair(struct rq *rq, struct task_struct *p, int prio);
+ 
+ static void update_burst_score(struct sched_entity *se) {
+ 	struct task_struct *p = task_of(se);
+@@ -156,7 +156,7 @@ static void update_burst_score(struct sched_entity *se) {
+ 
+ 	u8 new_prio = min(39, prio + se->burst_score);
+ 	if (new_prio != prev_prio)
+-		reweight_task(p, new_prio);
++		reweight_task_fair(task_rq(p), p, new_prio);
+ }
+ 
+ static void update_burst_penalty(struct sched_entity *se) {
+-- 
+2.34.1
+
