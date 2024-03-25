@@ -1,7 +1,7 @@
 From 15d6362b34a872ed82163cdd5303a74fca5bea9f Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Thu, 21 Mar 2024 19:19:10 +0900
-Subject: [PATCH] linux6.7.y-bore5.0.1
+Subject: [PATCH] linux6.7.y-bore5.0.2
 
 ---
  include/linux/sched.h   |  10 ++
@@ -232,7 +232,7 @@ index a708d225c2..99492d6b40 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.0.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.0.2 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -438,7 +438,7 @@ index 4182fb118c..8b522f7eb3 100644
 +void reweight_task(struct task_struct *p, int prio);
 +
 +static void update_burst_score(struct sched_entity *se) {
-+	struct task_struct *p = task_of(se);
++	struct task_struct *p = container_of(se, struct task_struct, se);
 +	u8 prio = p->static_prio - MAX_RT_PRIO;
 +	u8 prev_prio = min(39, prio + se->burst_score);
 +
