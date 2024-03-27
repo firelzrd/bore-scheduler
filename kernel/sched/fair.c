@@ -131,7 +131,6 @@ const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
 #ifdef CONFIG_SCHED_BORE
 u8   __read_mostly sched_bore                   = 1;
-u8   __read_mostly sched_burst_score_rounding   = 0;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
@@ -170,9 +169,7 @@ static void update_burst_score(struct sched_entity *se) {
 	u8 prio = p->static_prio - MAX_RT_PRIO;
 	u8 prev_prio = min(39, prio + se->burst_score);
 
-	u32 penalty = se->burst_penalty;
-	if (sched_burst_score_rounding) penalty += 0x2U;
-	se->burst_score = penalty >> 2;
+	se->burst_score = se->burst_penalty >> 2;
 
 	u8 new_prio = min(39, prio + se->burst_score);
 	if (new_prio != prev_prio)
@@ -263,15 +260,6 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ONE,
-		.extra2		= SYSCTL_ONE,
-	},
-	{
-		.procname	= "sched_burst_score_rounding",
-		.data		= &sched_burst_score_rounding,
-		.maxlen		= sizeof(u8),
-		.mode		= 0644,
-		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
 	{
