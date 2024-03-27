@@ -1005,8 +1005,6 @@ config SCHED_BORE
 	  With a little impact to scheduling fairness, it may improve
 	  responsiveness especially under heavy background workload.
 
-	  You can turn it off by setting the sysctl kernel.sched_bore = 0.
-
 	  If unsure, say Y here.
 
 config SCHED_AUTOGROUP

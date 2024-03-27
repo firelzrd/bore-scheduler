@@ -1245,7 +1245,7 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec_minmax,
-		.extra1		= &zero,
+		.extra1		= &one,
 		.extra2		= &one,
 	},
 	{
