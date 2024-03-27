@@ -175,7 +175,7 @@ static void update_burst_score(struct sched_entity *se) {
 	se->burst_score = penalty >> 2;
 
 	u8 new_prio = min(39, prio + se->burst_score);
-	if (likely(sched_bore) && new_prio != prev_prio)
+	if (new_prio != prev_prio)
 		reweight_task(p, new_prio);
 }
 
@@ -262,7 +262,7 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
+		.extra1		= SYSCTL_ONE,
 		.extra2		= SYSCTL_ONE,
 	},
 	{
