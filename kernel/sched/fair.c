@@ -147,9 +147,17 @@ static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
 }
 
 static void update_burst_score(struct sched_entity *se) {
+	struct task_struct *p = task_of(se);
+	u8 prio = p->static_prio - MAX_RT_PRIO;
+	u8 prev_prio = min(39, prio + se->burst_score);
+
 	u32 penalty = se->burst_penalty;
 	if (sched_burst_score_rounding) penalty += 0x2U;
 	se->burst_score = penalty >> 2;
+
+	u8 new_prio = min(39, prio + se->burst_score);
+	if (likely(sched_bore) && new_prio != prev_prio)
+		reweight_task(p, new_prio);
 }
 
 static void update_burst_penalty(struct sched_entity *se) {
@@ -745,10 +753,6 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 {
 	if (unlikely(se->load.weight != NICE_0_LOAD))
 		delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
-
-#ifdef CONFIG_SCHED_BORE
-	if (likely(sched_bore)) delta = scale_slice(delta, se);
-#endif // CONFIG_SCHED_BORE
 	return delta;
 }
 
