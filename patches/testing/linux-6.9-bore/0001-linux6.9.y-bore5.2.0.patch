@@ -1,7 +1,7 @@
-From 2e9dc4ed0513566d0377789f17c457985ab3c082 Mon Sep 17 00:00:00 2001
+From a427f2c8b2a14ce75f5481295b7d4f6b127da3b3 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 30 Apr 2024 00:22:44 +0900
-Subject: [PATCH] linux6.9.y-bore5.1.0 with Mario Roy's clearmod sched patches #3 #4
+Date: Tue, 30 Apr 2024 03:38:06 +0900
+Subject: [PATCH] linux6.9.y-bore5.2.0
 
 ---
  include/linux/sched.h   |  10 ++
@@ -63,7 +63,7 @@ index 98246963db..b9dc11f5d2 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 7019a40457..00a7b4cbf8 100644
+index 7019a40457..a14bf37cd1 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4516,6 +4516,138 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -231,7 +231,7 @@ index 7019a40457..00a7b4cbf8 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.1.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.2.0 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
