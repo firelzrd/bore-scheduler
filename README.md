@@ -76,7 +76,7 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 * Piotr Górski a.k.a. "sir_lucjan" from the CachyOS community, for hosting BORE-powered CachyOS kernels for Fedora, as well as helping me shoot some bugs.
 * dim-geo, for assisting me with optimization hints.
 * Array, for helping me investigate a serious lockup bug and providing me usefultest reports.
-* Mario Roy, for providing me good insights by various detailed test reports, and also hosting a BORE-powered, clearlinux-based optimized kernel.
+* Mario Roy, for providing me good insights by various detailed test reports, hosting a BORE-powered, clearlinux-based optimized kernel, and also helping me integrating some early upstream patches for improvement, by curating them for me.
 * And many whom I haven't added here yet.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
