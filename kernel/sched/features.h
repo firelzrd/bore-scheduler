@@ -12,7 +12,11 @@ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 /*
  * Inhibit (wakeup) preemption until the current task has exhausted its slice.
  */
+#ifdef CONFIG_SCHED_BORE
+SCHED_FEAT(RESPECT_SLICE, false)
+#else // !CONFIG_SCHED_BORE
 SCHED_FEAT(RESPECT_SLICE, true)
+#endif // CONFIG_SCHED_BORE
 /*
  * Relax RESPECT_SLICE to allow preemption once current has reached 0-lag.
  */
