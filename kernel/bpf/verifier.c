@@ -6637,6 +6637,11 @@ static int check_stack_access_within_bounds(
 	err = check_stack_slot_within_bounds(env, min_off, state, type);
 	if (!err && max_off > 0)
 		err = -EINVAL; /* out of stack access into non-negative offsets */
+	if (!err && access_size < 0)
+		/* access_size should not be negative (or overflow an int); others checks
+		 * along the way should have prevented such an access.
+		 */
+		err = -EFAULT; /* invalid negative access size; integer overflow? */
 
 	if (err) {
 		if (tnum_is_const(reg->var_off)) {
@@ -16237,6 +16242,9 @@ static bool func_states_equal(struct bpf_verifier_env *env, struct bpf_func_stat
 			      struct bpf_func_state *cur, bool exact)
 {
 	int i;
+
+	if (old->callback_depth > cur->callback_depth)
+		return false;
 
 	for (i = 0; i < MAX_BPF_REG; i++)
 		if (!regsafe(env, &old->regs[i], &cur->regs[i],
