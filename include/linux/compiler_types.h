@@ -273,9 +273,16 @@ struct ftrace_likely_data {
  * disable all instrumentation. See Kconfig.kcsan where this is mandatory.
  */
 # define __no_kcsan __no_sanitize_thread __disable_sanitizer_instrumentation
+/*
+ * Type qualifier to mark variables where all data-racy accesses should be
+ * ignored by KCSAN. Note, the implementation simply marks these variables as
+ * volatile, since KCSAN will treat such accesses as "marked".
+ */
+# define __data_racy volatile
 # define __no_sanitize_or_inline __no_kcsan notrace __maybe_unused
 #else
 # define __no_kcsan
+# define __data_racy
 #endif
 
 #ifdef __SANITIZE_MEMORY__
@@ -291,6 +298,17 @@ struct ftrace_likely_data {
 
 #ifndef __no_sanitize_or_inline
 #define __no_sanitize_or_inline __always_inline
+#endif
+
+/*
+ * Apply __counted_by() when the Endianness matches to increase test coverage.
+ */
+#ifdef __LITTLE_ENDIAN
+#define __counted_by_le(member)	__counted_by(member)
+#define __counted_by_be(member)
+#else
+#define __counted_by_le(member)
+#define __counted_by_be(member)	__counted_by(member)
 #endif
 
 /* Do not trap wrapping arithmetic within an annotated function. */
@@ -389,6 +407,15 @@ struct ftrace_likely_data {
  */
 #ifndef asm_goto_output
 #define asm_goto_output(x...) asm volatile goto(x)
+#endif
+
+/*
+ * Clang has trouble with constraints with multiple
+ * alternative behaviors (mainly "g" and "rm").
+ */
+#ifndef ASM_INPUT_G
+  #define ASM_INPUT_G "g"
+  #define ASM_INPUT_RM "rm"
 #endif
 
 #ifdef CONFIG_CC_HAS_ASM_INLINE

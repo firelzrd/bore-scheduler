@@ -81,6 +81,7 @@ static const struct reg_sequence init_list[] = {
 static const struct reg_sequence rt5650_init_list[] = {
 	{0xf6,	0x0100},
 	{RT5645_PWR_ANLG1, 0x02},
+	{RT5645_IL_CMD3, 0x0018},
 };
 
 static const struct reg_default rt5645_reg[] = {
@@ -3630,8 +3631,8 @@ static const struct regmap_config temp_regmap = {
 };
 
 static const struct i2c_device_id rt5645_i2c_id[] = {
-	{ "rt5645", 0 },
-	{ "rt5650", 0 },
+	{ "rt5645" },
+	{ "rt5650" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rt5645_i2c_id);
