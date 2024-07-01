@@ -98,6 +98,7 @@ u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_wakeup_boost     = 0;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
@@ -270,6 +271,15 @@ static struct ctl_table sched_fair_sysctls[] = {
 	{
 		.procname	= "sched_burst_fork_atavistic",
 		.data		= &sched_burst_fork_atavistic,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_THREE,
+	},
+	{
+		.procname	= "sched_burst_wakeup_boost",
+		.data		= &sched_burst_wakeup_boost,
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
@@ -5466,8 +5476,14 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * on average, halfway through their slice, as such start tasks
 	 * off with half a slice to ease into the competition.
 	 */
-	if (sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL))
-		vslice /= 2;
+	if (flags & ENQUEUE_INITIAL) {
+		if (sched_feat(PLACE_DEADLINE_INITIAL))
+			vslice /= 2;
+	}
+	else if (flags & ENQUEUE_WAKEUP) {
+		if (sched_burst_wakeup_boost && !se->burst_time)
+			vslice -= vslice >> sched_burst_wakeup_boost;
+	}
 
 	/*
 	 * EEVDF: vd_i = ve_i + r_i/w_i
