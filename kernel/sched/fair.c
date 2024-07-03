@@ -5477,17 +5477,22 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * on average, halfway through their slice, as such start tasks
 	 * off with half a slice to ease into the competition.
 	 */
+	bool half_flag;
 	if (flags & ENQUEUE_INITIAL) {
-		if (sched_feat(PLACE_DEADLINE_INITIAL))
-			vslice >>= 1;
+		if (!(half_flag = sched_feat(PLACE_DEADLINE_INITIAL)))
+			goto no_boost;
 	}
-	else if (flags & ENQUEUE_WAKEUP) {
-		u64 orig_vslice = vslice;
-		u32 lag_flag = sched_burst_wakeup_boost & 0x3;
-		vslice >>= !!(sched_burst_wakeup_boost & 0x4);
-		if (lag_flag && (orig_vslice > se->burst_time))
-			vslice -= (orig_vslice - se->burst_time) >> (lag_flag - 1);
-	}
+	else if (flags & ENQUEUE_WAKEUP)
+		half_flag = sched_burst_wakeup_boost & 0x4;
+	else
+		goto no_boost;
+
+	u64 orig_vslice = vslice;
+	vslice >>= half_flag;
+	u32 lag_flag = sched_burst_wakeup_boost & 0x3;
+	if (lag_flag && (orig_vslice > se->burst_time))
+		vslice -= (orig_vslice - se->burst_time) >> (lag_flag - 1);
+no_boost:
 
 	/*
 	 * EEVDF: vd_i = ve_i + r_i/w_i
