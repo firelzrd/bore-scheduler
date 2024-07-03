@@ -5378,8 +5378,8 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	u64 vruntime = avg_vruntime(cfs_rq);
-	s64 lag = 0, vslice;
+	u64 vslice, vruntime = avg_vruntime(cfs_rq);
+	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
@@ -5475,13 +5475,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 			vslice >>= 1;
 	}
 	else if (flags & ENQUEUE_WAKEUP) {
-		vslice =
-			((sched_burst_wakeup_boost & 0x4)?
-				vslice >> 1:
-				vslice) -
-			((sched_burst_wakeup_boost & 0x3)?
-				max(0, vslice - se->burst_time) >> ((sched_burst_wakeup_boost & 0x3) - 1):
-				0);
+		u64 orig_vslice = vslice;
+		u32 lag_flag = sched_burst_wakeup_boost & 0x3;
+		vslice >>= !!(sched_burst_wakeup_boost & 0x4);
+		if (lag_flag && (orig_vslice > se->burst_time))
+			vslice -= (orig_vslice - se->burst_time) >> (lag_flag - 1);
 	}
 
 	/*
