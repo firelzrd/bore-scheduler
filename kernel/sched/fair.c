@@ -110,6 +110,7 @@ u8   __read_mostly sched_burst_wakeup_boost     = 0;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+static int __maybe_unused seven          = 7;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_12_bits = 4095;
 
@@ -298,7 +299,7 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_THREE,
+		.extra2		= &seven,
 	},
 	{
 		.procname	= "sched_burst_penalty_offset",
@@ -5377,8 +5378,8 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	u64 vslice, vruntime = avg_vruntime(cfs_rq);
-	s64 lag = 0;
+	u64 vruntime = avg_vruntime(cfs_rq);
+	s64 lag = 0, vslice;
 
 	se->slice = sysctl_sched_base_slice;
 	vslice = calc_delta_fair(se->slice, se);
@@ -5471,11 +5472,16 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 */
 	if (flags & ENQUEUE_INITIAL) {
 		if (sched_feat(PLACE_DEADLINE_INITIAL))
-			vslice /= 2;
+			vslice >>= 1;
 	}
 	else if (flags & ENQUEUE_WAKEUP) {
-		if (sched_burst_wakeup_boost && !se->burst_time)
-			vslice -= vslice >> sched_burst_wakeup_boost;
+		vslice =
+			((sched_burst_wakeup_boost & 0x4)?
+				vslice >> 1:
+				vslice) -
+			((sched_burst_wakeup_boost & 0x3)?
+				max(0, vslice - se->burst_time) >> ((sched_burst_wakeup_boost & 0x3) - 1):
+				0);
 	}
 
 	/*
