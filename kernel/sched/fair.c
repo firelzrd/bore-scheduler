@@ -98,7 +98,6 @@ u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
-u8   __read_mostly sched_burst_wakeup_boost     = 0;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
@@ -276,15 +275,6 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_THREE,
-	},
-	{
-		.procname	= "sched_burst_wakeup_boost",
-		.data		= &sched_burst_wakeup_boost,
-		.maxlen		= sizeof(u8),
-		.mode		= 0644,
-		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "sched_burst_penalty_offset",
@@ -5384,11 +5374,11 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	u64 deadline, vslice, vruntime = avg_vruntime(cfs_rq);
+	u64 vslice, vruntime = avg_vruntime(cfs_rq);
 	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
-	deadline = vslice = calc_delta_fair(se->slice, se);
+	vslice = calc_delta_fair(se->slice, se);
 
 	/*
 	 * Due to how V is constructed as the weighted average of entities,
@@ -5476,17 +5466,14 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * on average, halfway through their slice, as such start tasks
 	 * off with half a slice to ease into the competition.
 	 */
-	if (flags & ENQUEUE_WAKEUP  ||
-	    flags & ENQUEUE_INITIAL && sched_feat(PLACE_DEADLINE_INITIAL)) {
-		deadline >>= 1;
-		if (sched_burst_wakeup_boost && (vslice > se->burst_time))
-			deadline -= (vslice - se->burst_time) >> 2;
-	}
+	if ((sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL)) ||
+	    (sched_feat(PLACE_DEADLINE_WAKEUP)  && (flags & ENQUEUE_WAKEUP)))
+		vslice /= 2;
 
 	/*
 	 * EEVDF: vd_i = ve_i + r_i/w_i
 	 */
-	se->deadline = se->vruntime + deadline;
+	se->deadline = se->vruntime + vslice;
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
