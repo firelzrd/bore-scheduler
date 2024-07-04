@@ -10,6 +10,14 @@ SCHED_FEAT(PLACE_LAG, true)
  */
 SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 /*
+ * Give waken tasks half a slice to ease into the competition.
+ */
+#ifdef CONFIG_SCHED_BORE
+SCHED_FEAT(PLACE_DEADLINE_WAKEUP, true)
+#else // !CONFIG_SCHED_BORE
+SCHED_FEAT(PLACE_DEADLINE_WAKEUP, false)
+#endif // CONFIG_SCHED_BORE
+/*
  * Inhibit (wakeup) preemption until the current task has exhausted its slice.
  */
 #ifdef CONFIG_SCHED_BORE
