@@ -1,17 +1,18 @@
-From 2834874b13032cefeac800d0991b782db72b3f59 Mon Sep 17 00:00:00 2001
+From c984f26060bbffd737e14f086e744c151df7d849 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Thu, 23 May 2024 20:07:10 +0900
-Subject: [PATCH] linux6.10.y-bore5.1.0
+Date: Mon, 15 Jul 2024 02:04:33 +0900
+Subject: [PATCH] linux6.10.y-bore5.1.4
 
 ---
  include/linux/sched.h   |  10 ++
  init/Kconfig            |  17 ++++
+ kernel/Kconfig.hz       |  16 +++
  kernel/sched/core.c     | 143 ++++++++++++++++++++++++++
  kernel/sched/debug.c    |  60 ++++++++++-
- kernel/sched/fair.c     | 217 +++++++++++++++++++++++++++++++++++++++-
- kernel/sched/features.h |   4 +
+ kernel/sched/fair.c     | 220 +++++++++++++++++++++++++++++++++++++++-
+ kernel/sched/features.h |   6 ++
  kernel/sched/sched.h    |   7 ++
- 7 files changed, 455 insertions(+), 3 deletions(-)
+ 8 files changed, 475 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 61591ac6ea..88a02a80a7 100644
@@ -62,8 +63,34 @@ index 72404c1f21..e0c5fa12d7 100644
  config SCHED_AUTOGROUP
  	bool "Automatic process group scheduling"
  	select CGROUPS
+diff --git a/kernel/Kconfig.hz b/kernel/Kconfig.hz
+index 38ef6d0688..5f6eecd1e6 100644
+--- a/kernel/Kconfig.hz
++++ b/kernel/Kconfig.hz
+@@ -55,5 +55,21 @@ config HZ
+ 	default 300 if HZ_300
+ 	default 1000 if HZ_1000
+ 
++config MIN_BASE_SLICE_NS
++	int "Default value for min_base_slice_ns"
++	default 2000000
++	help
++	 The BORE Scheduler automatically calculates the optimal base
++	 slice for the configured HZ using the following equation:
++	 
++	 base_slice_ns = max(min_base_slice_ns, 1000000000/HZ)
++	 
++	 This option sets the default lower bound limit of the base slice
++	 to prevent the loss of task throughput due to overscheduling.
++	 
++	 Setting this value too high can cause the system to boot with
++	 an unnecessarily large base slice, resulting in high scheduling
++	 latency and poor system responsiveness.
++
+ config SCHED_HRTICK
+ 	def_bool HIGH_RES_TIMERS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index bcf2c4cc05..0ee43ef4f5 100644
+index bcf2c4cc05..532f3b68bb 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4516,6 +4516,138 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -83,7 +110,7 @@ index bcf2c4cc05..0ee43ef4f5 100644
 +	init_task.se.child_burst_last_cached = 0;
 +}
 +
-+void inline sched_fork_bore(struct task_struct *p) {
++inline void sched_fork_bore(struct task_struct *p) {
 +	p->se.burst_time = 0;
 +	p->se.curr_burst_penalty = 0;
 +	p->se.burst_score = 0;
@@ -231,7 +258,7 @@ index bcf2c4cc05..0ee43ef4f5 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.1.0 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.1.4 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -345,7 +372,7 @@ index c1eb9a1afd..e2da8d7738 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 8a5b1ae0aa..0201951a5c 100644
+index 8a5b1ae0aa..0e8db70ea8 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -382,7 +409,7 @@ index 8a5b1ae0aa..0201951a5c 100644
 +#ifdef CONFIG_SCHED_BORE
 +unsigned int            sysctl_sched_base_slice = 1000000000ULL / HZ;
 +static unsigned int configured_sched_base_slice = 1000000000ULL / HZ;
-+unsigned int        sysctl_sched_min_base_slice =    2000000ULL;
++unsigned int        sysctl_sched_min_base_slice = CONFIG_MIN_BASE_SLICE_NS;
 +#else // !CONFIG_SCHED_BORE
  unsigned int sysctl_sched_base_slice			= 750000ULL;
  static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
@@ -628,7 +655,17 @@ index 8a5b1ae0aa..0201951a5c 100644
  	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
  		struct sched_entity *curr = cfs_rq->curr;
  		unsigned long load;
-@@ -6847,6 +7040,14 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -5265,7 +5458,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 	 * on average, halfway through their slice, as such start tasks
+ 	 * off with half a slice to ease into the competition.
+ 	 */
+-	if (sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL))
++	if ((sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL)) ||
++	    (sched_feat(PLACE_DEADLINE_WAKEUP)  && (flags & ENQUEUE_WAKEUP)))
+ 		vslice /= 2;
+ 
+ 	/*
+@@ -6847,6 +7041,14 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  	bool was_sched_idle = sched_idle_rq(rq);
  
  	util_est_dequeue(&rq->cfs, p);
@@ -643,7 +680,7 @@ index 8a5b1ae0aa..0201951a5c 100644
  
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
-@@ -8633,16 +8834,25 @@ static void yield_task_fair(struct rq *rq)
+@@ -8633,16 +8835,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -669,7 +706,7 @@ index 8a5b1ae0aa..0201951a5c 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -12716,6 +12926,9 @@ static void task_fork_fair(struct task_struct *p)
+@@ -12716,6 +12927,9 @@ static void task_fork_fair(struct task_struct *p)
  	curr = cfs_rq->curr;
  	if (curr)
  		update_curr(cfs_rq);
@@ -680,17 +717,19 @@ index 8a5b1ae0aa..0201951a5c 100644
  	rq_unlock(rq, &rf);
  }
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index 143f55df89..3f0fe409f5 100644
+index 143f55df89..2b7b46e7de 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
-@@ -6,7 +6,11 @@
+@@ -6,7 +6,13 @@
   */
  SCHED_FEAT(PLACE_LAG, true)
  SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
 +#ifdef CONFIG_SCHED_BORE
 +SCHED_FEAT(RUN_TO_PARITY, false)
++SCHED_FEAT(PLACE_DEADLINE_WAKEUP, true)
 +#else // !CONFIG_SCHED_BORE
  SCHED_FEAT(RUN_TO_PARITY, true)
++SCHED_FEAT(PLACE_DEADLINE_WAKEUP, false)
 +#endif // CONFIG_SCHED_BORE
  
  /*
