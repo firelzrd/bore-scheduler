@@ -221,11 +221,8 @@ static void bch2_btree_path_verify(struct btree_trans *trans,
 				   struct btree_path *path)
 {
 	struct bch_fs *c = trans->c;
-	unsigned i;
 
-	EBUG_ON(path->btree_id >= BTREE_ID_NR);
-
-	for (i = 0; i < (!path->cached ? BTREE_MAX_DEPTH : 1); i++) {
+	for (unsigned i = 0; i < (!path->cached ? BTREE_MAX_DEPTH : 1); i++) {
 		if (!path->l[i].b) {
 			BUG_ON(!path->cached &&
 			       bch2_btree_id_root(c, path->btree_id)->b->c.level > i);
@@ -250,8 +247,6 @@ void bch2_trans_verify_paths(struct btree_trans *trans)
 static void bch2_btree_iter_verify(struct btree_iter *iter)
 {
 	struct btree_trans *trans = iter->trans;
-
-	BUG_ON(iter->btree_id >= BTREE_ID_NR);
 
 	BUG_ON(!!(iter->flags & BTREE_ITER_cached) != btree_iter_path(trans, iter)->cached);
 
@@ -1001,7 +996,7 @@ retry_all:
 
 	bch2_trans_unlock(trans);
 	cond_resched();
-	trans->locked = true;
+	trans_set_locked(trans);
 
 	if (unlikely(trans->memory_allocation_failure)) {
 		struct closure cl;
@@ -3094,7 +3089,8 @@ u32 bch2_trans_begin(struct btree_trans *trans)
 		bch2_trans_srcu_unlock(trans);
 
 	trans->last_begin_ip = _RET_IP_;
-	trans->locked  = true;
+
+	trans_set_locked(trans);
 
 	if (trans->restarted) {
 		bch2_btree_path_traverse_all(trans);
@@ -3135,7 +3131,6 @@ struct btree_trans *__bch2_trans_get(struct bch_fs *c, unsigned fn_idx)
 
 	trans = mempool_alloc(&c->btree_trans_pool, GFP_NOFS);
 	memset(trans, 0, sizeof(*trans));
-	closure_init_stack(&trans->ref);
 
 	seqmutex_lock(&c->btree_trans_lock);
 	if (IS_ENABLED(CONFIG_BCACHEFS_DEBUG)) {
@@ -3155,22 +3150,16 @@ struct btree_trans *__bch2_trans_get(struct bch_fs *c, unsigned fn_idx)
 			BUG_ON(pos_task &&
 			       pid == pos_task->pid &&
 			       pos->locked);
-
-			if (pos_task && pid < pos_task->pid) {
-				list_add_tail(&trans->list, &pos->list);
-				goto list_add_done;
-			}
 		}
 	}
-	list_add_tail(&trans->list, &c->btree_trans_list);
-list_add_done:
+
+	list_add(&trans->list, &c->btree_trans_list);
 	seqmutex_unlock(&c->btree_trans_lock);
 got_trans:
 	trans->c		= c;
 	trans->last_begin_time	= local_clock();
 	trans->fn_idx		= fn_idx;
 	trans->locking_wait.task = current;
-	trans->locked		= true;
 	trans->journal_replay_not_finished =
 		unlikely(!test_bit(JOURNAL_replay_done, &c->journal.flags)) &&
 		atomic_inc_not_zero(&c->journal_keys.ref);
@@ -3204,6 +3193,9 @@ got_trans:
 	trans->srcu_idx		= srcu_read_lock(&c->btree_trans_barrier);
 	trans->srcu_lock_time	= jiffies;
 	trans->srcu_held	= true;
+	trans_set_locked(trans);
+
+	closure_init_stack_release(&trans->ref);
 	return trans;
 }
 
@@ -3240,7 +3232,6 @@ void bch2_trans_put(struct btree_trans *trans)
 	trans_for_each_update(trans, i)
 		__btree_path_put(trans->paths + i->path, true);
 	trans->nr_updates	= 0;
-	trans->locking_wait.task = NULL;
 
 	check_btree_paths_leaked(trans);
 
@@ -3261,6 +3252,13 @@ void bch2_trans_put(struct btree_trans *trans)
 	if (unlikely(trans->journal_replay_not_finished))
 		bch2_journal_keys_put(c);
 
+	/*
+	 * trans->ref protects trans->locking_wait.task, btree_paths array; used
+	 * by cycle detector
+	 */
+	closure_return_sync(&trans->ref);
+	trans->locking_wait.task = NULL;
+
 	unsigned long *paths_allocated = trans->paths_allocated;
 	trans->paths_allocated	= NULL;
 	trans->paths		= NULL;
@@ -3278,8 +3276,6 @@ void bch2_trans_put(struct btree_trans *trans)
 		trans = this_cpu_xchg(c->btree_trans_bufs->trans, trans);
 
 	if (trans) {
-		closure_sync(&trans->ref);
-
 		seqmutex_lock(&c->btree_trans_lock);
 		list_del(&trans->list);
 		seqmutex_unlock(&c->btree_trans_lock);
@@ -3385,8 +3381,6 @@ void bch2_fs_btree_iter_exit(struct bch_fs *c)
 				per_cpu_ptr(c->btree_trans_bufs, cpu)->trans;
 
 			if (trans) {
-				closure_sync(&trans->ref);
-
 				seqmutex_lock(&c->btree_trans_lock);
 				list_del(&trans->list);
 				seqmutex_unlock(&c->btree_trans_lock);
@@ -3406,8 +3400,10 @@ void bch2_fs_btree_iter_exit(struct bch_fs *c)
 		bch2_time_stats_exit(&s->lock_hold_times);
 	}
 
-	if (c->btree_trans_barrier_initialized)
+	if (c->btree_trans_barrier_initialized) {
+		synchronize_srcu_expedited(&c->btree_trans_barrier);
 		cleanup_srcu_struct(&c->btree_trans_barrier);
+	}
 	mempool_exit(&c->btree_trans_mem_pool);
 	mempool_exit(&c->btree_trans_pool);
 }
