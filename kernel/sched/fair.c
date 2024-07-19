@@ -101,8 +101,10 @@ u8   __read_mostly sched_burst_fork_atavistic   = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
-uint __read_mostly sched_deadline_boost_mask    = 0x81; // ENQUEUE_INITIAL | ENQUEUE_WAKEUP
-uint __read_mostly sched_deadline_preserve_mask = 0x42; // ENQUEUE_RESTORE | ENQUEUE_MIGRATED
+uint __read_mostly sched_deadline_boost_mask    = ENQUEUE_INITIAL
+                                                | ENQUEUE_WAKEUP;
+uint __read_mostly sched_deadline_preserve_mask = ENQUEUE_RESTORE
+                                                | ENQUEUE_MIGRATED;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_12_bits = 4095;
 
