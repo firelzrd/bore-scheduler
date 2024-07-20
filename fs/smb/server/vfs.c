@@ -49,6 +49,10 @@ static void ksmbd_vfs_inherit_owner(struct ksmbd_work *work,
 
 /**
  * ksmbd_vfs_lock_parent() - lock parent dentry if it is stable
+ * @parent: parent dentry
+ * @child: child dentry
+ *
+ * Returns: %0 on success, %-ENOENT if the parent dentry is not stable
  */
 int ksmbd_vfs_lock_parent(struct dentry *parent, struct dentry *child)
 {
@@ -360,7 +364,7 @@ out:
 /**
  * ksmbd_vfs_read() - vfs helper for smb file read
  * @work:	smb work
- * @fid:	file id of open file
+ * @fp:		ksmbd file pointer
  * @count:	read byte count
  * @pos:	file pos
  * @rbuf:	read data buffer
@@ -474,7 +478,7 @@ out:
 /**
  * ksmbd_vfs_write() - vfs helper for smb file write
  * @work:	work
- * @fid:	file id of open file
+ * @fp:		ksmbd file pointer
  * @buf:	buf containing data for writing
  * @count:	read byte count
  * @pos:	file pos
@@ -545,10 +549,8 @@ out:
 
 /**
  * ksmbd_vfs_getattr() - vfs helper for smb getattr
- * @work:	work
- * @fid:	file id of open file
- * @attrs:	inode attributes
- *
+ * @path:	path of dentry
+ * @stat:	pointer to returned kernel stat structure
  * Return:	0 on success, otherwise error
  */
 int ksmbd_vfs_getattr(const struct path *path, struct kstat *stat)
@@ -565,6 +567,7 @@ int ksmbd_vfs_getattr(const struct path *path, struct kstat *stat)
  * ksmbd_vfs_fsync() - vfs helper for smb fsync
  * @work:	work
  * @fid:	file id of open file
+ * @p_id:	persistent file id
  *
  * Return:	0 on success, otherwise error
  */
@@ -587,7 +590,8 @@ int ksmbd_vfs_fsync(struct ksmbd_work *work, u64 fid, u64 p_id)
 
 /**
  * ksmbd_vfs_remove_file() - vfs helper for smb rmdir or unlink
- * @name:	directory or file name that is relative to share
+ * @work:	work
+ * @path:	path of dentry
  *
  * Return:	0 on success, otherwise error
  */
@@ -623,6 +627,7 @@ out_err:
 
 /**
  * ksmbd_vfs_link() - vfs helper for creating smb hardlink
+ * @work:	work
  * @oldname:	source file name
  * @newname:	hardlink name that is relative to share
  *
@@ -745,10 +750,15 @@ retry:
 		goto out4;
 	}
 
+	/*
+	 * explicitly handle file overwrite case, for compatibility with
+	 * filesystems that may not support rename flags (e.g: fuse)
+	 */
 	if ((flags & RENAME_NOREPLACE) && d_is_positive(new_dentry)) {
 		err = -EEXIST;
 		goto out4;
 	}
+	flags &= ~(RENAME_NOREPLACE);
 
 	if (old_child == trap) {
 		err = -EINVAL;
@@ -795,7 +805,7 @@ revert_fsids:
 /**
  * ksmbd_vfs_truncate() - vfs helper for smb file truncate
  * @work:	work
- * @fid:	file id of old file
+ * @fp:		ksmbd file pointer
  * @size:	truncate to given size
  *
  * Return:	0 on success, otherwise error
@@ -838,7 +848,6 @@ int ksmbd_vfs_truncate(struct ksmbd_work *work,
  * ksmbd_vfs_listxattr() - vfs helper for smb list extended attributes
  * @dentry:	dentry of file for listing xattrs
  * @list:	destination buffer
- * @size:	destination buffer length
  *
  * Return:	xattr list length on success, otherwise error
  */
@@ -947,7 +956,7 @@ int ksmbd_vfs_setxattr(struct mnt_idmap *idmap,
 /**
  * ksmbd_vfs_set_fadvise() - convert smb IO caching options to linux options
  * @filp:	file pointer for IO
- * @options:	smb IO options
+ * @option:	smb IO options
  */
 void ksmbd_vfs_set_fadvise(struct file *filp, __le32 option)
 {
@@ -1044,16 +1053,21 @@ int ksmbd_vfs_fqar_lseek(struct ksmbd_file *fp, loff_t start, loff_t length,
 }
 
 int ksmbd_vfs_remove_xattr(struct mnt_idmap *idmap,
-			   const struct path *path, char *attr_name)
+			   const struct path *path, char *attr_name,
+			   bool get_write)
 {
 	int err;
 
-	err = mnt_want_write(path->mnt);
-	if (err)
-		return err;
+	if (get_write == true) {
+		err = mnt_want_write(path->mnt);
+		if (err)
+			return err;
+	}
 
 	err = vfs_removexattr(idmap, path->dentry, attr_name);
-	mnt_drop_write(path->mnt);
+
+	if (get_write == true)
+		mnt_drop_write(path->mnt);
 
 	return err;
 }
@@ -1159,6 +1173,7 @@ static bool __caseless_lookup(struct dir_context *ctx, const char *name,
  * @dir:	path info
  * @name:	filename to lookup
  * @namelen:	filename length
+ * @um:		&struct unicode_map to use
  *
  * Return:	0 on success, otherwise error
  */
@@ -1189,6 +1204,7 @@ static int ksmbd_vfs_lookup_in_dir(const struct path *dir, char *name,
 
 /**
  * ksmbd_vfs_kern_path_locked() - lookup a file and get path info
+ * @work:	work
  * @name:		file path that is relative to share
  * @flags:		lookup flags
  * @parent_path:	if lookup succeed, return parent_path info
@@ -1364,7 +1380,7 @@ int ksmbd_vfs_remove_sd_xattrs(struct mnt_idmap *idmap, const struct path *path)
 		ksmbd_debug(SMB, "%s, len %zd\n", name, strlen(name));
 
 		if (!strncmp(name, XATTR_NAME_SD, XATTR_NAME_SD_LEN)) {
-			err = ksmbd_vfs_remove_xattr(idmap, path, name);
+			err = ksmbd_vfs_remove_xattr(idmap, path, name, true);
 			if (err)
 				ksmbd_debug(SMB, "remove xattr failed : %s\n", name);
 		}
@@ -1636,6 +1652,8 @@ int ksmbd_vfs_get_dos_attrib_xattr(struct mnt_idmap *idmap,
  * ksmbd_vfs_init_kstat() - convert unix stat information to smb stat format
  * @p:          destination buffer
  * @ksmbd_kstat:      ksmbd kstat wrapper
+ *
+ * Returns: pointer to the converted &struct file_directory_info
  */
 void *ksmbd_vfs_init_kstat(char **p, struct ksmbd_kstat *ksmbd_kstat)
 {
@@ -1669,11 +1687,19 @@ int ksmbd_vfs_fill_dentry_attrs(struct ksmbd_work *work,
 				struct dentry *dentry,
 				struct ksmbd_kstat *ksmbd_kstat)
 {
+	struct ksmbd_share_config *share_conf = work->tcon->share_conf;
 	u64 time;
 	int rc;
+	struct path path = {
+		.mnt = share_conf->vfs_path.mnt,
+		.dentry = dentry,
+	};
 
-	generic_fillattr(idmap, STATX_BASIC_STATS, d_inode(dentry),
-			 ksmbd_kstat->kstat);
+	rc = vfs_getattr(&path, ksmbd_kstat->kstat,
+			 STATX_BASIC_STATS | STATX_BTIME,
+			 AT_STATX_SYNC_AS_STAT);
+	if (rc)
+		return rc;
 
 	time = ksmbd_UnixTimeToNT(ksmbd_kstat->kstat->ctime);
 	ksmbd_kstat->create_time = time;

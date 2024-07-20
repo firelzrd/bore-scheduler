@@ -283,7 +283,9 @@ static struct input_dev *shield_haptics_create(
 		return haptics;
 
 	input_set_capability(haptics, EV_FF, FF_RUMBLE);
-	input_ff_create_memless(haptics, NULL, play_effect);
+	ret = input_ff_create_memless(haptics, NULL, play_effect);
+	if (ret)
+		goto err;
 
 	ret = input_register_device(haptics);
 	if (ret)
@@ -800,6 +802,8 @@ static inline int thunderstrike_led_create(struct thunderstrike *ts)
 
 	led->name = devm_kasprintf(&ts->base.hdev->dev, GFP_KERNEL,
 				   "thunderstrike%d:blue:led", ts->id);
+	if (!led->name)
+		return -ENOMEM;
 	led->max_brightness = 1;
 	led->flags = LED_CORE_SUSPENDRESUME | LED_RETAIN_AT_SHUTDOWN;
 	led->brightness_get = &thunderstrike_led_get_brightness;
@@ -831,6 +835,8 @@ static inline int thunderstrike_psy_create(struct shield_device *shield_dev)
 	shield_dev->battery_dev.desc.name =
 		devm_kasprintf(&ts->base.hdev->dev, GFP_KERNEL,
 			       "thunderstrike_%d", ts->id);
+	if (!shield_dev->battery_dev.desc.name)
+		return -ENOMEM;
 
 	shield_dev->battery_dev.psy = power_supply_register(
 		&hdev->dev, &shield_dev->battery_dev.desc, &psy_cfg);

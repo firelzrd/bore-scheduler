@@ -4,7 +4,8 @@
 #ifndef _I40E_ADMINQ_H_
 #define _I40E_ADMINQ_H_
 
-#include "i40e_osdep.h"
+#include <linux/mutex.h>
+#include "i40e_alloc.h"
 #include "i40e_adminq_cmd.h"
 
 #define I40E_ADMINQ_DESC(R, i)   \
@@ -114,10 +115,6 @@ static inline int i40e_aq_rc_to_posix(int aq_ret, int aq_rc)
 		-EROFS,      /* I40E_AQ_RC_EMODE */
 		-EFBIG,      /* I40E_AQ_RC_EFBIG */
 	};
-
-	/* aq_rc is invalid if AQ timed out */
-	if (aq_ret == -EIO)
-		return -EAGAIN;
 
 	if (!((u32)aq_rc < (sizeof(aq_to_posix) / sizeof((aq_to_posix)[0]))))
 		return -ERANGE;

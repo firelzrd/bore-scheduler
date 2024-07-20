@@ -350,6 +350,7 @@ static int raw_send_hdrinc(struct sock *sk, struct flowi4 *fl4,
 		goto error;
 	skb_reserve(skb, hlen);
 
+	skb->protocol = htons(ETH_P_IP);
 	skb->priority = READ_ONCE(sk->sk_priority);
 	skb->mark = sockc->mark;
 	skb->tstamp = sockc->transmit_time;
@@ -602,6 +603,9 @@ static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 			   inet_sk_flowi_flags(sk) |
 			    (hdrincl ? FLOWI_FLAG_KNOWN_NH : 0),
 			   daddr, saddr, 0, 0, sk->sk_uid);
+
+	fl4.fl4_icmp_type = 0;
+	fl4.fl4_icmp_code = 0;
 
 	if (!hdrincl) {
 		rfv.msg = msg;

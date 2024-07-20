@@ -57,7 +57,9 @@
 #define SMBIOS_CORE_PACKAGE_OFFSET	0x23
 #define LOONGSON_EFI_ENABLE		(1 << 3)
 
+#ifdef CONFIG_EFI
 struct screen_info screen_info __section(".data");
+#endif
 
 unsigned long fw_arg0, fw_arg1, fw_arg2;
 DEFINE_PER_CPU(unsigned long, kernelsp);
@@ -367,6 +369,8 @@ void __init platform_init(void)
 	acpi_gbl_use_default_register_widths = false;
 	acpi_boot_table_init();
 #endif
+
+	early_init_fdt_scan_reserved_mem();
 	unflatten_and_copy_device_tree();
 
 #ifdef CONFIG_NUMA
@@ -399,8 +403,6 @@ static void __init arch_mem_init(char **cmdline_p)
 		pr_info("User-defined physical RAM map overwrite\n");
 
 	check_kernel_sections_mem();
-
-	early_init_fdt_scan_reserved_mem();
 
 	/*
 	 * In order to reduce the possibility of kernel panic when failed to
