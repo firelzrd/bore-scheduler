@@ -1,18 +1,18 @@
-From 4bb6d31be1723f5faca415c2db08585f99d9fd49 Mon Sep 17 00:00:00 2001
+From 11422e3cdde3ccb17e17b1eab3235c84f2623181 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 19 Jul 2024 20:05:19 +0900
+Date: Wed, 24 Jul 2024 01:22:12 +0900
 Subject: [PATCH] linux6.10.y-bore5.2.6
 
 ---
  include/linux/sched.h   |  10 ++
  init/Kconfig            |  17 +++
- kernel/Kconfig.hz       |  16 ++
+ kernel/Kconfig.hz       |  16 +++
  kernel/sched/core.c     | 143 ++++++++++++++++++
  kernel/sched/debug.c    |  60 +++++++-
- kernel/sched/fair.c     | 313 ++++++++++++++++++++++++++++++++++++++--
+ kernel/sched/fair.c     | 310 ++++++++++++++++++++++++++++++++++++++--
  kernel/sched/features.h |  22 ++-
  kernel/sched/sched.h    |   7 +
- 8 files changed, 571 insertions(+), 17 deletions(-)
+ 8 files changed, 571 insertions(+), 14 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index a5f4b48fca..df62c56b13 100644
@@ -372,7 +372,7 @@ index c1eb9a1afd..e2da8d7738 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 24dda708b6..cd33dc0fd0 100644
+index 24dda708b6..4cc33bb39b 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -811,19 +811,16 @@ index 24dda708b6..cd33dc0fd0 100644
  
  	for_each_sched_entity(se) {
  		cfs_rq = cfs_rq_of(se);
-@@ -8412,10 +8686,7 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int
- 	cfs_rq = cfs_rq_of(se);
- 	update_curr(cfs_rq);
- 
--	/*
--	 * XXX pick_eevdf(cfs_rq) != se ?
--	 */
+@@ -8415,7 +8689,7 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int
+ 	/*
+ 	 * XXX pick_eevdf(cfs_rq) != se ?
+ 	 */
 -	if (pick_eevdf(cfs_rq) == pse)
 +	if (pick_eevdf(cfs_rq, pse) == pse)
  		goto preempt;
  
  	return;
-@@ -8633,16 +8904,25 @@ static void yield_task_fair(struct rq *rq)
+@@ -8633,16 +8907,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -849,7 +846,7 @@ index 24dda708b6..cd33dc0fd0 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -12710,6 +12990,9 @@ static void task_fork_fair(struct task_struct *p)
+@@ -12710,6 +12993,9 @@ static void task_fork_fair(struct task_struct *p)
  	curr = cfs_rq->curr;
  	if (curr)
  		update_curr(cfs_rq);
