@@ -129,8 +129,8 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 	return min(MAX_BURST_PENALTY, scaled_penalty);
 }
 
-static inline u64 scale_slice(u64 delta, struct sched_entity *se) {
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[se->burst_score], 22);
+static inline u64 __scale_slice(u64 delta, u8 score) {
+	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
 }
 
 static inline u64 __unscale_slice(u64 delta, u8 score) {
@@ -151,11 +151,18 @@ static void reweight_task_by_prio(struct task_struct *p, int prio)
 	load->inv_weight = sched_prio_to_wmult[prio];
 }
 
+static inline u8 effective_prio(struct task_struct *p) {
+	u8 prio = p->static_prio - MAX_RT_PRIO;
+
+	if (likely(sched_bore))
+		prio += p->se.burst_score;
+	return min(39, prio);
+}
+
 static void update_burst_score(struct sched_entity *se) {
 	if (!entity_is_task(se)) return;
 	struct task_struct *p = task_of(se);
-	u8 prio = p->static_prio - MAX_RT_PRIO;
-	u8 prev_prio = min(39, prio + se->burst_score);
+	u8 prev_prio = effective_prio(p);
 
 	u8 burst_score = 0;
 	if (!(sched_burst_exclude_kthreads && (p->flags & PF_KTHREAD)))
@@ -163,7 +170,7 @@ static void update_burst_score(struct sched_entity *se) {
 
 	se->burst_score = burst_score;
 
-	u8 new_prio = min(39, prio + se->burst_score);
+	u8 new_prio = effective_prio(p);
 	if (new_prio != prev_prio)
 		reweight_task_by_prio(p, new_prio);
 }
@@ -191,11 +198,13 @@ static void restart_burst(struct sched_entity *se) {
 
 static void restart_burst_rescale_deadline(struct sched_entity *se) {
 	s64 vscaled, wremain, vremain = se->deadline - se->vruntime;
-	u8 prev_score = se->burst_score;
+	struct task_struct *p = task_of(se);
+	u8 prev_prio = effective_prio(p);
 	restart_burst(se);
-	if (prev_score > se->burst_score) {
-		wremain = __unscale_slice(abs(vremain), prev_score);
-		vscaled = scale_slice(wremain, se);
+	u8 new_prio = effective_prio(p);
+	if (prev_prio > new_prio) {
+		wremain = __unscale_slice(abs(vremain), prev_prio);
+		vscaled = __scale_slice(wremain, new_prio);
 		if (unlikely(vremain < 0))
 			vscaled = -vscaled;
 		se->deadline = se->vruntime + vscaled;
