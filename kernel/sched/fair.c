@@ -5461,7 +5461,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	se->slice = sysctl_sched_base_slice;
 #ifdef CONFIG_SCHED_BORE
-	if (flags & ~sched_deadline_boost_mask & sched_deadline_preserve_mask)
+	if (likely(sched_bore) &&
+		(flags & ~sched_deadline_boost_mask & sched_deadline_preserve_mask))
 		vslice = se->deadline - se->vruntime;
 	else
 #endif // CONFIG_SCHED_BORE
@@ -5553,11 +5554,14 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * on average, halfway through their slice, as such start tasks
 	 * off with half a slice to ease into the competition.
 	 */
-#if !defined(CONFIG_SCHED_BORE)
-	if (sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL))
-#else // CONFIG_SCHED_BORE
-	if (flags & sched_deadline_boost_mask)
+#ifdef CONFIG_SCHED_BORE
+	if (likely(sched_bore)) {
+		if (flags & sched_deadline_boost_mask)
+			vslice /= 2;
+	}
+	else
 #endif // CONFIG_SCHED_BORE
+	if (sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL))
 		vslice /= 2;
 
 	/*
