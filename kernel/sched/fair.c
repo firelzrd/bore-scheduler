@@ -976,7 +976,8 @@ static void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
 #ifdef CONFIG_SCHED_BORE
-	limit >>= 1;
+	if (likely(sched_bore))
+		limit >>= 1;
 #endif // CONFIG_SCHED_BORE
 	se->vlag = clamp(lag, -limit, limit);
 }
