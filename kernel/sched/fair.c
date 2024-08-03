@@ -152,7 +152,7 @@ static inline u64 unscale_slice(u64 delta, struct sched_entity *se) {
 static void reweight_entity(
 	struct cfs_rq *cfs_rq, struct sched_entity *se, unsigned long weight);
 
-static void renice_task(struct task_struct *p, int prio)
+static void reweight_task_by_prio(struct task_struct *p, int prio)
 {
 	struct sched_entity *se = &p->se;
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
@@ -177,7 +177,7 @@ static void update_burst_score(struct sched_entity *se) {
 
 	u8 new_prio = min(39, prio + se->burst_score);
 	if (new_prio != prev_prio)
-		renice_task(p, new_prio);
+		reweight_task_by_prio(p, new_prio);
 }
 
 static void update_burst_penalty(struct sched_entity *se) {
