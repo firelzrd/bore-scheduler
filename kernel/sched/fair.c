@@ -137,10 +137,6 @@ static inline u64 __unscale_slice(u64 delta, u8 score) {
 	return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);
 }
 
-static inline u64 unscale_slice(u64 delta, struct sched_entity *se) {
-	return __unscale_slice(delta, se->burst_score);
-}
-
 static void reweight_entity(
 	struct cfs_rq *cfs_rq, struct sched_entity *se, unsigned long weight);
 
