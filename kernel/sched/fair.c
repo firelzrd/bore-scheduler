@@ -205,6 +205,38 @@ static void restart_burst_rescale_deadline(struct sched_entity *se) {
 		se->deadline = se->vruntime + vscaled;
 	}
 }
+
+static void reset_task_weights_bore(void) {
+    struct task_struct *task;
+    struct rq *rq;
+    struct rq_flags rf;
+
+    write_lock_irq(&tasklist_lock);
+
+    for_each_process(task) {
+        rq = task_rq(task);
+
+        rq_lock_irqsave(rq, &rf);
+
+        reweight_task_by_prio(task, effective_prio(task));
+
+        rq_unlock_irqrestore(rq, &rf);
+    }
+
+    write_unlock_irq(&tasklist_lock);
+}
+
+int sched_bore_update_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	reset_task_weights_bore();
+
+	return 0;
+}
 #endif // CONFIG_SCHED_BORE
 
 static int __init setup_sched_thermal_decay_shift(char *str)
@@ -266,8 +298,8 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.data		= &sched_bore,
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ONE,
+		.proc_handler = sched_bore_update_handler,
+		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
 	{
