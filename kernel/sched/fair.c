@@ -974,7 +974,8 @@ static s64 entity_lag(u64 avruntime, struct sched_entity *se)
 	vlag = avruntime - se->vruntime;
 	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
 #ifdef CONFIG_SCHED_BORE
-	limit >>= 1;
+	if (likely(sched_bore))
+		limit >>= 1;
 #endif // CONFIG_SCHED_BORE
 
 	return clamp(vlag, -limit, limit);
