@@ -121,8 +121,7 @@ static int __maybe_unused maxval_12_bits = 4095;
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
 	u32 msb = fls64(v);
-	s32 excess_bits = msb - 9;
-	u8 fractional = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	u8 fractional = (v << (64 - msb) >> 55);
 	return msb << 8 | fractional;
 }
 
