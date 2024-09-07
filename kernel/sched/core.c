@@ -4560,8 +4560,7 @@ static void __update_child_burst_cache(
 
 static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	struct task_struct *child;
-	u32 cnt = 0;
-	u32 sum = 0;
+	u32 cnt = 0, sum = 0;
 
 	list_for_each_entry(child, &p->children, sibling) {
 		if (!task_burst_inheritable(child)) continue;
@@ -4583,8 +4582,7 @@ static inline u8 __inherit_burst_direct(struct task_struct *p, u64 now) {
 static void update_child_burst_topological(
 	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
 	struct task_struct *child, *dec;
-	u32 cnt = 0, dcnt = 0;
-	u32 sum = 0;
+	u32 cnt = 0, dcnt = 0, sum = 0;
 
 	list_for_each_entry(child, &p->children, sibling) {
 		dec = child;
