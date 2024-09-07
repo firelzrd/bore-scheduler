@@ -122,7 +122,7 @@ static int __maybe_unused maxval_12_bits = 4095;
 static inline u32 log2plus1_u64_u32f8(u64 v) {
 	u32 msb = fls64(v);
 	s32 excess_bits = msb - 9;
-    u8 fractional = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
+	u8 fractional = (0 <= excess_bits)? v >> excess_bits: v << -excess_bits;
 	return msb << 8 | fractional;
 }
 
@@ -161,7 +161,6 @@ static void reweight_task_by_prio(struct task_struct *p, int prio)
 
 static inline u8 effective_prio(struct task_struct *p) {
 	u8 prio = p->static_prio - MAX_RT_PRIO;
-
 	if (likely(sched_bore))
 		prio += p->se.burst_score;
 	return min(39, prio);
@@ -175,7 +174,6 @@ static void update_burst_score(struct sched_entity *se) {
 	u8 burst_score = 0;
 	if (!(sched_burst_exclude_kthreads && (p->flags & PF_KTHREAD)))
 		burst_score = se->burst_penalty >> 2;
-
 	se->burst_score = burst_score;
 
 	u8 new_prio = effective_prio(p);
@@ -190,10 +188,10 @@ static void update_burst_penalty(struct sched_entity *se) {
 }
 
 static inline u32 binary_smooth(u32 new, u32 old) {
-  int increment = new - old;
-  return (0 <= increment)?
-    old + ( increment >> (int)sched_burst_smoothness_long):
-    old - (-increment >> (int)sched_burst_smoothness_short);
+	int increment = new - old;
+	return (0 <= increment)?
+		old + ( increment >> (int)sched_burst_smoothness_long):
+		old - (-increment >> (int)sched_burst_smoothness_short);
 }
 
 static void restart_burst(struct sched_entity *se) {
@@ -220,28 +218,22 @@ static void restart_burst_rescale_deadline(struct sched_entity *se) {
 }
 
 static void reset_task_weights_bore(void) {
-    struct task_struct *task;
-    struct rq *rq;
-    struct rq_flags rf;
+	struct task_struct *task;
+	struct rq *rq;
+	struct rq_flags rf;
 
-    write_lock_irq(&tasklist_lock);
-
-    for_each_process(task) {
-        rq = task_rq(task);
-
-        rq_lock_irqsave(rq, &rf);
-
-        reweight_task_by_prio(task, effective_prio(task));
-
-        rq_unlock_irqrestore(rq, &rf);
-    }
-
-    write_unlock_irq(&tasklist_lock);
+	write_lock_irq(&tasklist_lock);
+	for_each_process(task) {
+		rq = task_rq(task);
+		rq_lock_irqsave(rq, &rf);
+		reweight_task_by_prio(task, effective_prio(task));
+		rq_unlock_irqrestore(rq, &rf);
+	}
+	write_unlock_irq(&tasklist_lock);
 }
 
 int sched_bore_update_handler(struct ctl_table *table, int write,
-		void __user *buffer, size_t *lenp, loff_t *ppos)
-{
+		void __user *buffer, size_t *lenp, loff_t *ppos) {
 	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
