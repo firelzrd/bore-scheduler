@@ -163,7 +163,7 @@ static void update_burst_score(struct sched_entity *se) {
 	u8 prev_prio = effective_prio(p);
 
 	u8 burst_score = 0;
-	if (!(sched_burst_exclude_kthreads && (p->flags & PF_KTHREAD)))
+	if (!((p->flags & PF_KTHREAD) && likely(sched_burst_exclude_kthreads)))
 		burst_score = se->burst_penalty >> 2;
 	se->burst_score = burst_score;
 
