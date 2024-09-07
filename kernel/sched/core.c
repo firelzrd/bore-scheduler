@@ -4550,7 +4550,7 @@ static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
 }
 
 static void __update_child_burst_cache(
-	struct task_struct *p, u32 cnt, u32 sum, u64 now) {
+		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
 	u8 avg = 0;
 	if (cnt) avg = sum / cnt;
 	p->se.child_burst = max(avg, p->se.burst_penalty);
