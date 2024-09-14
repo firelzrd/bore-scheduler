@@ -33,10 +33,10 @@ https://youtu.be/vbs4zj79tfo
 ### Example
 `$ sudo sysctl -w kernel.sched_bore=1`
 
-### sched_bore (range: 1 - 1, default: 1)
+### sched_bore (range: 0 - 1, default: 1)
 
 1 Enables the BORE mechanism.  
-0 Disables the BORE mechanism. (Disabled in v5.0.0 and above)
+0 Disables the BORE mechanism.
 
 ### sched_burst_cache_lifetime (range: 0 - 4294967295, default: 60000000)
 
@@ -67,6 +67,20 @@ Decreasing vice versa.
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
 Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time / (2 ^ burst_smoothness) into prev_burst_time. but this mixing occurs only when prev_burst_time increases. burst_smoothness=0 means no smoothening.
+
+### sched_burst_exclude_kthreads (range: 0 - 1, default: 1)
+
+1 BORE takes effect on non-kernel tasks.  
+0 BORE takes effect on non-kernel and kernel tasks.
+
+### sched_deadline_boost_mask (range: u32, default: ENQUEUE_INITIAL | ENQUEUE_WAKEUP)
+
+When a task is being enqueued with one of these flags, deadline is halved.
+
+### sched_deadline_preserve_mask (range: u32, default: ENQUEUE_RESTORE | ENQUEUE_MIGRATED)
+
+When a task is being enqueued with one of these flags, deadline is carried over as it was
+in the previous dequeue event.
 
 ## Special thanks
 
