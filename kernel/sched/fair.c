@@ -99,6 +99,7 @@ u8   __read_mostly sched_burst_exclude_kthreads = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
@@ -107,6 +108,7 @@ uint __read_mostly sched_deadline_boost_mask    = ENQUEUE_INITIAL
 uint __read_mostly sched_deadline_preserve_mask = ENQUEUE_RESTORE
                                                 | ENQUEUE_MIGRATED;
 static int __maybe_unused sixty_four     = 64;
+static int __maybe_unused maxval_u8      = 255;
 static int __maybe_unused maxval_12_bits = 4095;
 
 #define MAX_BURST_PENALTY (39U <<2)
@@ -333,6 +335,15 @@ static struct ctl_table sched_fair_sysctls[] = {
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_THREE,
+	},
+	{
+		.procname	= "sched_burst_parity_threshold",
+		.data		= &sched_burst_parity_threshold,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &maxval_u8,
 	},
 	{
 		.procname	= "sched_burst_penalty_offset",
@@ -1150,6 +1161,10 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 	 * until it gets a new slice. See the HACK in set_next_entity().
 	 */
 	if (sched_feat(RUN_TO_PARITY) && curr && curr->vlag == curr->deadline)
+#ifdef CONFIG_SCHED_BORE
+		if (unlikely(!sched_bore) || unlikely(!sched_burst_parity_threshold) ||
+			cfs_rq->nr_running <= sched_burst_parity_threshold)
+#endif // CONFIG_SCHED_BORE
 		return curr;
 
 	/* Pick the leftmost entity if it's eligible */
