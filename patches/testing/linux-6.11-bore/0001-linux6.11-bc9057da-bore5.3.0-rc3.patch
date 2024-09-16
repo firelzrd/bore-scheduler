@@ -1,7 +1,7 @@
-From d42e1c5371278b87dba5e8a5e3f8c415450e5d1a Mon Sep 17 00:00:00 2001
+From 06a898c955223b7b2ac62509ae5b612f891b1610 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 16 Sep 2024 19:52:08 +0900
-Subject: [PATCH] linux6.11-bc9057da-bore5.3.0-rc2
+Date: Mon, 16 Sep 2024 22:39:33 +0900
+Subject: [PATCH] 0001-linux6.11-bc9057da-bore5.3.0-rc3
 
 ---
  include/linux/sched.h |  10 ++
@@ -9,9 +9,9 @@ Subject: [PATCH] linux6.11-bc9057da-bore5.3.0-rc2
  kernel/Kconfig.hz     |  16 +++
  kernel/sched/core.c   | 141 ++++++++++++++++++++
  kernel/sched/debug.c  |  60 ++++++++-
- kernel/sched/fair.c   | 301 +++++++++++++++++++++++++++++++++++++++++-
+ kernel/sched/fair.c   | 300 +++++++++++++++++++++++++++++++++++++++++-
  kernel/sched/sched.h  |   7 +
- 7 files changed, 549 insertions(+), 3 deletions(-)
+ 7 files changed, 548 insertions(+), 3 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 57cf27a304..0544c7c606 100644
@@ -89,7 +89,7 @@ index 38ef6d0688..5f6eecd1e6 100644
  config SCHED_HRTICK
  	def_bool HIGH_RES_TIMERS
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index b4c5d83e54..540a82542f 100644
+index b4c5d83e54..3d93c4a8ff 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4377,6 +4377,136 @@ int wake_up_state(struct task_struct *p, unsigned int state)
@@ -255,7 +255,7 @@ index b4c5d83e54..540a82542f 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.3.0-rc2 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.3.0-rc3 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -369,7 +369,7 @@ index de1dc5264b..a7a6762b20 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 922d690316..dd0c6ca78b 100644
+index 922d690316..73fd17fa23 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -19,6 +19,9 @@
@@ -544,7 +544,7 @@ index 922d690316..dd0c6ca78b 100644
 +	write_unlock_irq(&tasklist_lock);
 +}
 +
-+int sched_bore_update_handler(struct ctl_table *table, int write,
++int sched_bore_update_handler(const struct ctl_table *table, int write,
 +		void __user *buffer, size_t *lenp, loff_t *ppos) {
 +	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 +	if (ret || !write)
@@ -748,15 +748,7 @@ index 922d690316..dd0c6ca78b 100644
  	if (sched_feat(PLACE_DEADLINE_INITIAL) && (flags & ENQUEUE_INITIAL))
  		vslice /= 2;
  
-@@ -7070,6 +7346,7 @@ static void set_next_buddy(struct sched_entity *se);
-  */
- static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
- {
-+	struct cfs_rq *cfs_rq;
- 	bool was_sched_idle = sched_idle_rq(rq);
- 	int rq_h_nr_running = rq->cfs.h_nr_running;
- 	bool task_sleep = flags & DEQUEUE_SLEEP;
-@@ -7084,6 +7361,14 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
+@@ -7084,6 +7360,14 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
  		p = task_of(se);
  		h_nr_running = 1;
  		idle_h_nr_running = task_has_idle_policy(p);
@@ -771,7 +763,7 @@ index 922d690316..dd0c6ca78b 100644
  	} else {
  		cfs_rq = group_cfs_rq(se);
  		slice = cfs_rq_min_slice(cfs_rq);
-@@ -8993,16 +9278,25 @@ static void yield_task_fair(struct rq *rq)
+@@ -8993,16 +9277,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -797,12 +789,12 @@ index 922d690316..dd0c6ca78b 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -13065,6 +13359,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
+@@ -13065,6 +13358,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
  static void task_fork_fair(struct task_struct *p)
  {
  	set_task_max_allowed_capacity(p);
 +#ifdef CONFIG_SCHED_BORE
-+	update_burst_score(se);
++	update_burst_score(&p->se);
 +#endif // CONFIG_SCHED_BORE
  }
  
