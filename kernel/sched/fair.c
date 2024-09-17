@@ -124,7 +124,7 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 	
 	greed = log2plus1_u64_u32f8(burst_time);
 	tolerance = sched_burst_penalty_offset << 8;
-	penalty = max(0, (s32)greed - (s32)tolerance);
+	penalty = max(0, (s32)(greed - tolerance));
 	scaled_penalty = penalty * sched_burst_penalty_scale >> 16;
 
 	return min(MAX_BURST_PENALTY, scaled_penalty);
