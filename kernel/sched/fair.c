@@ -225,7 +225,7 @@ static void reset_task_weights_bore(void) {
 	write_unlock_irq(&tasklist_lock);
 }
 
-int sched_bore_update_handler(struct ctl_table *table, int write,
+static int sched_bore_update_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp, loff_t *ppos) {
 	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
