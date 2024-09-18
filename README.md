@@ -12,7 +12,7 @@ Consequently, in systems experiencing diverse types of loads, BORE prioritizes t
 
 ## Demo
 
-https://youtu.be/vbs4zj79tfo
+https://youtu.be/kKumW_qH4a0
 
 ## How it works
 
