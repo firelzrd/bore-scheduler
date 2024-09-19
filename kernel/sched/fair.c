@@ -113,8 +113,6 @@ uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
 uint __read_mostly sched_deadline_boost_mask    = ENQUEUE_INITIAL
                                                 | ENQUEUE_WAKEUP;
-uint __read_mostly sched_deadline_preserve_mask = ENQUEUE_RESTORE
-                                                | ENQUEUE_MIGRATED;
 static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_u8      = 255;
 static int __maybe_unused maxval_12_bits = 4095;
@@ -387,13 +385,6 @@ static struct ctl_table sched_fair_sysctls[] = {
 	{
 		.procname	= "sched_deadline_boost_mask",
 		.data		= &sched_deadline_boost_mask,
-		.maxlen		= sizeof(uint),
-		.mode		= 0644,
-		.proc_handler = proc_douintvec,
-	},
-	{
-		.procname	= "sched_deadline_preserve_mask",
-		.data		= &sched_deadline_preserve_mask,
 		.maxlen		= sizeof(uint),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec,
@@ -5456,12 +5447,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	s64 lag = 0;
 
 	se->slice = sysctl_sched_base_slice;
-#ifdef CONFIG_SCHED_BORE
-	if (likely(sched_bore) &&
-		(flags & ~sched_deadline_boost_mask & sched_deadline_preserve_mask))
-		vslice = se->deadline - se->vruntime;
-	else
-#endif // CONFIG_SCHED_BORE
 	vslice = calc_delta_fair(se->slice, se);
 
 	/*
