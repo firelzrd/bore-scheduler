@@ -73,14 +73,15 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 1 BORE takes effect on non-kernel tasks.  
 0 BORE takes effect on non-kernel and kernel tasks.
 
+### sched_burst_parity_threshold (range: u8, default: 2)
+
+The `RUN_TO_PARITY` sched feature flag is benefitial for throughput for slightly less responsiveness in trade-off, but it rapidly loses its advantage as task count in runqueue increases. Thus, instead of consistently take either behavior, an adaptive method is favorable.  
+When set to 0, BORE simply obeys `RUN_TO_PARITY`.  
+When set to greater than zero, `RUN_TO_PARITY` is adaptively disabled if there're more tasks than this value in a CFQ runqueue.
+
 ### sched_deadline_boost_mask (range: u32, default: ENQUEUE_INITIAL | ENQUEUE_WAKEUP)
 
 When a task is being enqueued with one of these flags, deadline is halved.
-
-### sched_deadline_preserve_mask (range: u32, default: ENQUEUE_RESTORE | ENQUEUE_MIGRATED)
-
-When a task is being enqueued with one of these flags, deadline is carried over as it was
-in the previous dequeue event.
 
 ## Special thanks
 
