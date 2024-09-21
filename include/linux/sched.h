@@ -555,8 +555,10 @@ struct sched_entity {
 	u8				burst_penalty;
 	u8				burst_score;
 	u8				child_burst;
+	u8				tg_burst;
 	u32				child_burst_cnt;
 	u64				child_burst_last_cached;
+	u64				tg_burst_last_cached;
 #endif // CONFIG_SCHED_BORE
 	s64				vlag;
 	u64				slice;
