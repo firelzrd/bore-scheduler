@@ -23,7 +23,7 @@ extern void update_burst_penalty(struct sched_entity *se);
 extern void restart_burst(struct sched_entity *se);
 extern void restart_burst_rescale_deadline(struct sched_entity *se);
 
-extern int sched_bore_update_handler(struct ctl_table *table, int write,
+extern int sched_bore_update_handler(const struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp, loff_t *ppos);
 
 extern void sched_clone_bore(
