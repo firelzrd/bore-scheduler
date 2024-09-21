@@ -2112,6 +2112,7 @@ static void amdgpu_ras_interrupt_umc_handler(struct ras_manager *obj,
 	/* Let IP handle its data, maybe we need get the output
 	 * from the callback to update the error type/count, etc
 	 */
+	amdgpu_ras_set_fed(obj->adev, true);
 	ret = data->cb(obj->adev, &err_data, entry);
 	/* ue will trigger an interrupt, and in that case
 	 * we need do a reset to recovery the whole system.
@@ -2172,11 +2173,14 @@ static void amdgpu_ras_interrupt_process_handler(struct work_struct *work)
 int amdgpu_ras_interrupt_dispatch(struct amdgpu_device *adev,
 		struct ras_dispatch_if *info)
 {
-	struct ras_manager *obj = amdgpu_ras_find_obj(adev, &info->head);
-	struct ras_ih_data *data = &obj->ih_data;
+	struct ras_manager *obj;
+	struct ras_ih_data *data;
 
+	obj = amdgpu_ras_find_obj(adev, &info->head);
 	if (!obj)
 		return -EINVAL;
+
+	data = &obj->ih_data;
 
 	if (data->inuse == 0)
 		return 0;
@@ -4500,4 +4504,22 @@ int amdgpu_ras_reserve_page(struct amdgpu_device *adev, uint64_t pfn)
 	mutex_unlock(&con->page_rsv_lock);
 
 	return ret;
+}
+
+void amdgpu_ras_event_log_print(struct amdgpu_device *adev, u64 event_id,
+				const char *fmt, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	va_start(args, fmt);
+	vaf.fmt = fmt;
+	vaf.va = &args;
+
+	if (amdgpu_ras_event_id_is_valid(adev, event_id))
+		dev_printk(KERN_INFO, adev->dev, "{%llu}%pV", event_id, &vaf);
+	else
+		dev_printk(KERN_INFO, adev->dev, "%pV", &vaf);
+
+	va_end(args);
 }

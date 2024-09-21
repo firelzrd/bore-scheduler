@@ -200,9 +200,10 @@ static int xe_hwmon_power_max_write(struct xe_hwmon *hwmon, int channel, long va
 				     PKG_PWR_LIM_1_EN, 0, channel);
 
 		if (reg_val & PKG_PWR_LIM_1_EN) {
+			drm_warn(&gt_to_xe(hwmon->gt)->drm, "PL1 disable is not supported!\n");
 			ret = -EOPNOTSUPP;
-			goto unlock;
 		}
+		goto unlock;
 	}
 
 	/* Computation in 64-bits to avoid overflow. Round to nearest. */
@@ -442,7 +443,7 @@ static int xe_hwmon_pcode_write_i1(struct xe_gt *gt, u32 uval)
 {
 	return xe_pcode_write(gt, PCODE_MBOX(PCODE_POWER_SETUP,
 			      POWER_SETUP_SUBCOMMAND_WRITE_I1, 0),
-			      uval);
+			      (uval & POWER_SETUP_I1_DATA_MASK));
 }
 
 static int xe_hwmon_power_curr_crit_read(struct xe_hwmon *hwmon, int channel,
@@ -550,12 +551,17 @@ xe_hwmon_curr_is_visible(const struct xe_hwmon *hwmon, u32 attr, int channel)
 {
 	u32 uval;
 
+	/* hwmon sysfs attribute of current available only for package */
+	if (channel != CHANNEL_PKG)
+		return 0;
+
 	switch (attr) {
 	case hwmon_curr_crit:
-	case hwmon_curr_label:
-		if (channel == CHANNEL_PKG)
 			return (xe_hwmon_pcode_read_i1(hwmon->gt, &uval) ||
 				(uval & POWER_SETUP_I1_WATTS)) ? 0 : 0644;
+	case hwmon_curr_label:
+			return (xe_hwmon_pcode_read_i1(hwmon->gt, &uval) ||
+				(uval & POWER_SETUP_I1_WATTS)) ? 0 : 0444;
 		break;
 	default:
 		return 0;

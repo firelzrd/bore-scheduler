@@ -254,7 +254,6 @@ struct cifs_open_info_data {
 struct smb_rqst {
 	struct kvec	*rq_iov;	/* array of kvecs */
 	unsigned int	rq_nvec;	/* number of kvecs in array */
-	size_t		rq_iter_size;	/* Amount of data in ->rq_iter */
 	struct iov_iter	rq_iter;	/* Data iterator */
 	struct xarray	rq_buffer;	/* Page buffer for encryption */
 };
@@ -290,7 +289,7 @@ struct smb_version_operations {
 	int (*check_receive)(struct mid_q_entry *, struct TCP_Server_Info *,
 			     bool);
 	void (*add_credits)(struct TCP_Server_Info *server,
-			    const struct cifs_credits *credits,
+			    struct cifs_credits *credits,
 			    const int optype);
 	void (*set_credits)(struct TCP_Server_Info *, const int);
 	int * (*get_credits_field)(struct TCP_Server_Info *, const int);
@@ -550,8 +549,8 @@ struct smb_version_operations {
 				size_t *, struct cifs_credits *);
 	/* adjust previously taken mtu credits to request size */
 	int (*adjust_credits)(struct TCP_Server_Info *server,
-			      struct cifs_credits *credits,
-			      const unsigned int payload_size);
+			      struct cifs_io_subrequest *subreq,
+			      unsigned int /*enum smb3_rw_credits_trace*/ trace);
 	/* check if we need to issue closedir */
 	bool (*dir_needs_close)(struct cifsFileInfo *);
 	long (*fallocate)(struct file *, struct cifs_tcon *, int, loff_t,
@@ -848,6 +847,9 @@ static inline void cifs_server_unlock(struct TCP_Server_Info *server)
 struct cifs_credits {
 	unsigned int value;
 	unsigned int instance;
+	unsigned int in_flight_check;
+	unsigned int rreq_debug_id;
+	unsigned int rreq_debug_index;
 };
 
 static inline unsigned int
@@ -873,7 +875,7 @@ has_credits(struct TCP_Server_Info *server, int *credits, int num_credits)
 }
 
 static inline void
-add_credits(struct TCP_Server_Info *server, const struct cifs_credits *credits,
+add_credits(struct TCP_Server_Info *server, struct cifs_credits *credits,
 	    const int optype)
 {
 	server->ops->add_credits(server, credits, optype);
@@ -897,11 +899,11 @@ set_credits(struct TCP_Server_Info *server, const int val)
 }
 
 static inline int
-adjust_credits(struct TCP_Server_Info *server, struct cifs_credits *credits,
-	       const unsigned int payload_size)
+adjust_credits(struct TCP_Server_Info *server, struct cifs_io_subrequest *subreq,
+	       unsigned int /* enum smb3_rw_credits_trace */ trace)
 {
 	return server->ops->adjust_credits ?
-		server->ops->adjust_credits(server, credits, payload_size) : 0;
+		server->ops->adjust_credits(server, subreq, trace) : 0;
 }
 
 static inline __le64
@@ -1506,6 +1508,7 @@ struct cifs_io_subrequest {
 		struct cifs_io_request *req;
 	};
 	ssize_t				got_bytes;
+	size_t				actual_len;
 	unsigned int			xid;
 	int				result;
 	bool				have_xid;
@@ -1901,7 +1904,7 @@ static inline bool is_replayable_error(int error)
 #define   CIFSSEC_MAY_SIGN	0x00001
 #define   CIFSSEC_MAY_NTLMV2	0x00004
 #define   CIFSSEC_MAY_KRB5	0x00008
-#define   CIFSSEC_MAY_SEAL	0x00040 /* not supported yet */
+#define   CIFSSEC_MAY_SEAL	0x00040
 #define   CIFSSEC_MAY_NTLMSSP	0x00080 /* raw ntlmssp with ntlmv2 */
 
 #define   CIFSSEC_MUST_SIGN	0x01001
@@ -1911,11 +1914,11 @@ require use of the stronger protocol */
 #define   CIFSSEC_MUST_NTLMV2	0x04004
 #define   CIFSSEC_MUST_KRB5	0x08008
 #ifdef CONFIG_CIFS_UPCALL
-#define   CIFSSEC_MASK          0x8F08F /* flags supported if no weak allowed */
+#define   CIFSSEC_MASK          0xCF0CF /* flags supported if no weak allowed */
 #else
-#define	  CIFSSEC_MASK          0x87087 /* flags supported if no weak allowed */
+#define	  CIFSSEC_MASK          0xC70C7 /* flags supported if no weak allowed */
 #endif /* UPCALL */
-#define   CIFSSEC_MUST_SEAL	0x40040 /* not supported yet */
+#define   CIFSSEC_MUST_SEAL	0x40040
 #define   CIFSSEC_MUST_NTLMSSP	0x80080 /* raw ntlmssp with ntlmv2 */
 
 #define   CIFSSEC_DEF (CIFSSEC_MAY_SIGN | CIFSSEC_MAY_NTLMV2 | CIFSSEC_MAY_NTLMSSP | CIFSSEC_MAY_SEAL)

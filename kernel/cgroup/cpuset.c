@@ -224,6 +224,13 @@ static cpumask_var_t	isolated_cpus;
 static struct list_head remote_children;
 
 /*
+ * A flag to force sched domain rebuild at the end of an operation while
+ * inhibiting it in the intermediate stages when set. Currently it is only
+ * set in hotplug code.
+ */
+static bool force_sd_rebuild;
+
+/*
  * Partition root states:
  *
  *   0 - member (not a partition root)
@@ -826,17 +833,41 @@ static int validate_change(struct cpuset *cur, struct cpuset *trial)
 
 	/*
 	 * If either I or some sibling (!= me) is exclusive, we can't
-	 * overlap
+	 * overlap. exclusive_cpus cannot overlap with each other if set.
 	 */
 	ret = -EINVAL;
 	cpuset_for_each_child(c, css, par) {
-		if ((is_cpu_exclusive(trial) || is_cpu_exclusive(c)) &&
-		    c != cur) {
+		bool txset, cxset;	/* Are exclusive_cpus set? */
+
+		if (c == cur)
+			continue;
+
+		txset = !cpumask_empty(trial->exclusive_cpus);
+		cxset = !cpumask_empty(c->exclusive_cpus);
+		if (is_cpu_exclusive(trial) || is_cpu_exclusive(c) ||
+		    (txset && cxset)) {
 			if (!cpusets_are_exclusive(trial, c))
+				goto out;
+		} else if (txset || cxset) {
+			struct cpumask *xcpus, *acpus;
+
+			/*
+			 * When just one of the exclusive_cpus's is set,
+			 * cpus_allowed of the other cpuset, if set, cannot be
+			 * a subset of it or none of those CPUs will be
+			 * available if these exclusive CPUs are activated.
+			 */
+			if (txset) {
+				xcpus = trial->exclusive_cpus;
+				acpus = c->cpus_allowed;
+			} else {
+				xcpus = c->exclusive_cpus;
+				acpus = trial->cpus_allowed;
+			}
+			if (!cpumask_empty(acpus) && cpumask_subset(acpus, xcpus))
 				goto out;
 		}
 		if ((is_mem_exclusive(trial) || is_mem_exclusive(c)) &&
-		    c != cur &&
 		    nodes_intersects(trial->mems_allowed, c->mems_allowed))
 			goto out;
 	}
@@ -1376,7 +1407,7 @@ static void update_sibling_cpumasks(struct cpuset *parent, struct cpuset *cs,
  */
 static int update_partition_exclusive(struct cpuset *cs, int new_prs)
 {
-	bool exclusive = (new_prs > 0);
+	bool exclusive = (new_prs > PRS_MEMBER);
 
 	if (exclusive && !is_cpu_exclusive(cs)) {
 		if (update_flag(CS_CPU_EXCLUSIVE, cs, 1))
@@ -1418,7 +1449,7 @@ static void update_partition_sd_lb(struct cpuset *cs, int old_prs)
 			clear_bit(CS_SCHED_LOAD_BALANCE, &cs->flags);
 	}
 
-	if (rebuild_domains)
+	if (rebuild_domains && !force_sd_rebuild)
 		rebuild_sched_domains_locked();
 }
 
@@ -1781,7 +1812,7 @@ static void remote_partition_check(struct cpuset *cs, struct cpumask *newmask,
 			remote_partition_disable(child, tmp);
 			disable_cnt++;
 		}
-	if (disable_cnt)
+	if (disable_cnt && !force_sd_rebuild)
 		rebuild_sched_domains_locked();
 }
 
@@ -1940,6 +1971,8 @@ static int update_parent_effective_cpumask(struct cpuset *cs, int cmd,
 			part_error = PERR_CPUSEMPTY;
 			goto write_error;
 		}
+		/* Check newmask again, whether cpus are available for parent/cs */
+		nocpu |= tasks_nocpu_error(parent, cs, newmask);
 
 		/*
 		 * partcmd_update with newmask:
@@ -2389,7 +2422,8 @@ get_css:
 	}
 	rcu_read_unlock();
 
-	if (need_rebuild_sched_domains && !(flags & HIER_NO_SD_REBUILD))
+	if (need_rebuild_sched_domains && !(flags & HIER_NO_SD_REBUILD) &&
+	    !force_sd_rebuild)
 		rebuild_sched_domains_locked();
 }
 
@@ -2472,7 +2506,8 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 	 */
 	if (!*buf) {
 		cpumask_clear(trialcs->cpus_allowed);
-		cpumask_clear(trialcs->effective_xcpus);
+		if (cpumask_empty(trialcs->exclusive_cpus))
+			cpumask_clear(trialcs->effective_xcpus);
 	} else {
 		retval = cpulist_parse(buf, trialcs->cpus_allowed);
 		if (retval < 0)
@@ -2621,8 +2656,6 @@ static int update_exclusive_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 		retval = cpulist_parse(buf, trialcs->exclusive_cpus);
 		if (retval < 0)
 			return retval;
-		if (!is_cpu_exclusive(cs))
-			set_bit(CS_CPU_EXCLUSIVE, &trialcs->flags);
 	}
 
 	/* Nothing to do if the CPUs didn't change */
@@ -3052,7 +3085,8 @@ static int update_flag(cpuset_flagbits_t bit, struct cpuset *cs,
 	cs->flags = trialcs->flags;
 	spin_unlock_irq(&callback_lock);
 
-	if (!cpumask_empty(trialcs->cpus_allowed) && balance_flag_changed)
+	if (!cpumask_empty(trialcs->cpus_allowed) && balance_flag_changed &&
+	    !force_sd_rebuild)
 		rebuild_sched_domains_locked();
 
 	if (spread_flag_changed)
@@ -4453,11 +4487,9 @@ hotplug_update_tasks(struct cpuset *cs,
 		update_tasks_nodemask(cs);
 }
 
-static bool force_rebuild;
-
 void cpuset_force_rebuild(void)
 {
-	force_rebuild = true;
+	force_sd_rebuild = true;
 }
 
 /**
@@ -4605,15 +4637,9 @@ static void cpuset_handle_hotplug(void)
 		       !cpumask_empty(subpartitions_cpus);
 	mems_updated = !nodes_equal(top_cpuset.effective_mems, new_mems);
 
-	/*
-	 * In the rare case that hotplug removes all the cpus in
-	 * subpartitions_cpus, we assumed that cpus are updated.
-	 */
-	if (!cpus_updated && !cpumask_empty(subpartitions_cpus))
-		cpus_updated = true;
-
 	/* For v1, synchronize cpus_allowed to cpu_active_mask */
 	if (cpus_updated) {
+		cpuset_force_rebuild();
 		spin_lock_irq(&callback_lock);
 		if (!on_dfl)
 			cpumask_copy(top_cpuset.cpus_allowed, &new_cpus);
@@ -4669,8 +4695,8 @@ static void cpuset_handle_hotplug(void)
 	}
 
 	/* rebuild sched domains if cpus_allowed has changed */
-	if (cpus_updated || force_rebuild) {
-		force_rebuild = false;
+	if (force_sd_rebuild) {
+		force_sd_rebuild = false;
 		rebuild_sched_domains_cpuslocked();
 	}
 

@@ -1420,6 +1420,13 @@ static noinline_for_stack int __extent_writepage_io(struct btrfs_inode *inode,
 		free_extent_map(em);
 		em = NULL;
 
+		/*
+		 * Although the PageDirty bit might be cleared before entering
+		 * this function, subpage dirty bit is not cleared.
+		 * So clear subpage dirty bit here so next time we won't submit
+		 * page for range already written to disk.
+		 */
+		btrfs_folio_clear_dirty(fs_info, page_folio(page), cur, iosize);
 		btrfs_set_range_writeback(inode, cur, cur + iosize - 1);
 		if (!PageWriteback(page)) {
 			btrfs_err(inode->root->fs_info,
@@ -1427,13 +1434,6 @@ static noinline_for_stack int __extent_writepage_io(struct btrfs_inode *inode,
 			       page->index, cur, end);
 		}
 
-		/*
-		 * Although the PageDirty bit is cleared before entering this
-		 * function, subpage dirty bit is not cleared.
-		 * So clear subpage dirty bit here so next time we won't submit
-		 * page for range already written to disk.
-		 */
-		btrfs_folio_clear_dirty(fs_info, page_folio(page), cur, iosize);
 
 		submit_extent_page(bio_ctrl, disk_bytenr, page, iosize,
 				   cur - page_offset(page));
@@ -2246,10 +2246,8 @@ void extent_write_locked_range(struct inode *inode, struct page *locked_page,
 
 		page = find_get_page(mapping, cur >> PAGE_SHIFT);
 		ASSERT(PageLocked(page));
-		if (pages_dirty && page != locked_page) {
+		if (pages_dirty && page != locked_page)
 			ASSERT(PageDirty(page));
-			clear_page_dirty_for_io(page);
-		}
 
 		ret = __extent_writepage_io(BTRFS_I(inode), page, &bio_ctrl,
 					    i_size, &nr);

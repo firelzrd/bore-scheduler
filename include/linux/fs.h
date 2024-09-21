@@ -208,6 +208,7 @@ typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 #define ATTR_OPEN	(1 << 15) /* Truncating from open(O_TRUNC) */
 #define ATTR_TIMES_SET	(1 << 16)
 #define ATTR_TOUCH	(1 << 17)
+#define ATTR_DELEG	(1 << 18) /* Delegated attrs. Don't break write delegations */
 
 /*
  * Whiteout is represented by a char device.  The following constants define the
@@ -629,6 +630,7 @@ struct inode {
 	umode_t			i_mode;
 	unsigned short		i_opflags;
 	kuid_t			i_uid;
+	struct list_head	i_lru;		/* inode LRU list */
 	kgid_t			i_gid;
 	unsigned int		i_flags;
 
@@ -690,7 +692,6 @@ struct inode {
 	u16			i_wb_frn_avg_time;
 	u16			i_wb_frn_history;
 #endif
-	struct list_head	i_lru;		/* inode LRU list */
 	struct list_head	i_sb_list;
 	struct list_head	i_wb_list;	/* backing dev writeback list */
 	union {
@@ -2370,6 +2371,9 @@ static inline void kiocb_clone(struct kiocb *kiocb, struct kiocb *kiocb_src,
  *
  * I_PINNING_FSCACHE_WB	Inode is pinning an fscache object for writeback.
  *
+ * I_LRU_ISOLATING	Inode is pinned being isolated from LRU without holding
+ *			i_count.
+ *
  * Q: What is the difference between I_WILL_FREE and I_FREEING?
  */
 #define I_DIRTY_SYNC		(1 << 0)
@@ -2393,6 +2397,8 @@ static inline void kiocb_clone(struct kiocb *kiocb, struct kiocb *kiocb_src,
 #define I_DONTCACHE		(1 << 16)
 #define I_SYNC_QUEUED		(1 << 17)
 #define I_PINNING_NETFS_WB	(1 << 18)
+#define __I_LRU_ISOLATING	19
+#define I_LRU_ISOLATING		(1 << __I_LRU_ISOLATING)
 
 #define I_DIRTY_INODE (I_DIRTY_SYNC | I_DIRTY_DATASYNC)
 #define I_DIRTY (I_DIRTY_INODE | I_DIRTY_PAGES)

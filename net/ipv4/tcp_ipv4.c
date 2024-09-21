@@ -95,6 +95,8 @@ EXPORT_SYMBOL(tcp_hashinfo);
 
 static DEFINE_PER_CPU(struct sock *, ipv4_tcp_sk);
 
+static DEFINE_MUTEX(tcp_exit_batch_mutex);
+
 static u32 tcp_v4_init_seq(const struct sk_buff *skb)
 {
 	return secure_tcp_seq(ip_hdr(skb)->daddr,
@@ -114,6 +116,7 @@ int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
 	const struct inet_timewait_sock *tw = inet_twsk(sktw);
 	const struct tcp_timewait_sock *tcptw = tcp_twsk(sktw);
 	struct tcp_sock *tp = tcp_sk(sk);
+	int ts_recent_stamp;
 
 	if (reuse == 2) {
 		/* Still does not detect *everything* that goes through
@@ -152,10 +155,11 @@ int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
 	   If TW bucket has been already destroyed we fall back to VJ's scheme
 	   and use initial timestamp retrieved from peer table.
 	 */
-	if (tcptw->tw_ts_recent_stamp &&
+	ts_recent_stamp = READ_ONCE(tcptw->tw_ts_recent_stamp);
+	if (ts_recent_stamp &&
 	    (!twp || (reuse && time_after32(ktime_get_seconds(),
-					    tcptw->tw_ts_recent_stamp)))) {
-		/* inet_twsk_hashdance() sets sk_refcnt after putting twsk
+					    ts_recent_stamp)))) {
+		/* inet_twsk_hashdance_schedule() sets sk_refcnt after putting twsk
 		 * and releasing the bucket lock.
 		 */
 		if (unlikely(!refcount_inc_not_zero(&sktw->sk_refcnt)))
@@ -178,8 +182,8 @@ int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
 			if (!seq)
 				seq = 1;
 			WRITE_ONCE(tp->write_seq, seq);
-			tp->rx_opt.ts_recent	   = tcptw->tw_ts_recent;
-			tp->rx_opt.ts_recent_stamp = tcptw->tw_ts_recent_stamp;
+			tp->rx_opt.ts_recent	   = READ_ONCE(tcptw->tw_ts_recent);
+			tp->rx_opt.ts_recent_stamp = ts_recent_stamp;
 		}
 
 		return 1;
@@ -1064,7 +1068,7 @@ static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
 			tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
 			tcptw->tw_rcv_wnd >> tw->tw_rcv_wscale,
 			tcp_tw_tsval(tcptw),
-			tcptw->tw_ts_recent,
+			READ_ONCE(tcptw->tw_ts_recent),
 			tw->tw_bound_dev_if, &key,
 			tw->tw_transparent ? IP_REPLY_ARG_NOSRCCHECK : 0,
 			tw->tw_tos,
@@ -3509,6 +3513,16 @@ static void __net_exit tcp_sk_exit_batch(struct list_head *net_exit_list)
 {
 	struct net *net;
 
+	/* make sure concurrent calls to tcp_sk_exit_batch from net_cleanup_work
+	 * and failed setup_net error unwinding path are serialized.
+	 *
+	 * tcp_twsk_purge() handles twsk in any dead netns, not just those in
+	 * net_exit_list, the thread that dismantles a particular twsk must
+	 * do so without other thread progressing to refcount_dec_and_test() of
+	 * tcp_death_row.tw_refcount.
+	 */
+	mutex_lock(&tcp_exit_batch_mutex);
+
 	tcp_twsk_purge(net_exit_list);
 
 	list_for_each_entry(net, net_exit_list, exit_list) {
@@ -3516,6 +3530,8 @@ static void __net_exit tcp_sk_exit_batch(struct list_head *net_exit_list)
 		WARN_ON_ONCE(!refcount_dec_and_test(&net->ipv4.tcp_death_row.tw_refcount));
 		tcp_fastopen_ctx_destroy(net);
 	}
+
+	mutex_unlock(&tcp_exit_batch_mutex);
 }
 
 static struct pernet_operations __net_initdata tcp_sk_ops = {

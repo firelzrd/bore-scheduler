@@ -28,6 +28,7 @@
 #include <drm/drm_blend.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_fourcc.h>
 
 #include "amdgpu.h"
@@ -854,10 +855,14 @@ static int amdgpu_dm_plane_helper_prepare_fb(struct drm_plane *plane,
 	}
 
 	afb = to_amdgpu_framebuffer(new_state->fb);
-	obj = new_state->fb->obj[0];
+	obj = drm_gem_fb_get_obj(new_state->fb, 0);
+	if (!obj) {
+		DRM_ERROR("Failed to get obj from framebuffer\n");
+		return -EINVAL;
+	}
+
 	rbo = gem_to_amdgpu_bo(obj);
 	adev = amdgpu_ttm_adev(rbo->tbo.bdev);
-
 	r = amdgpu_bo_reserve(rbo, true);
 	if (r) {
 		dev_err(adev->dev, "fail to reserve bo (%d)\n", r);
@@ -1254,7 +1259,7 @@ void amdgpu_dm_plane_handle_cursor_update(struct drm_plane *plane,
 		/* turn off cursor */
 		if (crtc_state && crtc_state->stream) {
 			mutex_lock(&adev->dm.dc_lock);
-			dc_stream_set_cursor_position(crtc_state->stream,
+			dc_stream_program_cursor_position(crtc_state->stream,
 						      &position);
 			mutex_unlock(&adev->dm.dc_lock);
 		}
@@ -1284,11 +1289,11 @@ void amdgpu_dm_plane_handle_cursor_update(struct drm_plane *plane,
 
 	if (crtc_state->stream) {
 		mutex_lock(&adev->dm.dc_lock);
-		if (!dc_stream_set_cursor_attributes(crtc_state->stream,
+		if (!dc_stream_program_cursor_attributes(crtc_state->stream,
 							 &attributes))
 			DRM_ERROR("DC failed to set cursor attributes\n");
 
-		if (!dc_stream_set_cursor_position(crtc_state->stream,
+		if (!dc_stream_program_cursor_position(crtc_state->stream,
 						   &position))
 			DRM_ERROR("DC failed to set cursor position\n");
 		mutex_unlock(&adev->dm.dc_lock);
@@ -1395,8 +1400,6 @@ static bool amdgpu_dm_plane_format_mod_supported(struct drm_plane *plane,
 	const struct drm_format_info *info = drm_format_info(format);
 	int i;
 
-	enum dm_micro_swizzle microtile = amdgpu_dm_plane_modifier_gfx9_swizzle_mode(modifier) & 3;
-
 	if (!info)
 		return false;
 
@@ -1418,29 +1421,34 @@ static bool amdgpu_dm_plane_format_mod_supported(struct drm_plane *plane,
 	if (i == plane->modifier_count)
 		return false;
 
-	/*
-	 * For D swizzle the canonical modifier depends on the bpp, so check
-	 * it here.
-	 */
-	if (AMD_FMT_MOD_GET(TILE_VERSION, modifier) == AMD_FMT_MOD_TILE_VER_GFX9 &&
-	    adev->family >= AMDGPU_FAMILY_NV) {
-		if (microtile == MICRO_SWIZZLE_D && info->cpp[0] == 4)
-			return false;
-	}
+	/* GFX12 doesn't have these limitations. */
+	if (AMD_FMT_MOD_GET(TILE_VERSION, modifier) <= AMD_FMT_MOD_TILE_VER_GFX11) {
+		enum dm_micro_swizzle microtile = amdgpu_dm_plane_modifier_gfx9_swizzle_mode(modifier) & 3;
 
-	if (adev->family >= AMDGPU_FAMILY_RV && microtile == MICRO_SWIZZLE_D &&
-	    info->cpp[0] < 8)
-		return false;
-
-	if (amdgpu_dm_plane_modifier_has_dcc(modifier)) {
-		/* Per radeonsi comments 16/64 bpp are more complicated. */
-		if (info->cpp[0] != 4)
-			return false;
-		/* We support multi-planar formats, but not when combined with
-		 * additional DCC metadata planes.
+		/*
+		 * For D swizzle the canonical modifier depends on the bpp, so check
+		 * it here.
 		 */
-		if (info->num_planes > 1)
+		if (AMD_FMT_MOD_GET(TILE_VERSION, modifier) == AMD_FMT_MOD_TILE_VER_GFX9 &&
+		    adev->family >= AMDGPU_FAMILY_NV) {
+			if (microtile == MICRO_SWIZZLE_D && info->cpp[0] == 4)
+				return false;
+		}
+
+		if (adev->family >= AMDGPU_FAMILY_RV && microtile == MICRO_SWIZZLE_D &&
+		    info->cpp[0] < 8)
 			return false;
+
+		if (amdgpu_dm_plane_modifier_has_dcc(modifier)) {
+			/* Per radeonsi comments 16/64 bpp are more complicated. */
+			if (info->cpp[0] != 4)
+				return false;
+			/* We support multi-planar formats, but not when combined with
+			 * additional DCC metadata planes.
+			 */
+			if (info->num_planes > 1)
+				return false;
+		}
 	}
 
 	return true;

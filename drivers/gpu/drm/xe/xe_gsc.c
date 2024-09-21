@@ -256,7 +256,7 @@ static int gsc_upload_and_init(struct xe_gsc *gsc)
 	struct xe_tile *tile = gt_to_tile(gt);
 	int ret;
 
-	if (XE_WA(gt, 14018094691)) {
+	if (XE_WA(tile->primary_gt, 14018094691)) {
 		ret = xe_force_wake_get(gt_to_fw(tile->primary_gt), XE_FORCEWAKE_ALL);
 
 		/*
@@ -274,7 +274,7 @@ static int gsc_upload_and_init(struct xe_gsc *gsc)
 
 	ret = gsc_upload(gsc);
 
-	if (XE_WA(gt, 14018094691))
+	if (XE_WA(tile->primary_gt, 14018094691))
 		xe_force_wake_put(gt_to_fw(tile->primary_gt), XE_FORCEWAKE_ALL);
 
 	if (ret)
@@ -511,8 +511,20 @@ out_bo:
 void xe_gsc_load_start(struct xe_gsc *gsc)
 {
 	struct xe_gt *gt = gsc_to_gt(gsc);
+	struct xe_device *xe = gt_to_xe(gt);
 
 	if (!xe_uc_fw_is_loadable(&gsc->fw) || !gsc->q)
+		return;
+
+	/*
+	 * The GSC HW is only reset by driver FLR or D3cold entry. We don't
+	 * support the former at runtime, while the latter is only supported on
+	 * DGFX, for which we don't support GSC. Therefore, if GSC failed to
+	 * load previously there is no need to try again because the HW is
+	 * stuck in the error state.
+	 */
+	xe_assert(xe, !IS_DGFX(xe));
+	if (xe_uc_fw_is_in_error_state(&gsc->fw))
 		return;
 
 	/* GSC FW survives GT reset and D3Hot */

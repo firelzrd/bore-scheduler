@@ -103,16 +103,6 @@ struct xe_exec_queue {
 		struct xe_guc_exec_queue *guc;
 	};
 
-	/**
-	 * @parallel: parallel submission state
-	 */
-	struct {
-		/** @parallel.composite_fence_ctx: context composite fence */
-		u64 composite_fence_ctx;
-		/** @parallel.composite_fence_seqno: seqno for composite fence */
-		u32 composite_fence_seqno;
-	} parallel;
-
 	/** @sched_props: scheduling properties */
 	struct {
 		/** @sched_props.timeslice_us: timeslice period in micro-seconds */
@@ -125,19 +115,17 @@ struct xe_exec_queue {
 		enum xe_exec_queue_priority priority;
 	} sched_props;
 
-	/** @compute: compute exec queue state */
+	/** @lr: long-running exec queue state */
 	struct {
-		/** @compute.pfence: preemption fence */
+		/** @lr.pfence: preemption fence */
 		struct dma_fence *pfence;
-		/** @compute.context: preemption fence context */
+		/** @lr.context: preemption fence context */
 		u64 context;
-		/** @compute.seqno: preemption fence seqno */
+		/** @lr.seqno: preemption fence seqno */
 		u32 seqno;
-		/** @compute.link: link into VM's list of exec queues */
+		/** @lr.link: link into VM's list of exec queues */
 		struct list_head link;
-		/** @compute.lock: preemption fences lock */
-		spinlock_t lock;
-	} compute;
+	} lr;
 
 	/** @ops: submission backend exec queue operations */
 	const struct xe_exec_queue_ops *ops;

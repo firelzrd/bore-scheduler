@@ -288,6 +288,7 @@ static void dcn10_log_color_state(struct dc *dc,
 {
 	struct dc_context *dc_ctx = dc->ctx;
 	struct resource_pool *pool = dc->res_pool;
+	bool is_gamut_remap_available = false;
 	int i;
 
 	DTN_INFO("DPP:    IGAM format    IGAM mode    DGAM mode    RGAM mode"
@@ -300,16 +301,15 @@ static void dcn10_log_color_state(struct dc *dc,
 		struct dcn_dpp_state s = {0};
 
 		dpp->funcs->dpp_read_state(dpp, &s);
-		dpp->funcs->dpp_get_gamut_remap(dpp, &s.gamut_remap);
+		if (dpp->funcs->dpp_get_gamut_remap) {
+			dpp->funcs->dpp_get_gamut_remap(dpp, &s.gamut_remap);
+			is_gamut_remap_available = true;
+		}
 
 		if (!s.is_enabled)
 			continue;
 
-		DTN_INFO("[%2d]:  %11xh  %11s    %9s    %9s"
-			 "  %12s  "
-			 "%010lld %010lld %010lld %010lld "
-			 "%010lld %010lld %010lld %010lld "
-			 "%010lld %010lld %010lld %010lld",
+		DTN_INFO("[%2d]:  %11xh  %11s    %9s    %9s",
 				dpp->inst,
 				s.igam_input_format,
 				(s.igam_lut_mode == 0) ? "BypassFixed" :
@@ -328,22 +328,27 @@ static void dcn10_log_color_state(struct dc *dc,
 					((s.rgam_lut_mode == 2) ? "Ycc" :
 					((s.rgam_lut_mode == 3) ? "RAM" :
 					((s.rgam_lut_mode == 4) ? "RAM" :
-								 "Unknown")))),
-				(s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
-					((s.gamut_remap.gamut_adjust_type == 1) ? "HW" :
-										  "SW"),
-				s.gamut_remap.temperature_matrix[0].value,
-				s.gamut_remap.temperature_matrix[1].value,
-				s.gamut_remap.temperature_matrix[2].value,
-				s.gamut_remap.temperature_matrix[3].value,
-				s.gamut_remap.temperature_matrix[4].value,
-				s.gamut_remap.temperature_matrix[5].value,
-				s.gamut_remap.temperature_matrix[6].value,
-				s.gamut_remap.temperature_matrix[7].value,
-				s.gamut_remap.temperature_matrix[8].value,
-				s.gamut_remap.temperature_matrix[9].value,
-				s.gamut_remap.temperature_matrix[10].value,
-				s.gamut_remap.temperature_matrix[11].value);
+								 "Unknown")))));
+		if (is_gamut_remap_available)
+			DTN_INFO("  %12s  "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld "
+				 "%010lld %010lld %010lld %010lld",
+				 (s.gamut_remap.gamut_adjust_type == 0) ? "Bypass" :
+					((s.gamut_remap.gamut_adjust_type == 1) ? "HW" : "SW"),
+				 s.gamut_remap.temperature_matrix[0].value,
+				 s.gamut_remap.temperature_matrix[1].value,
+				 s.gamut_remap.temperature_matrix[2].value,
+				 s.gamut_remap.temperature_matrix[3].value,
+				 s.gamut_remap.temperature_matrix[4].value,
+				 s.gamut_remap.temperature_matrix[5].value,
+				 s.gamut_remap.temperature_matrix[6].value,
+				 s.gamut_remap.temperature_matrix[7].value,
+				 s.gamut_remap.temperature_matrix[8].value,
+				 s.gamut_remap.temperature_matrix[9].value,
+				 s.gamut_remap.temperature_matrix[10].value,
+				 s.gamut_remap.temperature_matrix[11].value);
+
 		DTN_INFO("\n");
 	}
 	DTN_INFO("\n");
@@ -3218,15 +3223,19 @@ void dcn10_set_drr(struct pipe_ctx **pipe_ctx,
 	 * as well.
 	 */
 	for (i = 0; i < num_pipes; i++) {
-		if ((pipe_ctx[i]->stream_res.tg != NULL) && pipe_ctx[i]->stream_res.tg->funcs) {
-			if (pipe_ctx[i]->stream_res.tg->funcs->set_drr)
-				pipe_ctx[i]->stream_res.tg->funcs->set_drr(
-					pipe_ctx[i]->stream_res.tg, &params);
+		/* dc_state_destruct() might null the stream resources, so fetch tg
+		 * here first to avoid a race condition. The lifetime of the pointee
+		 * itself (the timing_generator object) is not a problem here.
+		 */
+		struct timing_generator *tg = pipe_ctx[i]->stream_res.tg;
+
+		if ((tg != NULL) && tg->funcs) {
+			if (tg->funcs->set_drr)
+				tg->funcs->set_drr(tg, &params);
 			if (adjust.v_total_max != 0 && adjust.v_total_min != 0)
-				if (pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control)
-					pipe_ctx[i]->stream_res.tg->funcs->set_static_screen_control(
-						pipe_ctx[i]->stream_res.tg,
-						event_triggers, num_frames);
+				if (tg->funcs->set_static_screen_control)
+					tg->funcs->set_static_screen_control(
+						tg, event_triggers, num_frames);
 		}
 	}
 }
@@ -3600,7 +3609,7 @@ void dcn10_set_cursor_position(struct pipe_ctx *pipe_ctx)
 						(int)hubp->curs_attr.width || pos_cpy.x
 						<= (int)hubp->curs_attr.width +
 						pipe_ctx->plane_state->src_rect.x) {
-						pos_cpy.x = temp_x + viewport_width;
+						pos_cpy.x = 2 * viewport_width - temp_x;
 					}
 				}
 			} else {
@@ -3693,7 +3702,7 @@ void dcn10_set_cursor_position(struct pipe_ctx *pipe_ctx)
 						(int)hubp->curs_attr.width || pos_cpy.x
 						<= (int)hubp->curs_attr.width +
 						pipe_ctx->plane_state->src_rect.x) {
-						pos_cpy.x = 2 * viewport_width - temp_x;
+						pos_cpy.x = temp_x + viewport_width;
 					}
 				}
 			} else {
