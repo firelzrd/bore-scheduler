@@ -1,18 +1,20 @@
-From 7be1e92e113f6eac8d27711b15dbc689e33a7046 Mon Sep 17 00:00:00 2001
+From e3976b55938388fc16c10b7658780a4efb56f70c Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 20 Sep 2024 03:18:32 +0900
-Subject: [PATCH] linux6.10.y-bore5.3.0-rc4
+Date: Fri, 20 Sep 2024 01:49:11 +0900
+Subject: [PATCH] linux6.10.y-bore5.3.0
 
 ---
- include/linux/sched.h   |  13 +-
- init/Kconfig            |  17 +++
- kernel/Kconfig.hz       |  16 +++
- kernel/sched/core.c     | 141 ++++++++++++++++++
- kernel/sched/debug.c    |  60 +++++++-
- kernel/sched/fair.c     | 312 +++++++++++++++++++++++++++++++++++++++-
- kernel/sched/features.h |   4 +
- kernel/sched/sched.h    |   7 +
- 8 files changed, 566 insertions(+), 4 deletions(-)
+ include/linux/sched.h      |  13 +-
+ include/linux/sched/task.h |   3 +
+ init/Kconfig               |  17 ++
+ kernel/Kconfig.hz          |  16 ++
+ kernel/fork.c              |   3 +
+ kernel/sched/core.c        | 132 ++++++++++++++++
+ kernel/sched/debug.c       |  60 ++++++-
+ kernel/sched/fair.c        | 312 ++++++++++++++++++++++++++++++++++++-
+ kernel/sched/features.h    |   4 +
+ kernel/sched/sched.h       |   7 +
+ 10 files changed, 563 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index a5f4b48fca..d87f203926 100644
@@ -43,6 +45,20 @@ index a5f4b48fca..d87f203926 100644
  	s64				vlag;
  	u64				slice;
  
+diff --git a/include/linux/sched/task.h b/include/linux/sched/task.h
+index d362aacf9f..f4564242ae 100644
+--- a/include/linux/sched/task.h
++++ b/include/linux/sched/task.h
+@@ -63,6 +63,9 @@ extern asmlinkage void schedule_tail(struct task_struct *prev);
+ extern void init_idle(struct task_struct *idle, int cpu);
+ 
+ extern int sched_fork(unsigned long clone_flags, struct task_struct *p);
++#ifdef CONFIG_SCHED_BORE
++extern void sched_fork_bore(struct task_struct *p, struct task_struct *parent);
++#endif // CONFIG_SCHED_BORE
+ extern void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs);
+ extern void sched_post_fork(struct task_struct *p);
+ extern void sched_dead(struct task_struct *p);
 diff --git a/init/Kconfig b/init/Kconfig
 index febdea2afc..171b5d9955 100644
 --- a/init/Kconfig
@@ -97,11 +113,25 @@ index 38ef6d0688..5f6eecd1e6 100644
 +
  config SCHED_HRTICK
  	def_bool HIGH_RES_TIMERS
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 99076dbe27..edd1c8ec32 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -2360,6 +2360,9 @@ __latent_entropy struct task_struct *copy_process(
+ 	retval = sched_fork(clone_flags, p);
+ 	if (retval)
+ 		goto bad_fork_cleanup_policy;
++#ifdef CONFIG_SCHED_BORE
++	sched_fork_bore(p, current);
++#endif // CONFIG_SCHED_BORE
+ 
+ 	retval = perf_event_init_task(p, clone_flags);
+ 	if (retval)
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 59ce0841eb..bd3e54bd2d 100644
+index 59ce0841eb..00bf7c957d 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4515,6 +4515,136 @@ int wake_up_state(struct task_struct *p, unsigned int state)
+@@ -4515,6 +4515,133 @@ int wake_up_state(struct task_struct *p, unsigned int state)
  	return try_to_wake_up(p, state, 0);
  }
  
@@ -116,13 +146,6 @@ index 59ce0841eb..bd3e54bd2d 100644
 +	init_task.se.burst_penalty = 0;
 +	init_task.se.burst_score = 0;
 +	init_task.se.child_burst_last_cached = 0;
-+}
-+
-+inline void sched_fork_bore(struct task_struct *p) {
-+	p->se.burst_time = 0;
-+	p->se.curr_burst_penalty = 0;
-+	p->se.burst_score = 0;
-+	p->se.child_burst_last_cached = 0;
 +}
 +
 +static u32 count_child_tasks(struct task_struct *p) {
@@ -165,7 +188,7 @@ index 59ce0841eb..bd3e54bd2d 100644
 +}
 +
 +static inline u8 __inherit_burst_direct(struct task_struct *p, u64 now) {
-+	struct task_struct *parent = p->real_parent;
++	struct task_struct *parent = p;
 +	if (child_burst_cache_expired(parent, now))
 +		update_child_burst_direct(parent, now);
 +
@@ -202,7 +225,7 @@ index 59ce0841eb..bd3e54bd2d 100644
 +}
 +
 +static inline u8 __inherit_burst_topological(struct task_struct *p, u64 now) {
-+	struct task_struct *anc = p->real_parent;
++	struct task_struct *anc = p;
 +	u32 cnt = 0, sum = 0;
 +
 +	while (anc->real_parent != anc && count_child_tasks(anc) == 1)
@@ -215,22 +238,26 @@ index 59ce0841eb..bd3e54bd2d 100644
 +	return anc->se.child_burst;
 +}
 +
-+static inline void inherit_burst(struct task_struct *p) {
++static inline void inherit_burst(struct task_struct *p, struct task_struct *parent) {
 +	u8 burst_cache;
 +	u64 now = ktime_get_ns();
 +
 +	read_lock(&tasklist_lock);
 +	burst_cache = likely(sched_burst_fork_atavistic)?
-+		__inherit_burst_topological(p, now):
-+		__inherit_burst_direct(p, now);
++		__inherit_burst_topological(parent, now):
++		__inherit_burst_direct(parent, now);
 +	read_unlock(&tasklist_lock);
-+
++	
 +	p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, burst_cache);
 +}
 +
-+static void sched_post_fork_bore(struct task_struct *p) {
++void sched_fork_bore(struct task_struct *p, struct task_struct *parent) {
++	p->se.burst_time = 0;
++	p->se.curr_burst_penalty = 0;
++	p->se.child_burst_last_cached = 0;
++
 +	if (task_burst_inheritable(p))
-+		inherit_burst(p);
++		inherit_burst(p, parent);
 +	p->se.burst_penalty = p->se.prev_burst_penalty;
 +}
 +#endif // CONFIG_SCHED_BORE
@@ -238,33 +265,13 @@ index 59ce0841eb..bd3e54bd2d 100644
  /*
   * Perform scheduler related setup for a newly forked process p.
   * p is forked by current.
-@@ -4531,6 +4661,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
- 	p->se.prev_sum_exec_runtime	= 0;
- 	p->se.nr_migrations		= 0;
- 	p->se.vruntime			= 0;
-+#ifdef CONFIG_SCHED_BORE
-+	sched_fork_bore(p);
-+#endif // CONFIG_SCHED_BORE
- 	p->se.vlag			= 0;
- 	p->se.slice			= sysctl_sched_base_slice;
- 	INIT_LIST_HEAD(&p->se.group_node);
-@@ -4846,6 +4979,9 @@ void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
- 
- void sched_post_fork(struct task_struct *p)
- {
-+#ifdef CONFIG_SCHED_BORE
-+	sched_post_fork_bore(p);
-+#endif // CONFIG_SCHED_BORE
- 	uclamp_post_fork(p);
- }
- 
-@@ -9933,6 +10069,11 @@ void __init sched_init(void)
+@@ -9933,6 +10060,11 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
 +	sched_init_bore();
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.3.0-rc4 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.3.0 by Masahito Suzuki");
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
