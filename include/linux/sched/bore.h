@@ -9,7 +9,8 @@ extern u8   __read_mostly sched_bore;
 extern u8   __read_mostly sched_burst_exclude_kthreads;
 extern u8   __read_mostly sched_burst_smoothness_long;
 extern u8   __read_mostly sched_burst_smoothness_short;
-extern u8   __read_mostly sched_burst_fork_atavistic;
+extern u8   __read_mostly sched_burst_atavistic_mask;
+extern u8   __read_mostly sched_burst_atavistic_depth;
 extern u8   __read_mostly sched_burst_parity_threshold;
 extern u8   __read_mostly sched_burst_penalty_offset;
 extern uint __read_mostly sched_burst_penalty_scale;
@@ -25,6 +26,7 @@ extern void restart_burst_rescale_deadline(struct sched_entity *se);
 extern int sched_bore_update_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp, loff_t *ppos);
 
-extern void sched_fork_bore(struct task_struct *p, struct task_struct *parent);
+extern void sched_clone_bore(
+	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
 #endif // CONFIG_SCHED_BORE
 #endif // _LINUX_SCHED_BORE_H

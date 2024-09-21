@@ -6,7 +6,8 @@ u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_exclude_kthreads = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
-u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_atavistic_mask   = 0x3;
+u8   __read_mostly sched_burst_atavistic_depth  = 2;
 u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
@@ -219,32 +220,30 @@ static inline u8 __inherit_burst_topological(struct task_struct *p, u64 now) {
 
 	if (child_burst_cache_expired(anc, now))
 		update_child_burst_topological(
-			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
+			anc, now, sched_burst_atavistic_depth - 1, &cnt, &sum);
 
 	return anc->se.child_burst;
 }
 
-static inline u8 calc_fork_burst(struct task_struct *p) {
-	u8 burst_cache;
-	u64 now = ktime_get_ns();
-
-	read_lock(&tasklist_lock);
-	burst_cache = likely(sched_burst_fork_atavistic)?
-		__inherit_burst_topological(p, now):
-		__inherit_burst_direct(p, now);
-	read_unlock(&tasklist_lock);
-	
-	return burst_cache;
-}
-
 void sched_clone_bore(
-	struct task_struct *p, struct task_struct *parent, bool fork) {
+	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
 	p->se.burst_time = 0;
 	p->se.curr_burst_penalty = 0;
 	p->se.child_burst_last_cached = 0;
 
-	if (fork && task_burst_inheritable(p)) {
-		u8 penalty = calc_fork_burst(parent);
+	if (task_burst_inheritable(p)) {
+		u8 penalty;
+		u8 type = !(clone_flags & CLONE_THREAD) + 1;
+		u8 topological = sched_burst_atavistic_mask & type;
+
+		u64 now = ktime_get_ns();
+
+		read_lock(&tasklist_lock);
+		penalty = topological?
+			__inherit_burst_topological(parent, now):
+			__inherit_burst_direct(parent, now);
+		read_unlock(&tasklist_lock);
+
 		p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, penalty);
 	}
 	p->se.burst_penalty = p->se.prev_burst_penalty;
@@ -289,12 +288,21 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.extra2		= SYSCTL_ONE,
 	},
 	{
-		.procname	= "sched_burst_fork_atavistic",
-		.data		= &sched_burst_fork_atavistic,
+		.procname	= "sched_burst_atavistic_mask",
+		.data		= &sched_burst_atavistic_mask,
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_THREE,
+	},
+	{
+		.procname	= "sched_burst_atavistic_depth",
+		.data		= &sched_burst_atavistic_depth,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler = proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ONE,
 		.extra2		= SYSCTL_THREE,
 	},
 	{
