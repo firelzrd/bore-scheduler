@@ -100,6 +100,12 @@
 #include <linux/user_events.h>
 #include <linux/iommu.h>
 
+#ifdef CONFIG_USER_NS
+#include <linux/user_namespace.h>
+#endif
+
+#include <linux/sched/bore.h>
+
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
