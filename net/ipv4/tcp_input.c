@@ -243,9 +243,14 @@ static void tcp_measure_rcv_mss(struct sock *sk, const struct sk_buff *skb)
 		 */
 		if (unlikely(len != icsk->icsk_ack.rcv_mss)) {
 			u64 val = (u64)skb->len << TCP_RMEM_TO_WIN_SCALE;
+			u8 old_ratio = tcp_sk(sk)->scaling_ratio;
 
 			do_div(val, skb->truesize);
 			tcp_sk(sk)->scaling_ratio = val ? val : 1;
+
+			if (old_ratio != tcp_sk(sk)->scaling_ratio)
+				WRITE_ONCE(tcp_sk(sk)->window_clamp,
+					   tcp_win_from_space(sk, sk->sk_rcvbuf));
 		}
 		icsk->icsk_ack.rcv_mss = min_t(unsigned int, len,
 					       tcp_sk(sk)->advmss);
@@ -570,19 +575,20 @@ static void tcp_init_buffer_space(struct sock *sk)
 	maxwin = tcp_full_space(sk);
 
 	if (tp->window_clamp >= maxwin) {
-		tp->window_clamp = maxwin;
+		WRITE_ONCE(tp->window_clamp, maxwin);
 
 		if (tcp_app_win && maxwin > 4 * tp->advmss)
-			tp->window_clamp = max(maxwin -
-					       (maxwin >> tcp_app_win),
-					       4 * tp->advmss);
+			WRITE_ONCE(tp->window_clamp,
+				   max(maxwin - (maxwin >> tcp_app_win),
+				       4 * tp->advmss));
 	}
 
 	/* Force reservation of one segment. */
 	if (tcp_app_win &&
 	    tp->window_clamp > 2 * tp->advmss &&
 	    tp->window_clamp + tp->advmss > maxwin)
-		tp->window_clamp = max(2 * tp->advmss, maxwin - tp->advmss);
+		WRITE_ONCE(tp->window_clamp,
+			   max(2 * tp->advmss, maxwin - tp->advmss));
 
 	tp->rcv_ssthresh = min(tp->rcv_ssthresh, tp->window_clamp);
 	tp->snd_cwnd_stamp = tcp_jiffies32;
@@ -768,7 +774,8 @@ void tcp_rcv_space_adjust(struct sock *sk)
 			WRITE_ONCE(sk->sk_rcvbuf, rcvbuf);
 
 			/* Make the window clamp follow along.  */
-			tp->window_clamp = tcp_win_from_space(sk, rcvbuf);
+			WRITE_ONCE(tp->window_clamp,
+				   tcp_win_from_space(sk, rcvbuf));
 		}
 	}
 	tp->rcvq_space.space = copied;
@@ -5873,6 +5880,11 @@ static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 	 * RFC 5961 4.2 : Send a challenge ack
 	 */
 	if (th->syn) {
+		if (sk->sk_state == TCP_SYN_RECV && sk->sk_socket && th->ack &&
+		    TCP_SKB_CB(skb)->seq + 1 == TCP_SKB_CB(skb)->end_seq &&
+		    TCP_SKB_CB(skb)->seq + 1 == tp->rcv_nxt &&
+		    TCP_SKB_CB(skb)->ack_seq == tp->snd_nxt)
+			goto pass;
 syn_challenge:
 		if (syn_inerr)
 			TCP_INC_STATS(sock_net(sk), TCP_MIB_INERRS);
@@ -5882,6 +5894,7 @@ syn_challenge:
 		goto discard;
 	}
 
+pass:
 	bpf_skops_parse_hdr(sk, skb);
 
 	return true;
@@ -6347,7 +6360,8 @@ consume:
 
 		if (!tp->rx_opt.wscale_ok) {
 			tp->rx_opt.snd_wscale = tp->rx_opt.rcv_wscale = 0;
-			tp->window_clamp = min(tp->window_clamp, 65535U);
+			WRITE_ONCE(tp->window_clamp,
+				   min(tp->window_clamp, 65535U));
 		}
 
 		if (tp->rx_opt.saw_tstamp) {
