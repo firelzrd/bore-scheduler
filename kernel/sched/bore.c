@@ -1,3 +1,7 @@
+/*
+ *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
+ *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
+ */
 #include <linux/sched/bore.h>
 #include "sched.h"
 
@@ -6,7 +10,7 @@ u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_exclude_kthreads = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
-u8   __read_mostly sched_burst_atavistic_mask   = 0x3;
+u8   __read_mostly sched_burst_atavistic_mask   = 0x2;
 u8   __read_mostly sched_burst_atavistic_depth  = 2;
 u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
@@ -225,23 +229,61 @@ static inline u8 __inherit_burst_topological(struct task_struct *p, u64 now) {
 	return anc->se.child_burst;
 }
 
+static inline bool tg_burst_cache_expired(struct task_struct *p, u64 now) {
+	u64 expiration_time =
+		p->se.tg_burst_last_cached + sched_burst_cache_lifetime;
+	return ((s64)(expiration_time - now) < 0);
+}
+
+static void __update_tg_burst_cache(
+		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
+	u8 avg = 0;
+	if (cnt) avg = sum / cnt;
+	p->se.tg_burst = max(avg, p->se.burst_penalty);
+	p->se.tg_burst_last_cached = now;
+}
+
+static inline void update_tg_burst(struct task_struct *p, u64 now) {
+	struct task_struct *task;
+	u32 cnt = 0, sum = 0;
+
+	for_each_thread(p, task) {
+		if (!task_burst_inheritable(task)) continue;
+		cnt++;
+		sum += task->se.burst_penalty;
+	}
+
+	__update_tg_burst_cache(p, cnt, sum, now);
+}
+
+static inline u8 __inherit_burst_tg(struct task_struct *p, u64 now) {
+	struct task_struct *parent = p->group_leader;
+	if (tg_burst_cache_expired(parent, now))
+		update_tg_burst(parent, now);
+
+	return parent->se.tg_burst;
+}
+
 void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
 	p->se.burst_time = 0;
 	p->se.curr_burst_penalty = 0;
 	p->se.child_burst_last_cached = 0;
+	p->se.tg_burst_last_cached = 0;
 
 	if (task_burst_inheritable(p)) {
 		u8 penalty;
-		u8 type = !(clone_flags & CLONE_THREAD) + 1;
-		u8 topological = sched_burst_atavistic_mask & type;
+		u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
+		u8 type_matched = sched_burst_atavistic_mask & clone_type;
 
 		u64 now = ktime_get_ns();
 
 		read_lock(&tasklist_lock);
-		penalty = topological?
+		penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
 			__inherit_burst_topological(parent, now):
-			__inherit_burst_direct(parent, now);
+			((clone_type == 2) ?
+				__inherit_burst_direct(parent, now):
+				__inherit_burst_tg(parent, now));
 		read_unlock(&tasklist_lock);
 
 		p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, penalty);
@@ -302,7 +344,7 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ONE,
+		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_THREE,
 	},
 	{
