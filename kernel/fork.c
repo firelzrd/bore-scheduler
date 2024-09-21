@@ -101,6 +101,12 @@
 #include <linux/iommu.h>
 #include <linux/tick.h>
 
+#ifdef CONFIG_USER_NS
+#include <linux/user_namespace.h>
+#endif
+
+#include <linux/sched/bore.h>
+
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
