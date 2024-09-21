@@ -237,12 +237,13 @@ static inline u8 calc_fork_burst(struct task_struct *p) {
 	return burst_cache;
 }
 
-void sched_fork_bore(struct task_struct *p, struct task_struct *parent) {
+void sched_clone_bore(
+	struct task_struct *p, struct task_struct *parent, bool fork) {
 	p->se.burst_time = 0;
 	p->se.curr_burst_penalty = 0;
 	p->se.child_burst_last_cached = 0;
 
-	if (task_burst_inheritable(p)) {
+	if (fork && task_burst_inheritable(p)) {
 		u8 penalty = calc_fork_burst(parent);
 		p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, penalty);
 	}
