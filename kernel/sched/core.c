@@ -9971,6 +9971,7 @@ void __init sched_init(void)
 	init_task.se.burst_penalty = 0;
 	init_task.se.burst_score = 0;
 	init_task.se.child_burst_last_cached = 0;
+	init_task.se.tg_burst_last_cached = 0;
 #endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
