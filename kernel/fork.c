@@ -23,6 +23,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/cputime.h>
+#include <linux/sched/bore.h>
 #include <linux/seq_file.h>
 #include <linux/rtmutex.h>
 #include <linux/init.h>
@@ -103,8 +104,6 @@
 #ifdef CONFIG_USER_NS
 #include <linux/user_namespace.h>
 #endif
-
-#include <linux/sched/bore.h>
 
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
