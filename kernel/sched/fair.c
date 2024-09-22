@@ -37,6 +37,7 @@
 #include <linux/sched/cputime.h>
 #include <linux/sched/isolation.h>
 #include <linux/sched/nohz.h>
+#include <linux/sched/bore.h>
 
 #include <linux/cpuidle.h>
 #include <linux/interrupt.h>
@@ -54,8 +55,6 @@
 #include "sched.h"
 #include "stats.h"
 #include "autogroup.h"
-
-#include <linux/sched/bore.h>
 
 /*
  * The initial- and re-scaling of tunables is configurable
