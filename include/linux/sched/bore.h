@@ -1,5 +1,6 @@
 
 #include <linux/sched.h>
+#include <linux/sched/cputime.h>
 
 #ifndef _LINUX_SCHED_BORE_H
 #define _LINUX_SCHED_BORE_H
