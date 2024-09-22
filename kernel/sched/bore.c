@@ -158,16 +158,15 @@ static inline bool child_burst_cache_expired(struct task_struct *p, u64 now) {
 
 static void __update_child_burst_cache(
 		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
-	u8 avg = 0;
-	if (cnt) avg = sum / cnt;
+	u8 avg = cnt ? sum / cnt : 0;
 	p->se.child_burst = max(avg, p->se.burst_penalty);
 	p->se.child_burst_cnt = cnt;
 	p->se.child_burst_last_cached = now;
 }
 
 static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
-	struct task_struct *child;
 	u32 cnt = 0, sum = 0;
+	struct task_struct *child;
 
 	list_for_each_entry(child, &p->children, sibling) {
 		if (!task_burst_inheritable(child)) continue;
@@ -188,8 +187,8 @@ static inline u8 __inherit_burst_direct(struct task_struct *p, u64 now) {
 
 static void update_child_burst_topological(
 	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
-	struct task_struct *child, *dec;
 	u32 cnt = 0, dcnt = 0, sum = 0;
+	struct task_struct *child, *dec;
 
 	list_for_each_entry(child, &p->children, sibling) {
 		dec = child;
@@ -237,8 +236,7 @@ static inline bool tg_burst_cache_expired(struct task_struct *p, u64 now) {
 
 static void __update_tg_burst_cache(
 		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
-	u8 avg = 0;
-	if (cnt) avg = sum / cnt;
+	u8 avg = cnt ? sum / cnt : 0;
 	p->se.tg_burst = max(avg, p->se.burst_penalty);
 	p->se.tg_burst_last_cached = now;
 }
