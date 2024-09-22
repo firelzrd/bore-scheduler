@@ -50,9 +50,11 @@ static inline u64 __unscale_slice(u64 delta, u8 score) {
 }
 
 static void reweight_task_by_prio(struct task_struct *p, int prio) {
+	struct sched_entity *se = &p->se;
 	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
-	struct load_weight lw = (struct load_weight){weight, 0};
-	p->sched_class->reweight_task(task_rq(p), p, &lw);
+
+	reweight_entity(cfs_rq_of(se), se, weight);
+	se->load.inv_weight = sched_prio_to_wmult[prio];
 }
 
 static inline u8 effective_prio(struct task_struct *p) {
