@@ -267,29 +267,28 @@ static inline u8 __inherit_burst_tg(struct task_struct *p, u64 now) {
 
 void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
-	p->se.burst_time = 0;
-	p->se.curr_burst_penalty = 0;
-	p->se.child_burst_last_cached = 0;
-	p->se.tg_burst_last_cached = 0;
+	if (!task_burst_inheritable(p)) return;
 
-	if (task_burst_inheritable(p)) {
-		u8 penalty;
-		u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
-		u8 type_matched = sched_burst_atavistic_mask & clone_type;
+	u8 penalty;
+	u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
+	u8 type_matched = sched_burst_atavistic_mask & clone_type;
 
-		u64 now = ktime_get_ns();
+	u64 now = ktime_get_ns();
+	read_lock(&tasklist_lock);
+	penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
+		__inherit_burst_topological(parent, now):
+		((clone_type == 2) ?
+			__inherit_burst_direct(parent, now):
+			__inherit_burst_tg(parent, now));
+	read_unlock(&tasklist_lock);
 
-		read_lock(&tasklist_lock);
-		penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
-			__inherit_burst_topological(parent, now):
-			((clone_type == 2) ?
-				__inherit_burst_direct(parent, now):
-				__inherit_burst_tg(parent, now));
-		read_unlock(&tasklist_lock);
-
-		p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, penalty);
-	}
-	p->se.burst_penalty = p->se.prev_burst_penalty;
+	struct sched_entity *se = &p->se;
+	se->curr_burst_penalty = 0;
+	se->burst_time = 0;
+	se->child_burst_last_cached = 0;
+	se->tg_burst_last_cached = 0;
+	se->burst_penalty = se->prev_burst_penalty =
+		max(se->prev_burst_penalty, penalty);
 }
 
 #ifdef CONFIG_SYSCTL
