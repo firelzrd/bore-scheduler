@@ -12903,6 +12903,9 @@ static void attach_task_cfs_rq(struct task_struct *p)
 static void switched_from_fair(struct rq *rq, struct task_struct *p)
 {
 	p->se.rel_deadline = 0;
+#ifdef CONFIG_SCHED_BORE
+	init_task_bore(p);
+#endif // CONFIG_SCHED_BORE
 	detach_task_cfs_rq(p);
 }
 
