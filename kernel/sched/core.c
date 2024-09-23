@@ -36,6 +36,7 @@
 #include <linux/sched/nohz.h>
 #include <linux/sched/rseq_api.h>
 #include <linux/sched/rt.h>
+#include <linux/sched/bore.h>
 
 #include <linux/blkdev.h>
 #include <linux/context_tracking.h>
@@ -9965,13 +9966,7 @@ void __init sched_init(void)
 
 #ifdef CONFIG_SCHED_BORE
 	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.5.0-rc2 by Masahito Suzuki");
-	init_task.se.burst_time = 0;
-	init_task.se.prev_burst_penalty = 0;
-	init_task.se.curr_burst_penalty = 0;
-	init_task.se.burst_penalty = 0;
-	init_task.se.burst_score = 0;
-	init_task.se.child_burst_last_cached = 0;
-	init_task.se.tg_burst_last_cached = 0;
+	init_task_bore(&init_task);
 #endif // CONFIG_SCHED_BORE
 
 	wait_bit_init();
