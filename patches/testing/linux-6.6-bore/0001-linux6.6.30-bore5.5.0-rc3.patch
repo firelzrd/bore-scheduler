@@ -1,22 +1,22 @@
-From 1946f0e7b75f42078d663c417f4b727c5cf6140e Mon Sep 17 00:00:00 2001
+From b2029bf921523711d65769277c080906284bdcc7 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 23 Sep 2024 08:21:45 +0900
-Subject: [PATCH] linux6.6.30-bore5.5.0-rc2
+Date: Tue, 24 Sep 2024 02:08:52 +0900
+Subject: [PATCH] linux6.6.30-bore5.5.0-rc3
 
 ---
  include/linux/sched.h      |  15 +-
- include/linux/sched/bore.h |  36 ++++
+ include/linux/sched/bore.h |  38 ++++
  init/Kconfig               |  17 ++
  kernel/Kconfig.hz          |  16 ++
  kernel/fork.c              |   4 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 400 +++++++++++++++++++++++++++++++++++++
- kernel/sched/core.c        |  11 +
+ kernel/sched/bore.c        | 413 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  60 +++++-
- kernel/sched/fair.c        |  84 +++++++-
+ kernel/sched/fair.c        |  87 +++++++-
  kernel/sched/features.h    |   4 +
  kernel/sched/sched.h       |   7 +
- 12 files changed, 649 insertions(+), 6 deletions(-)
+ 12 files changed, 662 insertions(+), 6 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -53,10 +53,10 @@ index 77f01ac385..c143d6176b 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..ca0fa2f55f
+index 0000000000..2d76228241
 --- /dev/null
 +++ b/include/linux/sched/bore.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,38 @@
 +
 +#include <linux/sched.h>
 +#include <linux/sched/cputime.h>
@@ -88,6 +88,8 @@ index 0000000000..ca0fa2f55f
 +
 +extern void sched_clone_bore(
 +	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
++
++extern void init_task_bore(struct task_struct *p);
 +
 +extern void reweight_entity(
 +	struct cfs_rq *cfs_rq, struct sched_entity *se, unsigned long weight);
@@ -180,14 +182,15 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..cd077f984f
+index 0000000000..c4869dc8c0
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,413 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
 + */
++#include <linux/cpuset.h>
 +#include <linux/sched/bore.h>
 +#include "sched.h"
 +
@@ -278,11 +281,16 @@ index 0000000000..cd077f984f
 +		old - (-increment >> (int)sched_burst_smoothness_short);
 +}
 +
-+void restart_burst(struct sched_entity *se) {
-+	se->burst_penalty = se->prev_burst_penalty =
++static void __revolve_burst_penalty(struct sched_entity *se) {
++	se->prev_burst_penalty =
 +		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
-+	se->curr_burst_penalty = 0;
 +	se->burst_time = 0;
++	se->curr_burst_penalty = 0;
++}
++
++inline void restart_burst(struct sched_entity *se) {
++	__revolve_burst_penalty(se);
++	se->burst_penalty = se->prev_burst_penalty;
 +	update_burst_score(se);
 +}
 +
@@ -452,29 +460,37 @@ index 0000000000..cd077f984f
 +
 +void sched_clone_bore(
 +	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
++	if (!task_burst_inheritable(p)) return;
++
++	u8 penalty;
++	u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
++	u8 type_matched = sched_burst_atavistic_mask & clone_type;
++
++	u64 now = ktime_get_ns();
++	read_lock(&tasklist_lock);
++	penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
++		__inherit_burst_topological(parent, now):
++		((clone_type == 2) ?
++			__inherit_burst_direct(parent, now):
++			__inherit_burst_tg(parent, now));
++	read_unlock(&tasklist_lock);
++
++	struct sched_entity *se = &p->se;
++	__revolve_burst_penalty(se);
++	se->burst_penalty = se->prev_burst_penalty =
++		max(se->prev_burst_penalty, penalty);
++	se->child_burst_last_cached = 0;
++	se->tg_burst_last_cached = 0;
++}
++
++void init_task_bore(struct task_struct *p) {
 +	p->se.burst_time = 0;
++	p->se.prev_burst_penalty = 0;
 +	p->se.curr_burst_penalty = 0;
++	p->se.burst_penalty = 0;
++	p->se.burst_score = 0;
 +	p->se.child_burst_last_cached = 0;
 +	p->se.tg_burst_last_cached = 0;
-+
-+	if (task_burst_inheritable(p)) {
-+		u8 penalty;
-+		u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
-+		u8 type_matched = sched_burst_atavistic_mask & clone_type;
-+
-+		u64 now = ktime_get_ns();
-+
-+		read_lock(&tasklist_lock);
-+		penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
-+			__inherit_burst_topological(parent, now):
-+			((clone_type == 2) ?
-+				__inherit_burst_direct(parent, now):
-+				__inherit_burst_tg(parent, now));
-+		read_unlock(&tasklist_lock);
-+
-+		p->se.prev_burst_penalty = max(p->se.prev_burst_penalty, penalty);
-+	}
-+	p->se.burst_penalty = p->se.prev_burst_penalty;
 +}
 +
 +#ifdef CONFIG_SYSCTL
@@ -576,8 +592,7 @@ index 0000000000..cd077f984f
 +	},
 +};
 +
-+static int __init sched_bore_sysctl_init(void)
-+{
++static int __init sched_bore_sysctl_init(void) {
 +	register_sysctl_init("kernel", sched_bore_sysctls);
 +	return 0;
 +}
@@ -585,22 +600,24 @@ index 0000000000..cd077f984f
 +#endif // CONFIG_SYSCTL
 +#endif // CONFIG_SCHED_BORE
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 1f91e2c127..fdd47ee997 100644
+index 1f91e2c127..23b01730e6 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -9922,6 +9922,17 @@ void __init sched_init(void)
+@@ -36,6 +36,7 @@
+ #include <linux/sched/nohz.h>
+ #include <linux/sched/rseq_api.h>
+ #include <linux/sched/rt.h>
++#include <linux/sched/bore.h>
+ 
+ #include <linux/blkdev.h>
+ #include <linux/context_tracking.h>
+@@ -9922,6 +9923,11 @@ void __init sched_init(void)
  	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.5.0-rc2 by Masahito Suzuki");
-+	init_task.se.burst_time = 0;
-+	init_task.se.prev_burst_penalty = 0;
-+	init_task.se.curr_burst_penalty = 0;
-+	init_task.se.burst_penalty = 0;
-+	init_task.se.burst_score = 0;
-+	init_task.se.child_burst_last_cached = 0;
-+	init_task.se.tg_burst_last_cached = 0;
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.5.0-rc3 by Masahito Suzuki");
++	init_task_bore(&init_task);
 +#endif // CONFIG_SCHED_BORE
 +
  	wait_bit_init();
@@ -714,7 +731,7 @@ index 4c3d0d9f3d..02c8816c26 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 397ef27c9b..5d85131fb6 100644
+index 397ef27c9b..731d28a7a8 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -37,6 +37,7 @@
@@ -939,11 +956,14 @@ index 397ef27c9b..5d85131fb6 100644
  	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
  	rq_unlock(rq, &rf);
  }
-@@ -12639,6 +12714,7 @@ static void attach_task_cfs_rq(struct task_struct *p)
+@@ -12639,6 +12714,10 @@ static void attach_task_cfs_rq(struct task_struct *p)
  
  static void switched_from_fair(struct rq *rq, struct task_struct *p)
  {
 +	p->se.rel_deadline = 0;
++#ifdef CONFIG_SCHED_BORE
++	init_task_bore(p);
++#endif // CONFIG_SCHED_BORE
  	detach_task_cfs_rq(p);
  }
  
