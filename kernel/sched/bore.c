@@ -391,8 +391,7 @@ static struct ctl_table sched_bore_sysctls[] = {
 	},
 };
 
-static int __init sched_bore_sysctl_init(void)
-{
+static int __init sched_bore_sysctl_init(void) {
 	register_sysctl_init("kernel", sched_bore_sysctls);
 	return 0;
 }
