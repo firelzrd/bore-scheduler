@@ -36,7 +36,6 @@
 #include <linux/sched/nohz.h>
 #include <linux/sched/rseq_api.h>
 #include <linux/sched/rt.h>
-#include <linux/sched/bore.h>
 
 #include <linux/blkdev.h>
 #include <linux/context_tracking.h>
@@ -96,6 +95,8 @@
 #include "../workqueue_internal.h"
 #include "../../io_uring/io-wq.h"
 #include "../smpboot.h"
+
+#include <linux/sched/bore.h>
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpumask);
