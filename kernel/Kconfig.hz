@@ -62,7 +62,8 @@ config MIN_BASE_SLICE_NS
 	 The BORE Scheduler automatically calculates the optimal base
 	 slice for the configured HZ using the following equation:
 	 
-	 base_slice_ns = max(min_base_slice_ns, 1000000000/HZ)
+	 base_slice_ns =
+	 	1000000000/HZ * DIV_ROUNDUP(min_base_slice_ns, 1000000000/HZ)
 	 
 	 This option sets the default lower bound limit of the base slice
 	 to prevent the loss of task throughput due to overscheduling.
