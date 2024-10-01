@@ -204,8 +204,13 @@ static inline void update_load_set(struct load_weight *lw, unsigned long w)
  */
 #ifdef CONFIG_SCHED_BORE
 static void update_sysctl(void) {
-	sysctl_sched_base_slice =
-		max(sysctl_sched_min_base_slice, configured_sched_base_slice);
+	unsigned int base_slice = configured_sched_base_slice;
+	unsigned int min_base_slice = sysctl_sched_min_base_slice;
+
+	if (min_base_slice)
+		base_slice *= DIV_ROUND_UP(min_base_slice, base_slice);
+
+	sysctl_sched_base_slice = base_slice;
 }
 void sched_update_min_base_slice(void) { update_sysctl(); }
 #else // !CONFIG_SCHED_BORE
