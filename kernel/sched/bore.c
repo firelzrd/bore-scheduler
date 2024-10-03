@@ -92,7 +92,7 @@ static inline u32 binary_smooth(u32 new, u32 old) {
 		old - (-increment >> (int)sched_burst_smoothness_short);
 }
 
-static void __revolve_burst_penalty(struct sched_entity *se) {
+static void revolve_burst_penalty(struct sched_entity *se) {
 	se->prev_burst_penalty =
 		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
 	se->burst_time = 0;
@@ -100,7 +100,7 @@ static void __revolve_burst_penalty(struct sched_entity *se) {
 }
 
 inline void restart_burst(struct sched_entity *se) {
-	__revolve_burst_penalty(se);
+	revolve_burst_penalty(se);
 	se->burst_penalty = se->prev_burst_penalty;
 	update_burst_score(se);
 }
@@ -270,7 +270,7 @@ void sched_clone_bore(
 	read_unlock(&tasklist_lock);
 
 	struct sched_entity *se = &p->se;
-	__revolve_burst_penalty(se);
+	revolve_burst_penalty(se);
 	se->burst_penalty = se->prev_burst_penalty =
 		max(se->prev_burst_penalty, penalty);
 	se->child_burst.timestamp = 0;
