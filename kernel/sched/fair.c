@@ -5317,10 +5317,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 		return;
 	}
 #ifdef CONFIG_SCHED_BORE
-	else if (likely(sched_bore)) {
-		if (flags & sched_deadline_boost_mask)
-			vslice /= 2;
-	}
+	else if (likely(sched_bore))
+		vslice >>= !!(flags & sched_deadline_boost_mask);
 	else
 #endif // CONFIG_SCHED_BORE
 	/*
