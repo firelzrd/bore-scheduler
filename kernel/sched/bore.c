@@ -25,9 +25,9 @@ static int __maybe_unused maxval_12_bits = 4095;
 #define MAX_BURST_PENALTY (39U <<2)
 
 static inline u32 log2plus1_u64_u32f8(u64 v) {
-	u32 msb = fls64(v);
-	u8 fractional = (v << (64 - msb) >> 55);
-	return msb << 8 | fractional;
+	u32 integral = fls64(v);
+	u8  fractional = v << (64 - integral) >> 55;
+	return integral << 8 | fractional;
 }
 
 static inline u32 calc_burst_penalty(u64 burst_time) {
