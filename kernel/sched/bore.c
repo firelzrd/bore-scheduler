@@ -41,13 +41,11 @@ static inline u32 calc_burst_penalty(u64 burst_time) {
 	return min(MAX_BURST_PENALTY, scaled_penalty);
 }
 
-static inline u64 __scale_slice(u64 delta, u8 score) {
-	return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
-}
+static inline u64 __scale_slice(u64 delta, u8 score)
+{return mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);}
 
-static inline u64 __unscale_slice(u64 delta, u8 score) {
-	return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);
-}
+static inline u64 __unscale_slice(u64 delta, u8 score)
+{return mul_u64_u32_shr(delta, sched_prio_to_weight[score], 10);}
 
 static void reweight_task_by_prio(struct task_struct *p, int prio) {
 	struct sched_entity *se = &p->se;
@@ -153,15 +151,11 @@ static u32 count_child_tasks(struct task_struct *p) {
 	return cnt;
 }
 
-static inline bool task_is_bore_eligible(struct task_struct *p) {
-	return (p->sched_class == &fair_sched_class);
-}
+static inline bool task_is_bore_eligible(struct task_struct *p)
+{return (p->sched_class == &fair_sched_class);}
 
-static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now) {
-	u64 expiration_time =
-		bc->timestamp + sched_burst_cache_lifetime;
-	return ((s64)(expiration_time - now) < 0);
-}
+static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
+{return ((s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0);}
 
 static void update_burst_cache(struct sched_burst_cache *bc,
 		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
