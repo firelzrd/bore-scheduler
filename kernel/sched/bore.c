@@ -153,7 +153,7 @@ static u32 count_child_tasks(struct task_struct *p) {
 	return cnt;
 }
 
-static inline bool task_burst_inheritable(struct task_struct *p) {
+static inline bool task_is_bore_eligible(struct task_struct *p) {
 	return (p->sched_class == &fair_sched_class);
 }
 
@@ -176,7 +176,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	struct task_struct *child;
 
 	list_for_each_entry(child, &p->children, sibling) {
-		if (!task_burst_inheritable(child)) continue;
+		if (!task_is_bore_eligible(child)) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
 	}
@@ -203,7 +203,7 @@ static void update_child_burst_topological(
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 		
 		if (!dcnt || !depth) {
-			if (!task_burst_inheritable(dec)) continue;
+			if (!task_is_bore_eligible(dec)) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
 			continue;
@@ -240,7 +240,7 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 	u32 cnt = 0, sum = 0;
 
 	for_each_thread(p, task) {
-		if (!task_burst_inheritable(task)) continue;
+		if (!task_is_bore_eligible(task)) continue;
 		cnt++;
 		sum += task->se.burst_penalty;
 	}
@@ -258,7 +258,7 @@ static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 
 void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
-	if (!task_burst_inheritable(p)) return;
+	if (!task_is_bore_eligible(p)) return;
 
 	u64 now = ktime_get_ns();
 	read_lock(&tasklist_lock);
