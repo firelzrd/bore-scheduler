@@ -185,7 +185,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	__update_child_burst_cache(p, cnt, sum, now);
 }
 
-static inline u8 __inherit_burst_direct(struct task_struct *p, u64 now) {
+static inline u8 inherit_burst_direct(struct task_struct *p, u64 now) {
 	struct task_struct *parent = p;
 	if (child_burst_cache_expired(parent, now))
 		update_child_burst_direct(parent, now);
@@ -222,7 +222,7 @@ static void update_child_burst_topological(
 	*asum += sum;
 }
 
-static inline u8 __inherit_burst_topological(struct task_struct *p, u64 now) {
+static inline u8 inherit_burst_topological(struct task_struct *p, u64 now) {
 	struct task_struct *anc = p;
 	u32 cnt = 0, sum = 0;
 
@@ -262,7 +262,7 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 	__update_tg_burst_cache(p, cnt, sum, now);
 }
 
-static inline u8 __inherit_burst_tg(struct task_struct *p, u64 now) {
+static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	struct task_struct *parent = p->group_leader;
 	if (tg_burst_cache_expired(parent, now))
 		update_tg_burst(parent, now);
@@ -281,10 +281,10 @@ void sched_clone_bore(
 	u64 now = ktime_get_ns();
 	read_lock(&tasklist_lock);
 	penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
-		__inherit_burst_topological(parent, now):
+		inherit_burst_topological(parent, now):
 		((clone_type == 2) ?
-			__inherit_burst_direct(parent, now):
-			__inherit_burst_tg(parent, now));
+			inherit_burst_direct(parent, now):
+			inherit_burst_tg(parent, now));
 	read_unlock(&tasklist_lock);
 
 	struct sched_entity *se = &p->se;
