@@ -11,7 +11,6 @@ u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_exclude_kthreads = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
-u8   __read_mostly sched_burst_atavistic_mask   = 0x2;
 u8   __read_mostly sched_burst_atavistic_depth  = 2;
 u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 24;
@@ -261,17 +260,13 @@ void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
 	if (!task_burst_inheritable(p)) return;
 
-	u8 penalty;
-	u8 clone_type = !(clone_flags & CLONE_THREAD) + 1;
-	u8 type_matched = sched_burst_atavistic_mask & clone_type;
-
 	u64 now = ktime_get_ns();
 	read_lock(&tasklist_lock);
-	penalty = (type_matched && likely(sched_burst_atavistic_depth)) ?
-		inherit_burst_topological(parent, now):
-		((clone_type == 2) ?
-			inherit_burst_direct(parent, now):
-			inherit_burst_tg(parent, now));
+	u8 penalty = (clone_flags & CLONE_THREAD) ?
+		inherit_burst_tg(parent, now) :
+		likely(sched_burst_atavistic_depth) ?
+			inherit_burst_topological(parent, now):
+			inherit_burst_direct(parent, now);
 	read_unlock(&tasklist_lock);
 
 	struct sched_entity *se = &p->se;
@@ -329,15 +324,6 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
-	},
-	{
-		.procname	= "sched_burst_atavistic_mask",
-		.data		= &sched_burst_atavistic_mask,
-		.maxlen		= sizeof(u8),
-		.mode		= 0644,
-		.proc_handler = proc_dou8vec_minmax,
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_THREE,
 	},
 	{
 		.procname	= "sched_burst_atavistic_depth",
