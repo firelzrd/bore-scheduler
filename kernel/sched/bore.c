@@ -152,10 +152,10 @@ static u32 count_child_tasks(struct task_struct *p) {
 }
 
 static inline bool task_is_bore_eligible(struct task_struct *p)
-{return (p->sched_class == &fair_sched_class);}
+{return p->sched_class == &fair_sched_class;}
 
 static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
-{return ((s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0);}
+{return (s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0;}
 
 static void update_burst_cache(struct sched_burst_cache *bc,
 		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
