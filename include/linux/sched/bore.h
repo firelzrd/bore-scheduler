@@ -10,7 +10,7 @@ extern u8   __read_mostly sched_bore;
 extern u8   __read_mostly sched_burst_exclude_kthreads;
 extern u8   __read_mostly sched_burst_smoothness_long;
 extern u8   __read_mostly sched_burst_smoothness_short;
-extern u8   __read_mostly sched_burst_atavistic_depth;
+extern u8   __read_mostly sched_burst_fork_atavistic;
 extern u8   __read_mostly sched_burst_parity_threshold;
 extern u8   __read_mostly sched_burst_penalty_offset;
 extern uint __read_mostly sched_burst_penalty_scale;
