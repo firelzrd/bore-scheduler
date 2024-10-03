@@ -163,7 +163,7 @@ static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now) {
 	return ((s64)(expiration_time - now) < 0);
 }
 
-static void __update_burst_cache(struct sched_burst_cache *bc,
+static void update_burst_cache(struct sched_burst_cache *bc,
 		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
 	u8 avg = cnt ? sum / cnt : 0;
 	bc->score = max(avg, p->se.burst_penalty);
@@ -181,7 +181,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 		sum += child->se.burst_penalty;
 	}
 
-	__update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
+	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
 }
 
 static inline u8 inherit_burst_direct(struct task_struct *p, u64 now) {
@@ -216,7 +216,7 @@ static void update_child_burst_topological(
 		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
 	}
 
-	__update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
+	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
 	*acnt += cnt;
 	*asum += sum;
 }
@@ -245,7 +245,7 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 		sum += task->se.burst_penalty;
 	}
 
-	__update_burst_cache(&p->se.group_burst, p, cnt, sum, now);
+	update_burst_cache(&p->se.group_burst, p, cnt, sum, now);
 }
 
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
