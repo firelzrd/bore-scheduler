@@ -118,6 +118,9 @@ void restart_burst_rescale_deadline(struct sched_entity *se) {
 	}
 }
 
+static inline bool task_is_bore_eligible(struct task_struct *p)
+{return p->sched_class == &fair_sched_class;}
+
 static void reset_task_weights_bore(void) {
 	struct task_struct *task;
 	struct rq *rq;
@@ -125,6 +128,7 @@ static void reset_task_weights_bore(void) {
 
 	write_lock_irq(&tasklist_lock);
 	for_each_process(task) {
+		if (!task_is_bore_eligible(task)) continue;
 		rq = task_rq(task);
 		rq_lock_irqsave(rq, &rf);
 		reweight_task_by_prio(task, effective_prio(task));
@@ -150,9 +154,6 @@ static u32 count_child_tasks(struct task_struct *p) {
 	list_for_each_entry(child, &p->children, sibling) {cnt++;}
 	return cnt;
 }
-
-static inline bool task_is_bore_eligible(struct task_struct *p)
-{return p->sched_class == &fair_sched_class;}
 
 static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
 {return (s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0;}
