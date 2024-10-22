@@ -449,6 +449,9 @@ static void nfsd_shutdown_net(struct net *net)
 {
 	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 
+	if (!nn->nfsd_net_up)
+		return;
+	nfsd_export_flush(net);
 	nfs4_state_shutdown_net(net);
 	nfsd_reply_cache_shutdown(nn);
 	nfsd_file_cache_shutdown_net(net);
@@ -556,11 +559,8 @@ void nfsd_destroy_serv(struct net *net)
 	 * other initialization has been done except the rpcb information.
 	 */
 	svc_rpcb_cleanup(serv, net);
-	if (!nn->nfsd_net_up)
-		return;
 
 	nfsd_shutdown_net(net);
-	nfsd_export_flush(net);
 	svc_destroy(&serv);
 }
 
@@ -705,7 +705,7 @@ int nfsd_get_nrthreads(int n, int *nthreads, struct net *net)
 
 	if (serv)
 		for (i = 0; i < serv->sv_nrpools && i < n; i++)
-			nthreads[i] = atomic_read(&serv->sv_pools[i].sp_nrthreads);
+			nthreads[i] = serv->sv_pools[i].sp_nrthreads;
 	return 0;
 }
 
