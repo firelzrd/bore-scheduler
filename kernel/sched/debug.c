@@ -184,9 +184,6 @@ static ssize_t sched_min_base_slice_write(struct file *filp, const char __user *
 	if (kstrtouint(buf, 10, &value))
 		return -EINVAL;
 
-	if (!value)
-		return -EINVAL;
-
 	sysctl_sched_min_base_slice = value;
 	sched_update_min_base_slice();
 
