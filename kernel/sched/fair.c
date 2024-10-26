@@ -91,7 +91,13 @@ unsigned int sysctl_sched_base_slice			= 750000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
 #endif // CONFIG_SCHED_BORE
 
+#ifdef CONFIG_SCHED_BORE
+const_debug uint sysctl_sched_migration_cost_base = CONFIG_MIGRATION_COST_BASE_NS;
+const_debug uint sysctl_sched_migration_cost_step = CONFIG_MIGRATION_COST_STEP_NS;
+__read_mostly uint sysctl_sched_migration_cost = CONFIG_MIGRATION_COST_BASE_NS;
+#else // !CONFIG_SCHED_BORE
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+#endif // CONFIG_SCHED_BORE
 
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -204,11 +210,16 @@ static inline void update_load_set(struct load_weight *lw, unsigned long w)
  * This idea comes from the SD scheduler of Con Kolivas:
  */
 #ifdef CONFIG_SCHED_BORE
-static void update_sysctl(void) {
+static void auto_calculate_base_slice(void) {
 	sysctl_sched_base_slice = nsecs_per_tick *
 		max(1UL, DIV_ROUND_UP(sysctl_sched_min_base_slice, nsecs_per_tick));
 }
-void sched_update_min_base_slice(void) { update_sysctl(); }
+static void auto_calculate_migration_cost(void) {
+	sysctl_sched_migration_cost = sysctl_sched_migration_cost_base +
+		ilog2(num_online_cpus()) * sysctl_sched_migration_cost_step;
+}
+void sched_update_min_base_slice(void) { auto_calculate_base_slice(); }
+void sched_update_migration_cost(void) { auto_calculate_migration_cost(); }
 #else // !CONFIG_SCHED_BORE
 static unsigned int get_update_sysctl_factor(void)
 {
@@ -230,17 +241,22 @@ static unsigned int get_update_sysctl_factor(void)
 
 	return factor;
 }
+#endif // CONFIG_SCHED_BORE
 
 static void update_sysctl(void)
 {
+#ifdef CONFIG_SCHED_BORE
+	auto_calculate_base_slice();
+	auto_calculate_migration_cost();
+#else // !CONFIG_SCHED_BORE
 	unsigned int factor = get_update_sysctl_factor();
 
 #define SET_SYSCTL(name) \
 	(sysctl_##name = (factor) * normalized_sysctl_##name)
 	SET_SYSCTL(sched_base_slice);
 #undef SET_SYSCTL
-}
 #endif // CONFIG_SCHED_BORE
+}
 
 void __init sched_init_granularity(void)
 {
