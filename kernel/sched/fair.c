@@ -68,8 +68,8 @@
  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
  *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
  *
- * (BORE  default SCHED_TUNABLESCALING_NONE = *1 constant)
- * (EEVDF default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
+ * BORE : default SCHED_TUNABLESCALING_NONE = *1 constant
+ * EEVDF: default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
  */
 #ifdef CONFIG_SCHED_BORE
 unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
@@ -80,8 +80,9 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (BORE  default: max(1 sec / HZ, min_base_slice) constant, units: nanoseconds)
- * (EEVDF default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * BORE : base_slice = minimum multiple of nsecs_per_tick >= min_base_slice
+ * (default min_base_slice = 2000000 constant, units: nanoseconds)
+ * EEVDF: default 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds
  */
 #ifdef CONFIG_SCHED_BORE
 unsigned int            sysctl_sched_base_slice = 1000000000ULL / HZ;
