@@ -85,9 +85,9 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  * EEVDF: default 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds
  */
 #ifdef CONFIG_SCHED_BORE
-unsigned int            sysctl_sched_base_slice = 1000000000ULL / HZ;
-static unsigned int configured_sched_base_slice = 1000000000ULL / HZ;
-unsigned int        sysctl_sched_min_base_slice = CONFIG_MIN_BASE_SLICE_NS;
+const static  uint nsecs_per_tick              = 1000000000ULL / HZ;
+const_debug   uint sysctl_sched_min_base_slice = CONFIG_MIN_BASE_SLICE_NS;
+__read_mostly uint sysctl_sched_base_slice     = nsecs_per_tick;
 #else // !CONFIG_SCHED_BORE
 unsigned int sysctl_sched_base_slice			= 750000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
@@ -227,13 +227,8 @@ static inline void update_load_set(struct load_weight *lw, unsigned long w)
  */
 #ifdef CONFIG_SCHED_BORE
 static void update_sysctl(void) {
-	unsigned int base_slice = configured_sched_base_slice;
-	unsigned int min_base_slice = sysctl_sched_min_base_slice;
-
-	if (min_base_slice)
-		base_slice *= DIV_ROUND_UP(min_base_slice, base_slice);
-
-	sysctl_sched_base_slice = base_slice;
+	sysctl_sched_base_slice = nsecs_per_tick *
+		max(1UL, DIV_ROUND_UP(sysctl_sched_min_base_slice, nsecs_per_tick));
 }
 void sched_update_min_base_slice(void) { update_sysctl(); }
 #else // !CONFIG_SCHED_BORE
