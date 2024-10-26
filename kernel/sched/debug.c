@@ -168,47 +168,71 @@ static const struct file_operations sched_feat_fops = {
 
 #ifdef CONFIG_SMP
 #ifdef CONFIG_SCHED_BORE
-static ssize_t sched_min_base_slice_write(struct file *filp, const char __user *ubuf,
-				   size_t cnt, loff_t *ppos)
-{
-	char buf[16];
-	unsigned int value;
-
-	if (cnt > 15)
-		cnt = 15;
-
-	if (copy_from_user(&buf, ubuf, cnt))
-		return -EFAULT;
-	buf[cnt] = '\0';
-
-	if (kstrtouint(buf, 10, &value))
-		return -EINVAL;
-
-	sysctl_sched_min_base_slice = value;
-	sched_update_min_base_slice();
-
-	*ppos += cnt;
-	return cnt;
+#define DEFINE_SCHED_WRITE_FUNC(name, update_func) \
+static ssize_t sched_##name##_write(struct file *filp, const char __user *ubuf, size_t cnt, loff_t *ppos) \
+{ \
+	char buf[16]; \
+	unsigned int value; \
+\
+	if (cnt > 15) \
+		cnt = 15; \
+\
+	if (copy_from_user(&buf, ubuf, cnt)) \
+		return -EFAULT; \
+	buf[cnt] = '\0'; \
+\
+	if (kstrtouint(buf, 10, &value)) \
+		return -EINVAL; \
+\
+	sysctl_sched_##name = value; \
+	sched_update_##update_func(); \
+\
+	*ppos += cnt; \
+	return cnt; \
 }
 
-static int sched_min_base_slice_show(struct seq_file *m, void *v)
-{
-	seq_printf(m, "%d\n", sysctl_sched_min_base_slice);
-	return 0;
+#define DEFINE_SCHED_SHOW_FUNC(name) \
+static int sched_##name##_show(struct seq_file *m, void *v) \
+{ \
+	seq_printf(m, "%d\n", sysctl_sched_##name); \
+	return 0; \
 }
 
-static int sched_min_base_slice_open(struct inode *inode, struct file *filp)
-{
-	return single_open(filp, sched_min_base_slice_show, NULL);
+#define DEFINE_SCHED_OPEN_FUNC(name) \
+static int sched_##name##_open(struct inode *inode, struct file *filp) \
+{ \
+	return single_open(filp, sched_##name##_show, NULL); \
 }
 
-static const struct file_operations sched_min_base_slice_fops = {
-	.open		= sched_min_base_slice_open,
-	.write		= sched_min_base_slice_write,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
+#define DEFINE_FILE_OPS(name) \
+static const struct file_operations sched_##name##_fops = { \
+	.open		= sched_##name##_open, \
+	.write		= sched_##name##_write, \
+	.read		= seq_read, \
+	.llseek		= seq_lseek, \
+	.release	= single_release, \
 };
+
+DEFINE_SCHED_WRITE_FUNC(min_base_slice, min_base_slice)
+DEFINE_SCHED_WRITE_FUNC(migration_cost_base, migration_cost)
+DEFINE_SCHED_WRITE_FUNC(migration_cost_step, migration_cost)
+
+DEFINE_SCHED_SHOW_FUNC (min_base_slice)
+DEFINE_SCHED_SHOW_FUNC (migration_cost_base)
+DEFINE_SCHED_SHOW_FUNC (migration_cost_step)
+
+DEFINE_SCHED_OPEN_FUNC(min_base_slice)
+DEFINE_SCHED_OPEN_FUNC(migration_cost_base)
+DEFINE_SCHED_OPEN_FUNC(migration_cost_step)
+
+DEFINE_FILE_OPS(min_base_slice)
+DEFINE_FILE_OPS(migration_cost_base)
+DEFINE_FILE_OPS(migration_cost_step)
+
+#undef DEFINE_SCHED_WRITE_FUNC
+#undef DEFINE_SCHED_SHOW_FUNC
+#undef DEFINE_SCHED_OPEN_FUNC
+#undef DEFINE_FILE_OPS
 #else // !CONFIG_SCHED_BORE
 static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 				   size_t cnt, loff_t *ppos)
@@ -400,10 +424,14 @@ static __init int sched_init_debug(void)
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
 
 #ifdef CONFIG_SMP
-#if !defined(CONFIG_SCHED_BORE)
+#ifdef CONFIG_SCHED_BORE
+	debugfs_create_file("migration_cost_base_ns", 0644, debugfs_sched, NULL, &sched_migration_cost_base_fops);
+	debugfs_create_file("migration_cost_step_ns", 0644, debugfs_sched, NULL, &sched_migration_cost_step_fops);
+	debugfs_create_u32("migration_cost_ns", 0444, debugfs_sched, &sysctl_sched_migration_cost);
+#else // !CONFIG_SCHED_BORE
 	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
-#endif // CONFIG_SCHED_BORE
 	debugfs_create_u32("migration_cost_ns", 0644, debugfs_sched, &sysctl_sched_migration_cost);
+#endif // CONFIG_SCHED_BORE
 	debugfs_create_u32("nr_migrate", 0644, debugfs_sched, &sysctl_sched_nr_migrate);
 
 	mutex_lock(&sched_domains_mutex);
