@@ -168,7 +168,7 @@ static const struct file_operations sched_feat_fops = {
 
 #ifdef CONFIG_SMP
 #ifdef CONFIG_SCHED_BORE
-#define DEFINE_SCHED_WRITE_FUNC(name, update_func) \
+#define DEFINE_SYSCTL_SCHED_FUNC(name, update_func) \
 static ssize_t sched_##name##_write(struct file *filp, const char __user *ubuf, size_t cnt, loff_t *ppos) \
 { \
 	char buf[16]; \
@@ -189,22 +189,19 @@ static ssize_t sched_##name##_write(struct file *filp, const char __user *ubuf, 
 \
 	*ppos += cnt; \
 	return cnt; \
-}
-
-#define DEFINE_SCHED_SHOW_FUNC(name) \
+} \
+\
 static int sched_##name##_show(struct seq_file *m, void *v) \
 { \
 	seq_printf(m, "%d\n", sysctl_sched_##name); \
 	return 0; \
-}
-
-#define DEFINE_SCHED_OPEN_FUNC(name) \
+} \
+\
 static int sched_##name##_open(struct inode *inode, struct file *filp) \
 { \
 	return single_open(filp, sched_##name##_show, NULL); \
-}
-
-#define DEFINE_FILE_OPS(name) \
+} \
+\
 static const struct file_operations sched_##name##_fops = { \
 	.open		= sched_##name##_open, \
 	.write		= sched_##name##_write, \
@@ -213,26 +210,11 @@ static const struct file_operations sched_##name##_fops = { \
 	.release	= single_release, \
 };
 
-DEFINE_SCHED_WRITE_FUNC(min_base_slice, min_base_slice)
-DEFINE_SCHED_WRITE_FUNC(migration_cost_base, migration_cost)
-DEFINE_SCHED_WRITE_FUNC(migration_cost_step, migration_cost)
+DEFINE_SYSCTL_SCHED_FUNC(min_base_slice, min_base_slice)
+DEFINE_SYSCTL_SCHED_FUNC(migration_cost_base, migration_cost)
+DEFINE_SYSCTL_SCHED_FUNC(migration_cost_step, migration_cost)
 
-DEFINE_SCHED_SHOW_FUNC (min_base_slice)
-DEFINE_SCHED_SHOW_FUNC (migration_cost_base)
-DEFINE_SCHED_SHOW_FUNC (migration_cost_step)
-
-DEFINE_SCHED_OPEN_FUNC(min_base_slice)
-DEFINE_SCHED_OPEN_FUNC(migration_cost_base)
-DEFINE_SCHED_OPEN_FUNC(migration_cost_step)
-
-DEFINE_FILE_OPS(min_base_slice)
-DEFINE_FILE_OPS(migration_cost_base)
-DEFINE_FILE_OPS(migration_cost_step)
-
-#undef DEFINE_SCHED_WRITE_FUNC
-#undef DEFINE_SCHED_SHOW_FUNC
-#undef DEFINE_SCHED_OPEN_FUNC
-#undef DEFINE_FILE_OPS
+#undef DEFINE_SYSCTL_SCHED_FUNC
 #else // !CONFIG_SCHED_BORE
 static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 				   size_t cnt, loff_t *ppos)
