@@ -2535,15 +2535,19 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
 #endif
 
 extern const_debug unsigned int sysctl_sched_nr_migrate;
-extern unsigned int sysctl_sched_migration_cost;
 #ifdef CONFIG_SCHED_BORE
-extern unsigned int sysctl_sched_migration_cost_base;
-extern unsigned int sysctl_sched_migration_cost_step;
+extern const_debug unsigned int sysctl_sched_migration_cost_base;
+extern const_debug unsigned int sysctl_sched_migration_cost_step;
+extern __read_mostly unsigned int sysctl_sched_migration_cost;
+#else // !CONFIG_SCHED_BORE
+extern const_debug unsigned int sysctl_sched_migration_cost;
 #endif // CONFIG_SCHED_BORE
 
-extern unsigned int sysctl_sched_base_slice;
 #ifdef CONFIG_SCHED_BORE
-extern unsigned int sysctl_sched_min_base_slice;
+extern const_debug unsigned int sysctl_sched_min_base_slice;
+extern __read_mostly unsigned int sysctl_sched_base_slice;
+#else // !CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_base_slice;
 #endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_SCHED_DEBUG
