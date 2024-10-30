@@ -85,8 +85,8 @@ unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
  * EEVDF: default 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds
  */
 #ifdef CONFIG_SCHED_BORE
-const static  uint nsecs_per_tick              = 1000000000ULL / HZ;
-const_debug   uint sysctl_sched_min_base_slice = CONFIG_MIN_BASE_SLICE_NS;
+const static unsigned int nsecs_per_tick       = 1000000000ULL / HZ;
+unsigned int sysctl_sched_min_base_slice       = CONFIG_MIN_BASE_SLICE_NS;
 __read_mostly uint sysctl_sched_base_slice     = nsecs_per_tick;
 #else // !CONFIG_SCHED_BORE
 unsigned int sysctl_sched_base_slice			= 750000ULL;
@@ -100,8 +100,8 @@ static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
 unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 #ifdef CONFIG_SCHED_BORE
-const_debug uint sysctl_sched_migration_cost_base = CONFIG_MIGRATION_COST_BASE_NS;
-const_debug uint sysctl_sched_migration_cost_step = CONFIG_MIGRATION_COST_STEP_NS;
+unsigned int sysctl_sched_migration_cost_base  = CONFIG_MIGRATION_COST_BASE_NS;
+unsigned int sysctl_sched_migration_cost_step  = CONFIG_MIGRATION_COST_STEP_NS;
 __read_mostly uint sysctl_sched_migration_cost = CONFIG_MIGRATION_COST_BASE_NS;
 #else // !CONFIG_SCHED_BORE
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
