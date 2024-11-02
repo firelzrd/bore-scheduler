@@ -74,7 +74,7 @@ config MIN_BASE_SLICE_NS
 
 config MIGRATION_COST_BASE_NS
 	int "Default value for migration_cost_base_ns"
-	default 300000
+	default 500000
 	help
 	 The BORE Scheduler automatically calculates the optimal
 	 migration_cost_ns using the following equation:
@@ -87,7 +87,7 @@ config MIGRATION_COST_BASE_NS
 
 config MIGRATION_COST_STEP_NS
 	int "Default value for migration_cost_step_ns"
-	default 50000
+	default 0
 	help
 	 The BORE Scheduler automatically calculates the optimal
 	 migration_cost_ns using the following equation:
