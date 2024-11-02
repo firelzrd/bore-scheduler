@@ -1,7 +1,7 @@
-From f06dc33ce2f162dbcba9d027009548f5f69517e8 Mon Sep 17 00:00:00 2001
+From 35b5ba6ba123d224498f3b266a56eaf36ad20bc9 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Mon, 28 Oct 2024 05:57:44 +0900
-Subject: [PATCH] linux6.11-bc9057da-bore5.7.1
+Date: Sun, 3 Nov 2024 02:31:02 +0900
+Subject: [PATCH] linux6.11-bc9057da-bore5.7.2
 
 ---
  include/linux/sched.h      |  17 ++
@@ -126,7 +126,7 @@ index a465ea9525..2972412c55 100644
  	bool "Automatic process group scheduling"
  	select CGROUPS
 diff --git a/kernel/Kconfig.hz b/kernel/Kconfig.hz
-index 38ef6d0688..7da33f5baa 100644
+index 38ef6d0688..e84aa5282e 100644
 --- a/kernel/Kconfig.hz
 +++ b/kernel/Kconfig.hz
 @@ -55,5 +55,48 @@ config HZ
@@ -152,7 +152,7 @@ index 38ef6d0688..7da33f5baa 100644
 +
 +config MIGRATION_COST_BASE_NS
 +	int "Default value for migration_cost_base_ns"
-+	default 300000
++	default 500000
 +	help
 +	 The BORE Scheduler automatically calculates the optimal
 +	 migration_cost_ns using the following equation:
@@ -165,7 +165,7 @@ index 38ef6d0688..7da33f5baa 100644
 +
 +config MIGRATION_COST_STEP_NS
 +	int "Default value for migration_cost_step_ns"
-+	default 50000
++	default 0
 +	help
 +	 The BORE Scheduler automatically calculates the optimal
 +	 migration_cost_ns using the following equation:
@@ -598,7 +598,7 @@ index 0000000000..cd7e8a8d60
 +#endif // CONFIG_SYSCTL
 +#endif // CONFIG_SCHED_BORE
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index b4c5d83e54..5c0849e940 100644
+index b4c5d83e54..d12b9b66b0 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -97,6 +97,8 @@
@@ -615,7 +615,7 @@ index b4c5d83e54..5c0849e940 100644
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
-+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.7.1 by Masahito Suzuki");
++	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.7.2 by Masahito Suzuki");
 +	init_task_bore(&init_task);
 +#endif // CONFIG_SCHED_BORE
 +
@@ -738,7 +738,7 @@ index de1dc5264b..c2f7c36321 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 922d690316..af3f32b6d9 100644
+index 922d690316..fb0cd56d27 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -55,6 +55,8 @@
@@ -773,8 +773,8 @@ index 922d690316..af3f32b6d9 100644
 + * EEVDF: default 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds
   */
 +#ifdef CONFIG_SCHED_BORE
-+const static  uint nsecs_per_tick              = 1000000000ULL / HZ;
-+const_debug   uint sysctl_sched_min_base_slice = CONFIG_MIN_BASE_SLICE_NS;
++const static unsigned int nsecs_per_tick       = 1000000000ULL / HZ;
++unsigned int sysctl_sched_min_base_slice       = CONFIG_MIN_BASE_SLICE_NS;
 +__read_mostly uint sysctl_sched_base_slice     = nsecs_per_tick;
 +#else // !CONFIG_SCHED_BORE
  unsigned int sysctl_sched_base_slice			= 750000ULL;
@@ -782,8 +782,8 @@ index 922d690316..af3f32b6d9 100644
 +#endif // CONFIG_SCHED_BORE
  
 +#ifdef CONFIG_SCHED_BORE
-+const_debug uint sysctl_sched_migration_cost_base = CONFIG_MIGRATION_COST_BASE_NS;
-+const_debug uint sysctl_sched_migration_cost_step = CONFIG_MIGRATION_COST_STEP_NS;
++unsigned int sysctl_sched_migration_cost_base  = CONFIG_MIGRATION_COST_BASE_NS;
++unsigned int sysctl_sched_migration_cost_step  = CONFIG_MIGRATION_COST_STEP_NS;
 +__read_mostly uint sysctl_sched_migration_cost = CONFIG_MIGRATION_COST_BASE_NS;
 +#else // !CONFIG_SCHED_BORE
  const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
@@ -975,7 +975,7 @@ index 922d690316..af3f32b6d9 100644
  	/*
  	 * Since this is called after changing class, this is a little weird
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 3744f16a12..d3b082ef02 100644
+index 3744f16a12..770433bdc6 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -1992,7 +1992,12 @@ static inline void update_sched_domain_debugfs(void) { }
@@ -996,16 +996,16 @@ index 3744f16a12..d3b082ef02 100644
  
  extern const_debug unsigned int sysctl_sched_nr_migrate;
 +#ifdef CONFIG_SCHED_BORE
-+extern const_debug unsigned int sysctl_sched_migration_cost_base;
-+extern const_debug unsigned int sysctl_sched_migration_cost_step;
-+extern __read_mostly unsigned int sysctl_sched_migration_cost;
++extern unsigned int sysctl_sched_migration_cost_base;
++extern unsigned int sysctl_sched_migration_cost_step;
++extern __read_mostly uint sysctl_sched_migration_cost;
 +#else // !CONFIG_SCHED_BORE
  extern const_debug unsigned int sysctl_sched_migration_cost;
 +#endif // CONFIG_SCHED_BORE
  
 +#ifdef CONFIG_SCHED_BORE
-+extern const_debug unsigned int sysctl_sched_min_base_slice;
-+extern __read_mostly unsigned int sysctl_sched_base_slice;
++extern unsigned int sysctl_sched_min_base_slice;
++extern __read_mostly uint sysctl_sched_base_slice;
 +#else // !CONFIG_SCHED_BORE
  extern unsigned int sysctl_sched_base_slice;
 +#endif // CONFIG_SCHED_BORE
