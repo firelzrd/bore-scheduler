@@ -72,31 +72,5 @@ config MIN_BASE_SLICE_NS
 	 an unnecessarily large base slice, resulting in high scheduling
 	 latency and poor system responsiveness.
 
-config MIGRATION_COST_BASE_NS
-	int "Default value for migration_cost_base_ns"
-	default 500000
-	help
-	 The BORE Scheduler automatically calculates the optimal
-	 migration_cost_ns using the following equation:
-	 
-	 migration_cost_ns =
-	 	migration_cost_base_ns + ilog2(ncpus) * migration_cost_step_ns
-	 
-	 This option sets the default migration_cost_base_ns
-	 to be used in the automatic calculation.
-
-config MIGRATION_COST_STEP_NS
-	int "Default value for migration_cost_step_ns"
-	default 0
-	help
-	 The BORE Scheduler automatically calculates the optimal
-	 migration_cost_ns using the following equation:
-	 
-	 migration_cost_ns =
-	 	migration_cost_base_ns + ilog2(ncpus) * migration_cost_step_ns
-	 
-	 This option sets the default migration_cost_step_ns
-	 to be used in the automatic calculation.
-
 config SCHED_HRTICK
 	def_bool HIGH_RES_TIMERS
