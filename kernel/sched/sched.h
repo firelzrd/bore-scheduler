@@ -1948,7 +1948,6 @@ static inline void dirty_sched_domain_sysctl(int cpu)
 
 #ifdef CONFIG_SCHED_BORE
 extern void sched_update_min_base_slice(void);
-extern void sched_update_migration_cost(void);
 #else // !CONFIG_SCHED_BORE
 extern int sched_update_scaling(void);
 #endif // CONFIG_SCHED_BORE
@@ -2535,13 +2534,7 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
 #endif
 
 extern const_debug unsigned int sysctl_sched_nr_migrate;
-#ifdef CONFIG_SCHED_BORE
-extern unsigned int sysctl_sched_migration_cost_base;
-extern unsigned int sysctl_sched_migration_cost_step;
-extern __read_mostly uint sysctl_sched_migration_cost;
-#else // !CONFIG_SCHED_BORE
 extern const_debug unsigned int sysctl_sched_migration_cost;
-#endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_SCHED_BORE
 extern unsigned int sysctl_sched_min_base_slice;
