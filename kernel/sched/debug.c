@@ -211,8 +211,6 @@ static const struct file_operations sched_##name##_fops = { \
 };
 
 DEFINE_SYSCTL_SCHED_FUNC(min_base_slice, min_base_slice)
-DEFINE_SYSCTL_SCHED_FUNC(migration_cost_base, migration_cost)
-DEFINE_SYSCTL_SCHED_FUNC(migration_cost_step, migration_cost)
 
 #undef DEFINE_SYSCTL_SCHED_FUNC
 #else // !CONFIG_SCHED_BORE
@@ -406,14 +404,10 @@ static __init int sched_init_debug(void)
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
 
 #ifdef CONFIG_SMP
-#ifdef CONFIG_SCHED_BORE
-	debugfs_create_file("migration_cost_base_ns", 0644, debugfs_sched, NULL, &sched_migration_cost_base_fops);
-	debugfs_create_file("migration_cost_step_ns", 0644, debugfs_sched, NULL, &sched_migration_cost_step_fops);
-	debugfs_create_u32("migration_cost_ns", 0444, debugfs_sched, &sysctl_sched_migration_cost);
-#else // !CONFIG_SCHED_BORE
+#if !defined(CONFIG_SCHED_BORE)
 	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
-	debugfs_create_u32("migration_cost_ns", 0644, debugfs_sched, &sysctl_sched_migration_cost);
 #endif // CONFIG_SCHED_BORE
+	debugfs_create_u32("migration_cost_ns", 0644, debugfs_sched, &sysctl_sched_migration_cost);
 	debugfs_create_u32("nr_migrate", 0644, debugfs_sched, &sysctl_sched_nr_migrate);
 
 	mutex_lock(&sched_domains_mutex);
