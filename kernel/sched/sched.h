@@ -2075,7 +2075,11 @@ static inline void update_sched_domain_debugfs(void) { }
 static inline void dirty_sched_domain_sysctl(int cpu) { }
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+extern void sched_update_min_base_slice(void);
+#else // !CONFIG_SCHED_BORE
 extern int sched_update_scaling(void);
+#endif // CONFIG_SCHED_BORE
 
 static inline const struct cpumask *task_user_cpus(struct task_struct *p)
 {
@@ -2825,7 +2829,12 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
 extern const_debug unsigned int sysctl_sched_nr_migrate;
 extern const_debug unsigned int sysctl_sched_migration_cost;
 
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_min_base_slice;
+extern __read_mostly uint sysctl_sched_base_slice;
+#else // !CONFIG_SCHED_BORE
 extern unsigned int sysctl_sched_base_slice;
+#endif // CONFIG_SCHED_BORE
 
 #ifdef CONFIG_SCHED_DEBUG
 extern int sysctl_resched_latency_warn_ms;
