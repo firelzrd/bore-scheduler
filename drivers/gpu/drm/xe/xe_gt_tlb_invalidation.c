@@ -12,6 +12,7 @@
 #include "xe_gt_printk.h"
 #include "xe_guc.h"
 #include "xe_guc_ct.h"
+#include "xe_gt_stats.h"
 #include "xe_mmio.h"
 #include "xe_pm.h"
 #include "xe_sriov.h"
@@ -34,6 +35,15 @@ static long tlb_timeout_jiffies(struct xe_gt *gt)
 	long delay = xe_guc_ct_queue_proc_time_jiffies(&gt->uc.guc.ct);
 
 	return hw_tlb_timeout + 2 * delay;
+}
+
+static void xe_gt_tlb_invalidation_fence_fini(struct xe_gt_tlb_invalidation_fence *fence)
+{
+	if (WARN_ON_ONCE(!fence->gt))
+		return;
+
+	xe_pm_runtime_put(gt_to_xe(fence->gt));
+	fence->gt = NULL; /* fini() should be called once */
 }
 
 static void
@@ -203,7 +213,7 @@ static int send_tlb_invalidation(struct xe_guc *guc,
 						   tlb_timeout_jiffies(gt));
 		}
 		spin_unlock_irq(&gt->tlb_invalidation.pending_lock);
-	} else if (ret < 0) {
+	} else {
 		__invalidation_fence_signal(xe, fence);
 	}
 	if (!ret) {
@@ -213,6 +223,7 @@ static int send_tlb_invalidation(struct xe_guc *guc,
 			gt->tlb_invalidation.seqno = 1;
 	}
 	mutex_unlock(&guc->ct.lock);
+	xe_gt_stats_incr(gt, XE_GT_STATS_ID_TLB_INVAL, 1);
 
 	return ret;
 }
@@ -265,10 +276,8 @@ int xe_gt_tlb_invalidation_ggtt(struct xe_gt *gt)
 
 		xe_gt_tlb_invalidation_fence_init(gt, &fence, true);
 		ret = xe_gt_tlb_invalidation_guc(gt, &fence);
-		if (ret < 0) {
-			xe_gt_tlb_invalidation_fence_fini(&fence);
+		if (ret)
 			return ret;
-		}
 
 		xe_gt_tlb_invalidation_fence_wait(&fence);
 	} else if (xe_device_uc_enabled(xe) && !xe_device_wedged(xe)) {
@@ -494,7 +503,8 @@ static const struct dma_fence_ops invalidation_fence_ops = {
  * @stack: fence is stack variable
  *
  * Initialize TLB invalidation fence for use. xe_gt_tlb_invalidation_fence_fini
- * must be called if fence is not signaled.
+ * will be automatically called when fence is signalled (all fences must signal),
+ * even on error.
  */
 void xe_gt_tlb_invalidation_fence_init(struct xe_gt *gt,
 				       struct xe_gt_tlb_invalidation_fence *fence,
@@ -513,15 +523,4 @@ void xe_gt_tlb_invalidation_fence_init(struct xe_gt *gt,
 	else
 		dma_fence_get(&fence->base);
 	fence->gt = gt;
-}
-
-/**
- * xe_gt_tlb_invalidation_fence_fini - Finalize TLB invalidation fence
- * @fence: TLB invalidation fence to finalize
- *
- * Drop PM ref which fence took durinig init.
- */
-void xe_gt_tlb_invalidation_fence_fini(struct xe_gt_tlb_invalidation_fence *fence)
-{
-	xe_pm_runtime_put(gt_to_xe(fence->gt));
 }

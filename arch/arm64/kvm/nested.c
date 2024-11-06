@@ -62,7 +62,6 @@ int kvm_vcpu_init_nested(struct kvm_vcpu *vcpu)
 	 */
 	num_mmus = atomic_read(&kvm->online_vcpus) * S2_MMU_PER_VCPU;
 	tmp = kvrealloc(kvm->arch.nested_mmus,
-			size_mul(sizeof(*kvm->arch.nested_mmus), kvm->arch.nested_mmus_size),
 			size_mul(sizeof(*kvm->arch.nested_mmus), num_mmus),
 			GFP_KERNEL_ACCOUNT | __GFP_ZERO);
 	if (!tmp)
@@ -102,20 +101,6 @@ struct s2_walk_info {
 	unsigned int t0sz;
 	bool	     be;
 };
-
-static unsigned int ps_to_output_size(unsigned int ps)
-{
-	switch (ps) {
-	case 0: return 32;
-	case 1: return 36;
-	case 2: return 40;
-	case 3: return 42;
-	case 4: return 44;
-	case 5:
-	default:
-		return 48;
-	}
-}
 
 static u32 compute_fsc(int level, u32 fsc)
 {
@@ -256,7 +241,7 @@ static int walk_nested_s2_pgd(phys_addr_t ipa,
 		/* Check for valid descriptor at this point */
 		if (!(desc & 1) || ((desc & 3) == 1 && level == 3)) {
 			out->esr = compute_fsc(level, ESR_ELx_FSC_FAULT);
-			out->upper_attr = desc;
+			out->desc = desc;
 			return 1;
 		}
 
@@ -266,7 +251,7 @@ static int walk_nested_s2_pgd(phys_addr_t ipa,
 
 		if (check_output_size(wi, desc)) {
 			out->esr = compute_fsc(level, ESR_ELx_FSC_ADDRSZ);
-			out->upper_attr = desc;
+			out->desc = desc;
 			return 1;
 		}
 
@@ -278,26 +263,23 @@ static int walk_nested_s2_pgd(phys_addr_t ipa,
 
 	if (level < first_block_level) {
 		out->esr = compute_fsc(level, ESR_ELx_FSC_FAULT);
-		out->upper_attr = desc;
+		out->desc = desc;
 		return 1;
 	}
 
-	/*
-	 * We don't use the contiguous bit in the stage-2 ptes, so skip check
-	 * for misprogramming of the contiguous bit.
-	 */
-
 	if (check_output_size(wi, desc)) {
 		out->esr = compute_fsc(level, ESR_ELx_FSC_ADDRSZ);
-		out->upper_attr = desc;
+		out->desc = desc;
 		return 1;
 	}
 
 	if (!(desc & BIT(10))) {
 		out->esr = compute_fsc(level, ESR_ELx_FSC_ACCESS);
-		out->upper_attr = desc;
+		out->desc = desc;
 		return 1;
 	}
+
+	addr_bottom += contiguous_bit_shift(desc, wi, level);
 
 	/* Calculate and return the result */
 	paddr = (desc & GENMASK_ULL(47, addr_bottom)) |
@@ -307,7 +289,7 @@ static int walk_nested_s2_pgd(phys_addr_t ipa,
 	out->readable = desc & (0b01 << 6);
 	out->writable = desc & (0b10 << 6);
 	out->level = level;
-	out->upper_attr = desc & GENMASK_ULL(63, 52);
+	out->desc = desc;
 	return 0;
 }
 
@@ -650,9 +632,9 @@ static struct kvm_s2_mmu *get_s2_mmu_nested(struct kvm_vcpu *vcpu)
 	/* Set the scene for the next search */
 	kvm->arch.nested_mmus_next = (i + 1) % kvm->arch.nested_mmus_size;
 
-	/* Clear the old state */
+	/* Make sure we don't forget to do the laundry */
 	if (kvm_s2_mmu_valid(s2_mmu))
-		kvm_stage2_unmap_range(s2_mmu, 0, kvm_phys_size(s2_mmu));
+		s2_mmu->pending_unmap = true;
 
 	/*
 	 * The virtual VMID (modulo CnP) will be used as a key when matching
@@ -668,6 +650,16 @@ static struct kvm_s2_mmu *get_s2_mmu_nested(struct kvm_vcpu *vcpu)
 
 out:
 	atomic_inc(&s2_mmu->refcnt);
+
+	/*
+	 * Set the vCPU request to perform an unmap, even if the pending unmap
+	 * originates from another vCPU. This guarantees that the MMU has been
+	 * completely unmapped before any vCPU actually uses it, and allows
+	 * multiple vCPUs to lend a hand with completing the unmap.
+	 */
+	if (s2_mmu->pending_unmap)
+		kvm_make_request(KVM_REQ_NESTED_S2_UNMAP, vcpu);
+
 	return s2_mmu;
 }
 
@@ -681,6 +673,13 @@ void kvm_init_nested_s2_mmu(struct kvm_s2_mmu *mmu)
 
 void kvm_vcpu_load_hw_mmu(struct kvm_vcpu *vcpu)
 {
+	/*
+	 * The vCPU kept its reference on the MMU after the last put, keep
+	 * rolling with it.
+	 */
+	if (vcpu->arch.hw_mmu)
+		return;
+
 	if (is_hyp_ctxt(vcpu)) {
 		vcpu->arch.hw_mmu = &vcpu->kvm->arch.mmu;
 	} else {
@@ -692,10 +691,18 @@ void kvm_vcpu_load_hw_mmu(struct kvm_vcpu *vcpu)
 
 void kvm_vcpu_put_hw_mmu(struct kvm_vcpu *vcpu)
 {
-	if (kvm_is_nested_s2_mmu(vcpu->kvm, vcpu->arch.hw_mmu)) {
+	/*
+	 * Keep a reference on the associated stage-2 MMU if the vCPU is
+	 * scheduling out and not in WFI emulation, suggesting it is likely to
+	 * reuse the MMU sometime soon.
+	 */
+	if (vcpu->scheduled_out && !vcpu_get_flag(vcpu, IN_WFI))
+		return;
+
+	if (kvm_is_nested_s2_mmu(vcpu->kvm, vcpu->arch.hw_mmu))
 		atomic_dec(&vcpu->arch.hw_mmu->refcnt);
-		vcpu->arch.hw_mmu = NULL;
-	}
+
+	vcpu->arch.hw_mmu = NULL;
 }
 
 /*
@@ -748,7 +755,7 @@ void kvm_nested_s2_wp(struct kvm *kvm)
 	}
 }
 
-void kvm_nested_s2_unmap(struct kvm *kvm)
+void kvm_nested_s2_unmap(struct kvm *kvm, bool may_block)
 {
 	int i;
 
@@ -758,7 +765,7 @@ void kvm_nested_s2_unmap(struct kvm *kvm)
 		struct kvm_s2_mmu *mmu = &kvm->arch.nested_mmus[i];
 
 		if (kvm_s2_mmu_valid(mmu))
-			kvm_stage2_unmap_range(mmu, 0, kvm_phys_size(mmu));
+			kvm_stage2_unmap_range(mmu, 0, kvm_phys_size(mmu), may_block);
 	}
 }
 
@@ -954,19 +961,16 @@ static void set_sysreg_masks(struct kvm *kvm, int sr, u64 res0, u64 res1)
 int kvm_init_nv_sysregs(struct kvm *kvm)
 {
 	u64 res0, res1;
-	int ret = 0;
 
-	mutex_lock(&kvm->arch.config_lock);
+	lockdep_assert_held(&kvm->arch.config_lock);
 
 	if (kvm->arch.sysreg_masks)
-		goto out;
+		return 0;
 
 	kvm->arch.sysreg_masks = kzalloc(sizeof(*(kvm->arch.sysreg_masks)),
 					 GFP_KERNEL_ACCOUNT);
-	if (!kvm->arch.sysreg_masks) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!kvm->arch.sysreg_masks)
+		return -ENOMEM;
 
 	limit_nv_id_regs(kvm);
 
@@ -1195,8 +1199,27 @@ int kvm_init_nv_sysregs(struct kvm *kvm)
 	if (!kvm_has_feat(kvm, ID_AA64PFR0_EL1, AMU, V1P1))
 		res0 |= ~(res0 | res1);
 	set_sysreg_masks(kvm, HAFGRTR_EL2, res0, res1);
-out:
-	mutex_unlock(&kvm->arch.config_lock);
 
-	return ret;
+	/* SCTLR_EL1 */
+	res0 = SCTLR_EL1_RES0;
+	res1 = SCTLR_EL1_RES1;
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, PAN, PAN3))
+		res0 |= SCTLR_EL1_EPAN;
+	set_sysreg_masks(kvm, SCTLR_EL1, res0, res1);
+
+	return 0;
+}
+
+void check_nested_vcpu_requests(struct kvm_vcpu *vcpu)
+{
+	if (kvm_check_request(KVM_REQ_NESTED_S2_UNMAP, vcpu)) {
+		struct kvm_s2_mmu *mmu = vcpu->arch.hw_mmu;
+
+		write_lock(&vcpu->kvm->mmu_lock);
+		if (mmu->pending_unmap) {
+			kvm_stage2_unmap_range(mmu, 0, kvm_phys_size(mmu), true);
+			mmu->pending_unmap = false;
+		}
+		write_unlock(&vcpu->kvm->mmu_lock);
+	}
 }

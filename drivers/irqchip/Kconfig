@@ -45,13 +45,6 @@ config ARM_GIC_V3_ITS
 	select IRQ_MSI_LIB
 	default ARM_GIC_V3
 
-config ARM_GIC_V3_ITS_PCI
-	bool
-	depends on ARM_GIC_V3_ITS
-	depends on PCI
-	depends on PCI_MSI
-	default ARM_GIC_V3_ITS
-
 config ARM_GIC_V3_ITS_FSL_MC
 	bool
 	depends on ARM_GIC_V3_ITS
@@ -685,6 +678,7 @@ config LOONGSON_PCH_MSI
 	depends on PCI
 	default MACH_LOONGSON64
 	select IRQ_DOMAIN_HIERARCHY
+	select IRQ_MSI_LIB
 	select PCI_MSI
 	help
 	  Support for the Loongson PCH MSI Controller.
