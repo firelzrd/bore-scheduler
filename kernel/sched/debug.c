@@ -167,7 +167,53 @@ static const struct file_operations sched_feat_fops = {
 };
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_SCHED_BORE
+#define DEFINE_SYSCTL_SCHED_FUNC(name, update_func) \
+static ssize_t sched_##name##_write(struct file *filp, const char __user *ubuf, size_t cnt, loff_t *ppos) \
+{ \
+	char buf[16]; \
+	unsigned int value; \
+\
+	if (cnt > 15) \
+		cnt = 15; \
+\
+	if (copy_from_user(&buf, ubuf, cnt)) \
+		return -EFAULT; \
+	buf[cnt] = '\0'; \
+\
+	if (kstrtouint(buf, 10, &value)) \
+		return -EINVAL; \
+\
+	sysctl_sched_##name = value; \
+	sched_update_##update_func(); \
+\
+	*ppos += cnt; \
+	return cnt; \
+} \
+\
+static int sched_##name##_show(struct seq_file *m, void *v) \
+{ \
+	seq_printf(m, "%d\n", sysctl_sched_##name); \
+	return 0; \
+} \
+\
+static int sched_##name##_open(struct inode *inode, struct file *filp) \
+{ \
+	return single_open(filp, sched_##name##_show, NULL); \
+} \
+\
+static const struct file_operations sched_##name##_fops = { \
+	.open		= sched_##name##_open, \
+	.write		= sched_##name##_write, \
+	.read		= seq_read, \
+	.llseek		= seq_lseek, \
+	.release	= single_release, \
+};
 
+DEFINE_SYSCTL_SCHED_FUNC(min_base_slice, min_base_slice)
+
+#undef DEFINE_SYSCTL_SCHED_FUNC
+#else // !CONFIG_SCHED_BORE
 static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 				   size_t cnt, loff_t *ppos)
 {
@@ -213,7 +259,7 @@ static const struct file_operations sched_scaling_fops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
-
+#endif // CONFIG_SCHED_BORE
 #endif /* SMP */
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
@@ -504,13 +550,20 @@ static __init int sched_init_debug(void)
 	debugfs_create_file("preempt", 0644, debugfs_sched, NULL, &sched_dynamic_fops);
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+	debugfs_create_file("min_base_slice_ns", 0644, debugfs_sched, NULL, &sched_min_base_slice_fops);
+	debugfs_create_u32("base_slice_ns", 0444, debugfs_sched, &sysctl_sched_base_slice);
+#else // !CONFIG_SCHED_BORE
 	debugfs_create_u32("base_slice_ns", 0644, debugfs_sched, &sysctl_sched_base_slice);
+#endif // CONFIG_SCHED_BORE
 
 	debugfs_create_u32("latency_warn_ms", 0644, debugfs_sched, &sysctl_resched_latency_warn_ms);
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
 
 #ifdef CONFIG_SMP
+#if !defined(CONFIG_SCHED_BORE)
 	debugfs_create_file("tunable_scaling", 0644, debugfs_sched, NULL, &sched_scaling_fops);
+#endif // CONFIG_SCHED_BORE
 	debugfs_create_u32("migration_cost_ns", 0644, debugfs_sched, &sysctl_sched_migration_cost);
 	debugfs_create_u32("nr_migrate", 0644, debugfs_sched, &sysctl_sched_nr_migrate);
 
@@ -755,6 +808,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_sleep_runtime)),
 		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_block_runtime)));
 
+#ifdef CONFIG_SCHED_BORE
+	SEQ_printf(m, " %2d", p->se.burst_score);
+#endif // CONFIG_SCHED_BORE
 #ifdef CONFIG_NUMA_BALANCING
 	SEQ_printf(m, "   %d      %d", task_node(p), task_numa_group_id(p));
 #endif
@@ -1243,6 +1299,9 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 
 	P(se.load.weight);
 #ifdef CONFIG_SMP
+#ifdef CONFIG_SCHED_BORE
+	P(se.burst_score);
+#endif // CONFIG_SCHED_BORE
 	P(se.avg.load_sum);
 	P(se.avg.runnable_sum);
 	P(se.avg.util_sum);

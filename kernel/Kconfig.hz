@@ -55,5 +55,22 @@ config HZ
 	default 300 if HZ_300
 	default 1000 if HZ_1000
 
+config MIN_BASE_SLICE_NS
+	int "Default value for min_base_slice_ns"
+	default 2000000
+	help
+	 The BORE Scheduler automatically calculates the optimal base
+	 slice for the configured HZ using the following equation:
+	 
+	 base_slice_ns =
+	 	1000000000/HZ * DIV_ROUNDUP(min_base_slice_ns, 1000000000/HZ)
+	 
+	 This option sets the default lower bound limit of the base slice
+	 to prevent the loss of task throughput due to overscheduling.
+	 
+	 Setting this value too high can cause the system to boot with
+	 an unnecessarily large base slice, resulting in high scheduling
+	 latency and poor system responsiveness.
+
 config SCHED_HRTICK
 	def_bool HIGH_RES_TIMERS
