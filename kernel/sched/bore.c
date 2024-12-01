@@ -152,7 +152,7 @@ int sched_bore_update_handler(struct ctl_table *table, int write,
 static u32 count_child_tasks(struct task_struct *p) {
 	struct task_struct *child;
 	u32 cnt = 0;
-	list_for_each_entry(child, &p->children, sibling) {cnt++;}
+	list_for_each_entry_rcu(child, &p->children, sibling) {cnt++;}
 	return cnt;
 }
 
@@ -171,7 +171,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 	u32 cnt = 0, sum = 0;
 	struct task_struct *child;
 
-	list_for_each_entry(child, &p->children, sibling) {
+	list_for_each_entry_rcu(child, &p->children, sibling) {
 		if (!task_is_bore_eligible(child)) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
@@ -194,7 +194,7 @@ static void update_child_burst_topological(
 	u32 cnt = 0, dcnt = 0, sum = 0;
 	struct task_struct *child, *dec;
 
-	list_for_each_entry(child, &p->children, sibling) {
+	list_for_each_entry_rcu(child, &p->children, sibling) {
 		dec = child;
 		while ((dcnt = count_child_tasks(dec)) == 1)
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
@@ -264,7 +264,7 @@ void sched_clone_bore(
 	if (!task_is_bore_eligible(p)) return;
 
 	now = ktime_get_ns();
-	read_lock(&tasklist_lock);
+	rcu_read_lock();
 	if (clone_flags & CLONE_THREAD) {
 		penalty = inherit_burst_tg(parent, now);
 	} else {
@@ -274,7 +274,7 @@ void sched_clone_bore(
 			inherit_burst_topological(parent, now):
 			inherit_burst_direct(parent, now);
 	}
-	read_unlock(&tasklist_lock);
+	rcu_read_unlock();
 
 	struct sched_entity *se = &p->se;
 	revolve_burst_penalty(se);
