@@ -14,6 +14,7 @@ extern u8   __read_mostly sched_burst_fork_atavistic;
 extern u8   __read_mostly sched_burst_parity_threshold;
 extern u8   __read_mostly sched_burst_penalty_offset;
 extern uint __read_mostly sched_burst_penalty_scale;
+extern uint __read_mostly sched_burst_cache_stop_count;
 extern uint __read_mostly sched_burst_cache_lifetime;
 extern uint __read_mostly sched_deadline_boost_mask;
 
