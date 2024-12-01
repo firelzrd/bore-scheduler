@@ -15,6 +15,7 @@ u8   __read_mostly sched_burst_fork_atavistic   = 2;
 u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 24;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
+uint __read_mostly sched_burst_cache_stop_count = 12;
 uint __read_mostly sched_burst_cache_lifetime   = 75000000;
 uint __read_mostly sched_deadline_boost_mask    = ENQUEUE_INITIAL
                                                 | ENQUEUE_WAKEUP;
@@ -174,6 +175,7 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 		if (!task_is_bore_eligible(child)) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
+		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 	}
 
 	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -201,11 +203,13 @@ static void update_child_burst_topological(
 			if (!task_is_bore_eligible(dec)) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
+			if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 			continue;
 		}
 		if (!burst_cache_expired(&dec->se.child_burst, now)) {
 			cnt += dec->se.child_burst.count;
 			sum += (u32)dec->se.child_burst.score * dec->se.child_burst.count;
+			if (sched_burst_cache_stop_count <= cnt) break;
 			continue;
 		}
 		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
@@ -238,6 +242,7 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 		if (!task_is_bore_eligible(task)) continue;
 		cnt++;
 		sum += task->se.burst_penalty;
+		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 	}
 
 	update_burst_cache(&p->se.group_burst, p, cnt, sum, now);
@@ -362,6 +367,13 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.proc_handler = proc_douintvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &maxval_12_bits,
+	},
+	{
+		.procname	= "sched_burst_cache_stop_count",
+		.data		= &sched_burst_cache_stop_count,
+		.maxlen		= sizeof(uint),
+		.mode		= 0644,
+		.proc_handler = proc_douintvec,
 	},
 	{
 		.procname	= "sched_burst_cache_lifetime",
