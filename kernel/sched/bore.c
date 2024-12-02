@@ -3,6 +3,7 @@
  *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include <linux/cpuset.h>
+#include <linux/rcupdate.h>
 #include <linux/sched/bore.h>
 #include "sched.h"
 
