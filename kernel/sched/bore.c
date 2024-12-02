@@ -3,6 +3,7 @@
  *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include <linux/cpuset.h>
+#include <linux/sched/task.h>
 #include <linux/sched/bore.h>
 #include "sched.h"
 
@@ -292,6 +293,11 @@ void init_task_bore(struct task_struct *p) {
 	p->se.burst_score = 0;
 	memset(&p->se.child_burst, 0, sizeof(struct sched_burst_cache));
 	memset(&p->se.group_burst, 0, sizeof(struct sched_burst_cache));
+}
+
+void __init sched_bore_init(void) {
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification %s by Masahito Suzuki", SCHED_BORE_VERSION);
+    init_task_bore(&init_task);
 }
 
 #ifdef CONFIG_SYSCTL

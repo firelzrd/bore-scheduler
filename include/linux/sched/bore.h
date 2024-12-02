@@ -32,6 +32,7 @@ extern void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
 
 extern void init_task_bore(struct task_struct *p);
+extern void sched_bore_init(void);
 
 extern void reweight_entity(
 	struct cfs_rq *cfs_rq, struct sched_entity *se, unsigned long weight);
