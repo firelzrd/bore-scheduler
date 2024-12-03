@@ -3,6 +3,7 @@
  *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include <linux/cpuset.h>
+#include <linux/rculist.h>
 #include <linux/rcupdate.h>
 #include <linux/sched/bore.h>
 #include "sched.h"
@@ -198,7 +199,7 @@ static void update_child_burst_topological(
 	list_for_each_entry_rcu(child, &p->children, sibling) {
 		dec = child;
 		while ((dcnt = count_child_tasks(dec)) == 1)
-			dec = list_first_entry(&dec->children, struct task_struct, sibling);
+			dec = list_first_or_null_rcu(&dec->children, struct task_struct, sibling);
 		
 		if (!dcnt || !depth) {
 			if (!task_is_bore_eligible(dec)) continue;
