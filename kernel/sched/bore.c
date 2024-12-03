@@ -276,7 +276,7 @@ void sched_clone_bore(
 
 	limit_rcu = sched_burst_clone_limit_rcu;
 	if (limit_rcu) {
-		limiter_idx = p->pid % (init_ncpus >> limit_rcu);
+		limiter_idx = p->pid % max(1U, init_ncpus >> limit_rcu);
 		write_lock_irq(&lock_limiter[limiter_idx]);
 	}
 	rcu_read_lock();
