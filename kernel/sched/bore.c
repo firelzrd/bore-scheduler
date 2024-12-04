@@ -6,7 +6,7 @@
 #include <linux/cpumask.h>
 #include <linux/rculist.h>
 #include <linux/rcupdate.h>
-#include <linux/semaphore.h>
+#include <linux/mutex.h>
 #include <linux/sched/task.h>
 #include <linux/sched/bore.h>
 #include "sched.h"
@@ -29,8 +29,8 @@ static int __maybe_unused sixty_four     = 64;
 static int __maybe_unused maxval_u8      = 255;
 static int __maybe_unused maxval_12_bits = 4095;
 
-static uint     __read_mostly init_ncpus;
-static rwlock_t __read_mostly *lock_limiter;
+static uint    __read_mostly init_ncpus;
+static struct mutex __read_mostly *lock_limiter;
 
 #define MAX_BURST_PENALTY (39U <<2)
 
@@ -277,7 +277,7 @@ void sched_clone_bore(
 	limit_rcu = sched_burst_clone_limit_rcu;
 	if (limit_rcu) {
 		limiter_idx = p->pid % max(1U, init_ncpus >> limit_rcu);
-		write_lock_irq(&lock_limiter[limiter_idx]);
+		mutex_lock(&lock_limiter[limiter_idx]);
 	}
 	rcu_read_lock();
 	now = jiffies_to_nsecs(jiffies);
@@ -292,7 +292,7 @@ void sched_clone_bore(
 	}
 	rcu_read_unlock();
 	if (limit_rcu)
-		write_unlock_irq(&lock_limiter[limiter_idx]);
+		mutex_unlock(&lock_limiter[limiter_idx]);
 
 	struct sched_entity *se = &p->se;
 	revolve_burst_penalty(se);
@@ -316,10 +316,10 @@ static void __init sched_bore_init_lock_limiters(void) {
 	uint nr_limiters;
 	init_ncpus = nr_cpu_ids;
 	nr_limiters = max(1, nr_cpu_ids / 2);
-	lock_limiter = (rwlock_t*)kmalloc(
-		nr_limiters * sizeof(rwlock_t), GFP_NOWAIT);
+	lock_limiter = (struct mutex*)kmalloc(
+		nr_limiters * sizeof(struct mutex), GFP_NOWAIT);
 	for (int i = 0; i < nr_limiters; i++)
-		rwlock_init(&lock_limiter[i]);
+		mutex_init(&lock_limiter[i]);
 }
 
 void __init sched_bore_init(void) {
