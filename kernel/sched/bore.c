@@ -263,8 +263,8 @@ void sched_clone_bore(
 
 	if (!task_is_bore_eligible(p)) return;
 
-	now = jiffies_to_nsecs(jiffies);
 	read_lock(&tasklist_lock);
+	now = jiffies_to_nsecs(jiffies);
 	if (clone_flags & CLONE_THREAD) {
 		penalty = inherit_burst_tg(parent, now);
 	} else {
