@@ -17,7 +17,7 @@ u8   __read_mostly sched_burst_exclude_kthreads = 1;
 u8   __read_mostly sched_burst_smoothness_long  = 1;
 u8   __read_mostly sched_burst_smoothness_short = 0;
 u8   __read_mostly sched_burst_fork_atavistic   = 2;
-u8   __read_mostly sched_burst_clone_limit_rcu  = 2;
+u8   __read_mostly sched_burst_clone_rate_limit  = 2;
 u8   __read_mostly sched_burst_parity_threshold = 2;
 u8   __read_mostly sched_burst_penalty_offset   = 24;
 uint __read_mostly sched_burst_penalty_scale    = 1280;
@@ -269,14 +269,14 @@ void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
 	u64 now;
 	u8 penalty;
-	bool limit_rcu;
+	bool rate_limit;
 	uint limiter_idx;
 
 	if (!task_is_bore_eligible(p)) return;
 
-	limit_rcu = sched_burst_clone_limit_rcu;
-	if (limit_rcu) {
-		limiter_idx = p->pid % max(1U, init_ncpus >> limit_rcu);
+	rate_limit = sched_burst_clone_rate_limit;
+	if (rate_limit) {
+		limiter_idx = p->pid % max(1U, init_ncpus >> rate_limit);
 		mutex_lock(&lock_limiter[limiter_idx]);
 	}
 	rcu_read_lock();
@@ -291,7 +291,7 @@ void sched_clone_bore(
 			inherit_burst_direct(parent, now);
 	}
 	rcu_read_unlock();
-	if (limit_rcu)
+	if (rate_limit)
 		mutex_unlock(&lock_limiter[limiter_idx]);
 
 	struct sched_entity *se = &p->se;
@@ -376,8 +376,8 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.extra2		= SYSCTL_THREE,
 	},
 	{
-		.procname	= "sched_burst_clone_limit_rcu",
-		.data		= &sched_burst_clone_limit_rcu,
+		.procname	= "sched_burst_clone_rate_limit",
+		.data		= &sched_burst_clone_rate_limit,
 		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = proc_dou8vec_minmax,
