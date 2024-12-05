@@ -156,7 +156,12 @@ int sched_bore_update_handler(const struct ctl_table *table, int write,
 	list_for_each_entry_rcu(t, &(p)->children, sibling, \
 		lockdep_is_held(&tasklist_lock))
 
-#define has_no_child(p) list_empty(&(p)->children)
+static u32 count_children_max2(struct task_struct *p) {
+	u32 cnt = 0;
+	struct task_struct *child;
+	for_each_child(p, child) {if (2 <= ++cnt) break;}
+	return cnt;
+}
 
 static u32 count_children_max2_head(
 	struct task_struct *p, struct task_struct **first) {
@@ -242,7 +247,8 @@ static inline u8 inherit_burst_topological(struct task_struct *p, u64 now) {
 	u32 cnt = 0, sum = 0;
 
 	for (struct task_struct *next;
-		 anc != (next = rcu_dereference(anc->real_parent)) && has_no_child(anc);
+		 anc != (next = rcu_dereference(anc->real_parent)) &&
+		 	count_children_max2(anc) <= 1;
 		 anc = next) {}
 
 	if (burst_cache_expired(&anc->se.child_burst, now))
