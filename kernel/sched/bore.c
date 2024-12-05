@@ -159,10 +159,16 @@ int sched_bore_update_handler(struct ctl_table *table, int write,
 #define first_child(p) \
 	list_first_or_null_rcu(&(p)->children, struct task_struct, sibling)
 
-static u32 count_child_tasks(struct task_struct *p) {
-	struct task_struct *child;
+static u32 count_child_tasks_first(
+	struct task_struct *p, struct task_struct **first) {
+	struct list_head *head = &p->children;
+	struct task_struct *cursor;
 	u32 cnt = 0;
-	for_each_child(p, child) {cnt++;}
+	*first = cursor = list_first_or_null_rcu(head, struct task_struct, sibling);
+	if (cursor) {
+		cnt++;
+		list_for_each_entry_continue_rcu(cursor, head, sibling) {cnt++;}
+	}
 	return cnt;
 }
 
@@ -202,12 +208,11 @@ static inline u8 inherit_burst_direct(struct task_struct *p, u64 now) {
 static void update_child_burst_topological(
 	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
 	u32 cnt = 0, dcnt = 0, sum = 0;
-	struct task_struct *child, *dec;
+	struct task_struct *child, *dec, *next;
 
 	for_each_child(p, child) {
 		dec = child;
-		while ((dcnt = count_child_tasks(dec)) == 1)
-			dec = list_first_or_null_rcu(&dec->children, struct task_struct, sibling);
+		while ((dcnt = count_child_tasks_first(dec, &next)) == 1) {dec = next;}
 		
 		if (!dcnt || !depth) {
 			if (!task_is_bore_eligible(dec)) continue;
