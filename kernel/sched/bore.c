@@ -228,7 +228,7 @@ static inline u8 inherit_burst_topological(struct task_struct *p, u64 now) {
 	struct task_struct *anc = p;
 	u32 cnt = 0, sum = 0;
 
-	while (anc->real_parent != anc && count_child_tasks(anc) == 1)
+	while (anc->real_parent != anc && count_child_tasks(anc) <= 1)
 		anc = anc->real_parent;
 
 	if (burst_cache_expired(&anc->se.child_burst, now))
