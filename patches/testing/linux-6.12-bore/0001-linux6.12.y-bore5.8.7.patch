@@ -1,7 +1,7 @@
-From 7b63deff176cfa4478cff73c5e0973d0110a4f1e Mon Sep 17 00:00:00 2001
+From 843e055da1b6a77251fca2874c184c0643935318 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 4 Dec 2024 14:59:04 +0900
-Subject: [PATCH] linux6.12.y-bore5.8.6
+Date: Thu, 5 Dec 2024 12:06:36 +0900
+Subject: [PATCH] linux6.12.y-bore5.8.7
 
 ---
  include/linux/sched.h      |  17 ++
@@ -10,12 +10,12 @@ Subject: [PATCH] linux6.12.y-bore5.8.6
  kernel/Kconfig.hz          |  17 ++
  kernel/fork.c              |   5 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 412 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 421 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 +++++-
  kernel/sched/fair.c        |  75 ++++++-
  kernel/sched/sched.h       |   9 +
- 11 files changed, 655 insertions(+), 5 deletions(-)
+ 11 files changed, 664 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -56,7 +56,7 @@ index bb343136dd..c86185f87e 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..9510a6426b
+index 0000000000..9ea3d9f29b
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,40 @@
@@ -66,7 +66,7 @@ index 0000000000..9510a6426b
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "5.8.6"
++#define SCHED_BORE_VERSION "5.8.7"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -189,10 +189,10 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..d2e906fbf1
+index 0000000000..147240f2a3
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,421 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
@@ -351,10 +351,19 @@ index 0000000000..d2e906fbf1
 +	list_for_each_entry_rcu(t, &(p)->children, sibling, \
 +		lockdep_is_held(&tasklist_lock))
 +
-+static u32 count_child_tasks(struct task_struct *p) {
-+	struct task_struct *child;
++#define first_child(p) \
++	list_first_or_null_rcu(&(p)->children, struct task_struct, sibling)
++
++static u32 count_child_tasks_first(
++	struct task_struct *p, struct task_struct **first) {
++	struct list_head *head = &p->children;
++	struct task_struct *cursor;
 +	u32 cnt = 0;
-+	for_each_child(p, child) {cnt++;}
++	*first = cursor = list_first_or_null_rcu(head, struct task_struct, sibling);
++	if (cursor) {
++		cnt++;
++		list_for_each_entry_continue_rcu(cursor, head, sibling) {cnt++;}
++	}
 +	return cnt;
 +}
 +
@@ -394,12 +403,11 @@ index 0000000000..d2e906fbf1
 +static void update_child_burst_topological(
 +	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
 +	u32 cnt = 0, dcnt = 0, sum = 0;
-+	struct task_struct *child, *dec;
++	struct task_struct *child, *dec, *next;
 +
 +	for_each_child(p, child) {
 +		dec = child;
-+		while ((dcnt = count_child_tasks(dec)) == 1)
-+			dec = list_first_or_null_rcu(&dec->children, struct task_struct, sibling);
++		while ((dcnt = count_child_tasks_first(dec, &next)) == 1) {dec = next;}
 +		
 +		if (!dcnt || !depth) {
 +			if (!task_is_bore_eligible(dec)) continue;
@@ -426,8 +434,9 @@ index 0000000000..d2e906fbf1
 +	struct task_struct *anc = p;
 +	u32 cnt = 0, sum = 0;
 +
-+	while (anc->real_parent != anc && count_child_tasks(anc) == 1)
-+		anc = anc->real_parent;
++	for (struct task_struct *next;
++		 anc != (next = rcu_dereference(anc->real_parent)) && !first_child(anc);
++		 anc = next) {}
 +
 +	if (burst_cache_expired(&anc->se.child_burst, now))
 +		update_child_burst_topological(
