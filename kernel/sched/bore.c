@@ -158,7 +158,7 @@ int sched_bore_update_handler(const struct ctl_table *table, int write,
 
 #define has_no_child(p) list_empty(&(p)->children)
 
-static u32 count_child_tasks_first(
+static u32 count_children_max2_head(
 	struct task_struct *p, struct task_struct **first) {
 	struct list_head *head = &p->children;
 	struct task_struct *cursor;
@@ -166,7 +166,10 @@ static u32 count_child_tasks_first(
 	*first = cursor = list_first_or_null_rcu(head, struct task_struct, sibling);
 	if (cursor) {
 		cnt++;
-		list_for_each_entry_continue_rcu(cursor, head, sibling) {cnt++;}
+		list_for_each_entry_continue_rcu(cursor, head, sibling) {
+			cnt++;
+			break;
+		}
 	}
 	return cnt;
 }
@@ -211,7 +214,7 @@ static void update_child_burst_topological(
 
 	for_each_child(p, child) {
 		dec = child;
-		while ((dcnt = count_child_tasks_first(dec, &next)) == 1) {dec = next;}
+		while ((dcnt = count_children_max2_head(dec, &next)) == 1) {dec = next;}
 		
 		if (!dcnt || !depth) {
 			if (!task_is_bore_eligible(dec)) continue;
