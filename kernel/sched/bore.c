@@ -179,7 +179,6 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 		if (!task_is_bore_eligible(child)) continue;
 		cnt++;
 		sum += child->se.burst_penalty;
-		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 	}
 
 	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -207,7 +206,6 @@ static void update_child_burst_topological(
 			if (!task_is_bore_eligible(dec)) continue;
 			cnt++;
 			sum += dec->se.burst_penalty;
-			if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 			continue;
 		}
 		if (!burst_cache_expired(&dec->se.child_burst, now)) {
@@ -247,7 +245,6 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 		if (!task_is_bore_eligible(task)) continue;
 		cnt++;
 		sum += task->se.burst_penalty;
-		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 	}
 
 	update_burst_cache(&p->se.group_burst, p, cnt, sum, now);
