@@ -1,7 +1,7 @@
-From 17fc6318c91a7208f1ded37740d5d4aee2b3c5d1 Mon Sep 17 00:00:00 2001
+From aafa1f2dc2413c2c80f8765a79a26baf2db6cd50 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 6 Dec 2024 06:16:31 +0900
-Subject: [PATCH] linux6.6.57-bore5.8.9
+Date: Fri, 6 Dec 2024 10:48:08 +0900
+Subject: [PATCH] linux6.6.57-bore5.8.10
 
 ---
  include/linux/sched.h      |  20 +-
@@ -10,13 +10,13 @@ Subject: [PATCH] linux6.6.57-bore5.8.9
  kernel/Kconfig.hz          |  17 ++
  kernel/fork.c              |   9 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 429 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 426 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 +++++-
  kernel/sched/fair.c        |  87 +++++++-
  kernel/sched/features.h    |   4 +
  kernel/sched/sched.h       |   9 +
- 12 files changed, 694 insertions(+), 6 deletions(-)
+ 12 files changed, 691 insertions(+), 6 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -65,7 +65,7 @@ index 77f01ac385..c4938aa312 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..d092140097
+index 0000000000..604bec4e0e
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,40 @@
@@ -75,7 +75,7 @@ index 0000000000..d092140097
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "5.8.9"
++#define SCHED_BORE_VERSION "5.8.10"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -208,10 +208,10 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..7a6b477866
+index 0000000000..b999aa6109
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,429 @@
+@@ -0,0 +1,426 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
@@ -232,7 +232,7 @@ index 0000000000..7a6b477866
 +u8   __read_mostly sched_burst_parity_threshold = 2;
 +u8   __read_mostly sched_burst_penalty_offset   = 24;
 +uint __read_mostly sched_burst_penalty_scale    = 1280;
-+uint __read_mostly sched_burst_cache_stop_count = 20;
++uint __read_mostly sched_burst_cache_stop_count = 64;
 +uint __read_mostly sched_burst_cache_lifetime   = 75000000;
 +uint __read_mostly sched_deadline_boost_mask    = ENQUEUE_INITIAL
 +                                                | ENQUEUE_WAKEUP;
@@ -412,7 +412,6 @@ index 0000000000..7a6b477866
 +		if (!task_is_bore_eligible(child)) continue;
 +		cnt++;
 +		sum += child->se.burst_penalty;
-+		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 +	}
 +
 +	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -439,7 +438,6 @@ index 0000000000..7a6b477866
 +			if (!task_is_bore_eligible(dec)) continue;
 +			cnt++;
 +			sum += dec->se.burst_penalty;
-+			if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 +			continue;
 +		}
 +		if (!burst_cache_expired(&dec->se.child_burst, now)) {
@@ -480,7 +478,6 @@ index 0000000000..7a6b477866
 +		if (!task_is_bore_eligible(task)) continue;
 +		cnt++;
 +		sum += task->se.burst_penalty;
-+		if (unlikely(sched_burst_cache_stop_count <= cnt)) break;
 +	}
 +
 +	update_burst_cache(&p->se.group_burst, p, cnt, sum, now);
