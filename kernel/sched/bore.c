@@ -121,7 +121,7 @@ void restart_burst_rescale_deadline(struct sched_entity *se) {
 }
 
 static inline bool task_is_bore_eligible(struct task_struct *p)
-{return p->sched_class == &fair_sched_class;}
+{return p && p->sched_class == &fair_sched_class && !p->exit_state;}
 
 static void reset_task_weights_bore(void) {
 	struct task_struct *task;
