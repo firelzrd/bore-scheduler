@@ -266,7 +266,7 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 }
 
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
-	struct task_struct *parent = p->group_leader;
+	struct task_struct *parent = rcu_dereference(p->group_leader);
 	if (burst_cache_expired(&parent->se.group_burst, now))
 		update_tg_burst(parent, now);
 
