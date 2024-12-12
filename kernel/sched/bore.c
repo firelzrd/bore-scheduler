@@ -275,6 +275,7 @@ static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 
 void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
+	struct sched_entity *se = &p->se;
 	u64 now;
 	u8 penalty;
 
@@ -294,7 +295,6 @@ void sched_clone_bore(
 		read_unlock(&tasklist_lock);
 	}
 
-	struct sched_entity *se = &p->se;
 	revolve_burst_penalty(se);
 	se->burst_penalty = se->prev_burst_penalty =
 		max(se->prev_burst_penalty, penalty);
