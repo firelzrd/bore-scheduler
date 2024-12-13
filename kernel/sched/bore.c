@@ -140,7 +140,7 @@ static void reset_task_weights_bore(void) {
 }
 
 int sched_bore_update_handler(const struct ctl_table *table, int write,
-		void __user *buffer, size_t *lenp, loff_t *ppos) {
+	void __user *buffer, size_t *lenp, loff_t *ppos) {
 	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
@@ -164,7 +164,7 @@ static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
 {return (s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0;}
 
 static void update_burst_cache(struct sched_burst_cache *bc,
-		struct task_struct *p, u32 cnt, u32 sum, u64 now) {
+	struct task_struct *p, u32 cnt, u32 sum, u64 now) {
 	u8 avg = cnt ? sum / cnt : 0;
 	bc->score = max(avg, p->se.burst_penalty);
 	bc->count = cnt;
