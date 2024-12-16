@@ -30,7 +30,7 @@ def get_task_table(**options)
 end
 
 def count_per_burst(task_table)
-	bs_pos = 10
+	bs_pos = 9
 	bs_pos += 4 if File.exist?('/sys/kernel/debug/sched/base_slice_ns')
 	
 	table = Hash.new
