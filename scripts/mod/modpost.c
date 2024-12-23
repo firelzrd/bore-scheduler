@@ -155,12 +155,13 @@ char *get_line(char **stringp)
 /* A list of all modules we processed */
 LIST_HEAD(modules);
 
-static struct module *find_module(const char *modname)
+static struct module *find_module(const char *filename, const char *modname)
 {
 	struct module *mod;
 
 	list_for_each_entry(mod, &modules, list) {
-		if (strcmp(mod->name, modname) == 0)
+		if (!strcmp(mod->dump_file, filename) &&
+		    !strcmp(mod->name, modname))
 			return mod;
 	}
 	return NULL;
@@ -772,7 +773,7 @@ static void check_section(const char *modname, struct elf_info *elf,
 		".ltext", ".ltext.*"
 #define OTHER_TEXT_SECTIONS ".ref.text", ".head.text", ".spinlock.text", \
 		".fixup", ".entry.text", ".exception.text", \
-		".coldtext", ".softirqentry.text"
+		".coldtext", ".softirqentry.text", ".irqentry.text"
 
 #define ALL_TEXT_SECTIONS  ".init.text", ".exit.text", \
 		TEXT_SECTIONS, OTHER_TEXT_SECTIONS
@@ -2030,10 +2031,10 @@ static void read_dump(const char *fname)
 			continue;
 		}
 
-		mod = find_module(modname);
+		mod = find_module(fname, modname);
 		if (!mod) {
 			mod = new_module(modname, strlen(modname));
-			mod->from_dump = true;
+			mod->dump_file = fname;
 		}
 		s = sym_add_exported(symname, mod, gpl_only, namespace);
 		sym_set_crc(s, crc);
@@ -2052,7 +2053,7 @@ static void write_dump(const char *fname)
 	struct symbol *sym;
 
 	list_for_each_entry(mod, &modules, list) {
-		if (mod->from_dump)
+		if (mod->dump_file)
 			continue;
 		list_for_each_entry(sym, &mod->exported_symbols, list) {
 			if (trim_unused_exports && !sym->used)
@@ -2076,7 +2077,7 @@ static void write_namespace_deps_files(const char *fname)
 
 	list_for_each_entry(mod, &modules, list) {
 
-		if (mod->from_dump || list_empty(&mod->missing_namespaces))
+		if (mod->dump_file || list_empty(&mod->missing_namespaces))
 			continue;
 
 		buf_printf(&ns_deps_buf, "%s.ko:", mod->name);
@@ -2194,7 +2195,7 @@ int main(int argc, char **argv)
 		read_symbols_from_files(files_source);
 
 	list_for_each_entry(mod, &modules, list) {
-		if (mod->from_dump || mod->is_vmlinux)
+		if (mod->dump_file || mod->is_vmlinux)
 			continue;
 
 		check_modname_len(mod);
@@ -2205,7 +2206,7 @@ int main(int argc, char **argv)
 		handle_white_list_exports(unused_exports_white_list);
 
 	list_for_each_entry(mod, &modules, list) {
-		if (mod->from_dump)
+		if (mod->dump_file)
 			continue;
 
 		if (mod->is_vmlinux)
