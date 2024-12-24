@@ -195,13 +195,11 @@ struct gendisk {
 	unsigned int		nr_zones;
 	unsigned int		zone_capacity;
 	unsigned int		last_zone_capacity;
-	unsigned long		*conv_zones_bitmap;
+	unsigned long __rcu	*conv_zones_bitmap;
 	unsigned int            zone_wplugs_hash_bits;
 	spinlock_t              zone_wplugs_lock;
 	struct mempool_s	*zone_wplugs_pool;
 	struct hlist_head       *zone_wplugs_hash;
-	struct list_head        zone_wplugs_err_list;
-	struct work_struct	zone_wplugs_work;
 	struct workqueue_struct *zone_wplugs_wq;
 #endif /* CONFIG_BLK_DEV_ZONED */
 
@@ -1385,6 +1383,9 @@ static inline bool bdev_is_zone_start(struct block_device *bdev,
 {
 	return bdev_offset_from_zone_start(bdev, sector) == 0;
 }
+
+int blk_zone_issue_zeroout(struct block_device *bdev, sector_t sector,
+			   sector_t nr_sects, gfp_t gfp_mask);
 
 static inline int queue_dma_alignment(const struct request_queue *q)
 {
