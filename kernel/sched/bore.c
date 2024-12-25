@@ -161,14 +161,10 @@ static u32 count_children_max2(struct task_struct *p) {
 	return cnt;
 }
 
-static inline void init_burst_cache_lock(struct task_struct *p)
-{ spin_lock_init(&p->se.burst_cache_lock); }
-
-static inline void burst_cache_lock(struct task_struct *p)
-{ spin_lock(&p->se.burst_cache_lock); }
-
-static inline void burst_cache_unlock(struct task_struct *p)
-{ spin_unlock(&p->se.burst_cache_lock); }
+static inline void init_task_burst_cache_lock(struct task_struct *p) {
+	spin_lock_init(&p->se.child_burst.lock);
+	spin_lock_init(&p->se.group_burst.lock);
+}
 
 static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
 {return (s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0;}
@@ -197,14 +193,16 @@ static inline void update_child_burst_direct(struct task_struct *p, u64 now) {
 static inline u8 inherit_burst_direct(
 	struct task_struct *p, u64 now, u64 clone_flags) {
 	struct task_struct *parent = p;
+	struct sched_burst_cache *bc;
 
 	if (clone_flags & CLONE_PARENT)
 		parent = parent->real_parent;
 
-	burst_cache_lock(parent);
-	if (burst_cache_expired(&parent->se.child_burst, now))
+	bc = &parent->se.child_burst;
+	spin_lock(&bc->lock);
+	if (burst_cache_expired(bc, now))
 		update_child_burst_direct(parent, now);
-	burst_cache_unlock(parent);
+	spin_unlock(&bc->lock);
 
 	return parent->se.child_burst.score;
 }
@@ -213,6 +211,7 @@ static void update_child_burst_topological(
 	struct task_struct *p, u64 now, u32 depth, u32 *acnt, u32 *asum) {
 	u32 cnt = 0, dcnt = 0, sum = 0;
 	struct task_struct *child, *dec;
+	struct sched_burst_cache *bc __maybe_unused;
 
 	for_each_child(p, child) {
 		dec = child;
@@ -225,19 +224,20 @@ static void update_child_burst_topological(
 			sum += dec->se.burst_penalty;
 			continue;
 		}
-		burst_cache_lock(dec);
-		if (!burst_cache_expired(&dec->se.child_burst, now)) {
-			cnt += dec->se.child_burst.count;
-			sum += (u32)dec->se.child_burst.score * dec->se.child_burst.count;
+		bc = &dec->se.child_burst;
+		spin_lock(&bc->lock);
+		if (!burst_cache_expired(bc, now)) {
+			cnt += bc->count;
+			sum += (u32)bc->score * bc->count;
 			if (sched_burst_cache_stop_count <= cnt) {
-				burst_cache_unlock(dec);
+				spin_unlock(&bc->lock);
 				break;
 			}
-			burst_cache_unlock(dec);
+			spin_unlock(&bc->lock);
 			continue;
 		}
 		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
-		burst_cache_unlock(dec);
+		spin_unlock(&bc->lock);
 	}
 
 	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -248,6 +248,7 @@ static void update_child_burst_topological(
 static inline u8 inherit_burst_topological(
 	struct task_struct *p, u64 now, u64 clone_flags) {
 	struct task_struct *anc = p;
+	struct sched_burst_cache *bc;
 	u32 cnt = 0, sum = 0;
 	u32 base_child_cnt = 0;
 
@@ -263,11 +264,12 @@ static inline u8 inherit_burst_topological(
 		base_child_cnt = 1;
 	}
 
-	burst_cache_lock(anc);
-	if (burst_cache_expired(&anc->se.child_burst, now))
+	bc = &anc->se.child_burst;
+	spin_lock(&bc->lock);
+	if (burst_cache_expired(bc, now))
 		update_child_burst_topological(
 			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
-	burst_cache_unlock(anc);
+	spin_unlock(&bc->lock);
 
 	return anc->se.child_burst.score;
 }
@@ -287,10 +289,11 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	struct task_struct *parent = rcu_dereference(p->group_leader);
-	burst_cache_lock(parent);
-	if (burst_cache_expired(&parent->se.group_burst, now))
+	struct sched_burst_cache *bc = &parent->se.group_burst;
+	spin_lock(&bc->lock);
+	if (burst_cache_expired(bc, now))
 		update_tg_burst(parent, now);
-	burst_cache_unlock(parent);
+	spin_unlock(&bc->lock);
 
 	return parent->se.group_burst.score;
 }
@@ -301,7 +304,7 @@ void sched_clone_bore(
 	u64 now;
 	u8 penalty;
 
-	init_burst_cache_lock(p);
+	init_task_burst_cache_lock(p);
 
 	if (!task_is_bore_eligible(p)) return;
 
@@ -336,14 +339,10 @@ void reset_task_bore(struct task_struct *p) {
 	memset(&p->se.group_burst, 0, sizeof(struct sched_burst_cache));
 }
 
-static void __init init_task_bore(struct task_struct *p) {
-	reset_task_bore(p);
-	init_burst_cache_lock(p);
-}
-
 void __init sched_bore_init(void) {
 	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification %s by Masahito Suzuki", SCHED_BORE_VERSION);
-    init_task_bore(&init_task);
+	reset_task_bore(&init_task);
+	init_task_burst_cache_lock(&init_task);
 }
 
 #ifdef CONFIG_SYSCTL
