@@ -161,6 +161,15 @@ static u32 count_children_max2(struct task_struct *p) {
 	return cnt;
 }
 
+static inline void init_burst_cache_lock(struct task_struct *p)
+{ spin_lock_init(&p->se.burst_cache_lock); }
+
+static inline void burst_cache_lock(struct task_struct *p)
+{ spin_lock(&p->se.burst_cache_lock); }
+
+static inline void burst_cache_unlock(struct task_struct *p)
+{ spin_unlock(&p->se.burst_cache_lock); }
+
 static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
 {return (s64)(bc->timestamp + sched_burst_cache_lifetime - now) < 0;}
 
@@ -192,8 +201,10 @@ static inline u8 inherit_burst_direct(
 	if (clone_flags & CLONE_PARENT)
 		parent = parent->real_parent;
 
+	burst_cache_lock(parent);
 	if (burst_cache_expired(&parent->se.child_burst, now))
 		update_child_burst_direct(parent, now);
+	burst_cache_unlock(parent);
 
 	return parent->se.child_burst.score;
 }
@@ -214,13 +225,19 @@ static void update_child_burst_topological(
 			sum += dec->se.burst_penalty;
 			continue;
 		}
+		burst_cache_lock(dec);
 		if (!burst_cache_expired(&dec->se.child_burst, now)) {
 			cnt += dec->se.child_burst.count;
 			sum += (u32)dec->se.child_burst.score * dec->se.child_burst.count;
-			if (sched_burst_cache_stop_count <= cnt) break;
+			if (sched_burst_cache_stop_count <= cnt) {
+				burst_cache_unlock(dec);
+				break;
+			}
+			burst_cache_unlock(dec);
 			continue;
 		}
 		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
+		burst_cache_unlock(dec);
 	}
 
 	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -246,9 +263,11 @@ static inline u8 inherit_burst_topological(
 		base_child_cnt = 1;
 	}
 
+	burst_cache_lock(anc);
 	if (burst_cache_expired(&anc->se.child_burst, now))
 		update_child_burst_topological(
 			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
+	burst_cache_unlock(anc);
 
 	return anc->se.child_burst.score;
 }
@@ -268,8 +287,10 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	struct task_struct *parent = rcu_dereference(p->group_leader);
+	burst_cache_lock(parent);
 	if (burst_cache_expired(&parent->se.group_burst, now))
 		update_tg_burst(parent, now);
+	burst_cache_unlock(parent);
 
 	return parent->se.group_burst.score;
 }
@@ -279,6 +300,8 @@ void sched_clone_bore(
 	struct sched_entity *se = &p->se;
 	u64 now;
 	u8 penalty;
+
+	init_burst_cache_lock(p);
 
 	if (!task_is_bore_eligible(p)) return;
 
@@ -303,7 +326,7 @@ void sched_clone_bore(
 	se->group_burst.timestamp = 0;
 }
 
-void init_task_bore(struct task_struct *p) {
+void reset_task_bore(struct task_struct *p) {
 	p->se.burst_time = 0;
 	p->se.prev_burst_penalty = 0;
 	p->se.curr_burst_penalty = 0;
@@ -311,6 +334,11 @@ void init_task_bore(struct task_struct *p) {
 	p->se.burst_score = 0;
 	memset(&p->se.child_burst, 0, sizeof(struct sched_burst_cache));
 	memset(&p->se.group_burst, 0, sizeof(struct sched_burst_cache));
+}
+
+static void __init init_task_bore(struct task_struct *p) {
+	reset_task_bore(p);
+	init_burst_cache_lock(p);
 }
 
 void __init sched_bore_init(void) {
