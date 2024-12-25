@@ -577,6 +577,7 @@ struct sched_entity {
 	u8				curr_burst_penalty;
 	u8				burst_penalty;
 	u8				burst_score;
+    spinlock_t		burst_cache_lock;
 	struct sched_burst_cache child_burst;
 	struct sched_burst_cache group_burst;
 #endif // CONFIG_SCHED_BORE
