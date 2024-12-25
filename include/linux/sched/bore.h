@@ -31,7 +31,7 @@ extern int sched_bore_update_handler(const struct ctl_table *table, int write,
 extern void sched_clone_bore(
 	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
 
-extern void init_task_bore(struct task_struct *p);
+extern void reset_task_bore(struct task_struct *p);
 extern void sched_bore_init(void);
 
 extern void reweight_entity(
