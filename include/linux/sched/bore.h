@@ -4,7 +4,7 @@
 
 #ifndef _LINUX_SCHED_BORE_H
 #define _LINUX_SCHED_BORE_H
-#define SCHED_BORE_VERSION "5.9.0"
+#define SCHED_BORE_VERSION "5.9.1"
 
 #ifdef CONFIG_SCHED_BORE
 extern u8   __read_mostly sched_bore;
