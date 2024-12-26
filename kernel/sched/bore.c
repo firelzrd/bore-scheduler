@@ -3,6 +3,7 @@
  *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
  */
 #include <linux/cpuset.h>
+#include <linux/mutex.h>
 #include <linux/sched/task.h>
 #include <linux/sched/bore.h>
 #include "sched.h"
@@ -162,8 +163,8 @@ static u32 count_children_max2(struct task_struct *p) {
 }
 
 static inline void init_task_burst_cache_lock(struct task_struct *p) {
-	spin_lock_init(&p->se.child_burst.lock);
-	spin_lock_init(&p->se.group_burst.lock);
+    mutex_init(&p->se.child_burst.lock);
+    mutex_init(&p->se.group_burst.lock);
 }
 
 static inline bool burst_cache_expired(struct sched_burst_cache *bc, u64 now)
@@ -199,10 +200,10 @@ static inline u8 inherit_burst_direct(
 		parent = parent->real_parent;
 
 	bc = &parent->se.child_burst;
-	spin_lock(&bc->lock);
+	mutex_lock(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_child_burst_direct(parent, now);
-	spin_unlock(&bc->lock);
+	mutex_unlock(&bc->lock);
 
 	return parent->se.child_burst.score;
 }
@@ -225,19 +226,19 @@ static void update_child_burst_topological(
 			continue;
 		}
 		bc = &dec->se.child_burst;
-		spin_lock(&bc->lock);
+		mutex_lock(&bc->lock);
 		if (!burst_cache_expired(bc, now)) {
 			cnt += bc->count;
 			sum += (u32)bc->score * bc->count;
 			if (sched_burst_cache_stop_count <= cnt) {
-				spin_unlock(&bc->lock);
+				mutex_unlock(&bc->lock);
 				break;
 			}
-			spin_unlock(&bc->lock);
+			mutex_unlock(&bc->lock);
 			continue;
 		}
 		update_child_burst_topological(dec, now, depth - 1, &cnt, &sum);
-		spin_unlock(&bc->lock);
+		mutex_unlock(&bc->lock);
 	}
 
 	update_burst_cache(&p->se.child_burst, p, cnt, sum, now);
@@ -265,11 +266,11 @@ static inline u8 inherit_burst_topological(
 	}
 
 	bc = &anc->se.child_burst;
-	spin_lock(&bc->lock);
+	mutex_lock(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_child_burst_topological(
 			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
-	spin_unlock(&bc->lock);
+	mutex_unlock(&bc->lock);
 
 	return anc->se.child_burst.score;
 }
@@ -290,10 +291,10 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	struct task_struct *parent = rcu_dereference(p->group_leader);
 	struct sched_burst_cache *bc = &parent->se.group_burst;
-	spin_lock(&bc->lock);
+	mutex_lock(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_tg_burst(parent, now);
-	spin_unlock(&bc->lock);
+	mutex_unlock(&bc->lock);
 
 	return parent->se.group_burst.score;
 }
