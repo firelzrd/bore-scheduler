@@ -543,7 +543,7 @@ struct sched_burst_cache {
 	u8				score;
 	u32				count;
 	u64				timestamp;
-    struct mutex	lock;
+    spinlock_t		lock;
 };
 #endif // CONFIG_SCHED_BORE
 
