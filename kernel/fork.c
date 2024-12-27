@@ -2614,6 +2614,9 @@ __latent_entropy struct task_struct *copy_process(
 	 */
 	sched_cgroup_fork(p, args);
 
+#ifdef CONFIG_SCHED_BORE
+	sched_clone_bore(p, current, clone_flags);
+#endif // CONFIG_SCHED_BORE
 	/*
 	 * From this point on we must avoid any synchronous user-space
 	 * communication until we take the tasklist-lock. In particular, we do
@@ -2729,9 +2732,6 @@ __latent_entropy struct task_struct *copy_process(
 
 	proc_fork_connector(p);
 	sched_post_fork(p);
-#ifdef CONFIG_SCHED_BORE
-	sched_clone_bore(p, current, clone_flags);
-#endif // CONFIG_SCHED_BORE
 	cgroup_post_fork(p, args);
 	perf_event_fork(p);
 
