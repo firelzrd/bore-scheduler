@@ -7146,14 +7146,6 @@ static int dequeue_entities(struct rq *rq, struct sched_entity *se, int flags)
 		p = task_of(se);
 		h_nr_running = 1;
 		idle_h_nr_running = task_has_idle_policy(p);
-#ifdef CONFIG_SCHED_BORE
-		if (task_sleep) {
-			cfs_rq = cfs_rq_of(se);
-			if (cfs_rq->curr == se)
-				update_curr(cfs_rq);
-			restart_burst(se);
-		}
-#endif // CONFIG_SCHED_BORE
 	} else {
 		cfs_rq = group_cfs_rq(se);
 		slice = cfs_rq_min_slice(cfs_rq);
@@ -7256,6 +7248,15 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		util_est_dequeue(&rq->cfs, p);
 
 	util_est_update(&rq->cfs, p, flags & DEQUEUE_SLEEP);
+#ifdef CONFIG_SCHED_BORE
+	struct cfs_rq *cfs_rq = &rq->cfs;
+	struct sched_entity *se = &p->se;
+	if (flags & DEQUEUE_SLEEP && entity_is_task(se)) {
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
+		restart_burst(se);
+	}
+#endif // CONFIG_SCHED_BORE
 	if (dequeue_entities(rq, &p->se, flags) < 0)
 		return false;
 
