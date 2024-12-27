@@ -195,6 +195,9 @@ static inline u8 inherit_burst_direct(
 	struct task_struct *parent = p;
 	struct sched_burst_cache *bc;
 
+	if (clone_flags & CLONE_PARENT)
+		parent = parent->real_parent;
+
 	bc = &parent->se.child_burst;
 	spin_lock(&bc->lock);
 	if (burst_cache_expired(bc, now))
@@ -247,11 +250,19 @@ static inline u8 inherit_burst_topological(
 	struct task_struct *anc = p;
 	struct sched_burst_cache *bc;
 	u32 cnt = 0, sum = 0;
+	u32 base_child_cnt = 0;
+
+	if (clone_flags & CLONE_PARENT) {
+		anc = anc->real_parent;
+		base_child_cnt = 1;
+	}
 
 	for (struct task_struct *next;
 		 anc != (next = anc->real_parent) &&
-		 	count_children_max2(anc) < 2;
-		 anc = next) {}
+		 	count_children_max2(anc) <= base_child_cnt;) {
+		anc = next;
+		base_child_cnt = 1;
+	}
 
 	bc = &anc->se.child_burst;
 	spin_lock(&bc->lock);
