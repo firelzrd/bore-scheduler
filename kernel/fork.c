@@ -2615,7 +2615,8 @@ __latent_entropy struct task_struct *copy_process(
 	sched_cgroup_fork(p, args);
 
 #ifdef CONFIG_SCHED_BORE
-	sched_clone_bore(p, current, clone_flags);
+	if (likely(p->pid))
+		sched_clone_bore(p, current, clone_flags);
 #endif // CONFIG_SCHED_BORE
 	/*
 	 * From this point on we must avoid any synchronous user-space
