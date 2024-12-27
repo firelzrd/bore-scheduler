@@ -1,22 +1,22 @@
-From b89bad04ccf050676606627b96d4744527b08d32 Mon Sep 17 00:00:00 2001
+From 6cdecac6a92acad8ecdeaec1826dd24a61b2ca60 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 27 Dec 2024 16:10:07 +0900
-Subject: [PATCH] linux6.6.67-bore5.9.3
+Date: Fri, 27 Dec 2024 23:17:21 +0900
+Subject: [PATCH] linux6.6.67-bore5.9.4
 
 ---
  include/linux/sched.h      |  21 +-
  include/linux/sched/bore.h |  40 ++++
  init/Kconfig               |  17 ++
  kernel/Kconfig.hz          |  17 ++
- kernel/fork.c              |   9 +
+ kernel/fork.c              |  10 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 440 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 451 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 ++++-
- kernel/sched/fair.c        |  87 +++++++-
+ kernel/sched/fair.c        |  87 ++++++-
  kernel/sched/features.h    |   4 +
  kernel/sched/sched.h       |   9 +
- 12 files changed, 706 insertions(+), 6 deletions(-)
+ 12 files changed, 718 insertions(+), 6 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -66,7 +66,7 @@ index 4809f27b52..ce5c55cbd9 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..b6a39d81be
+index 0000000000..ff4170b942
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,40 @@
@@ -76,7 +76,7 @@ index 0000000000..b6a39d81be
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "5.9.3"
++#define SCHED_BORE_VERSION "5.9.4"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -166,7 +166,7 @@ index 38ef6d0688..253c566b59 100644
  config SCHED_HRTICK
  	def_bool HIGH_RES_TIMERS
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 23efaa2c42..1d7d1b7f21 100644
+index 23efaa2c42..6d8631d17e 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -101,12 +101,18 @@
@@ -188,16 +188,17 @@ index 23efaa2c42..1d7d1b7f21 100644
  #include <trace/events/sched.h>
  
  #define CREATE_TRACE_POINTS
-@@ -2723,6 +2729,9 @@ __latent_entropy struct task_struct *copy_process(
+@@ -2608,6 +2614,10 @@ __latent_entropy struct task_struct *copy_process(
+ 	 */
+ 	sched_cgroup_fork(p, args);
  
- 	proc_fork_connector(p);
- 	sched_post_fork(p);
 +#ifdef CONFIG_SCHED_BORE
-+	sched_clone_bore(p, current, clone_flags);
++	if (likely(p->pid))
++		sched_clone_bore(p, current, clone_flags);
 +#endif // CONFIG_SCHED_BORE
- 	cgroup_post_fork(p, args);
- 	perf_event_fork(p);
- 
+ 	/*
+ 	 * From this point on we must avoid any synchronous user-space
+ 	 * communication until we take the tasklist-lock. In particular, we do
 diff --git a/kernel/sched/Makefile b/kernel/sched/Makefile
 index 976092b7bd..293aad6754 100644
 --- a/kernel/sched/Makefile
@@ -209,10 +210,10 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..4bdc65874c
+index 0000000000..432f023f01
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,451 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
@@ -410,6 +411,9 @@ index 0000000000..4bdc65874c
 +	struct task_struct *parent = p;
 +	struct sched_burst_cache *bc;
 +
++	if (clone_flags & CLONE_PARENT)
++		parent = parent->real_parent;
++
 +	bc = &parent->se.child_burst;
 +	spin_lock(&bc->lock);
 +	if (burst_cache_expired(bc, now))
@@ -462,11 +466,19 @@ index 0000000000..4bdc65874c
 +	struct task_struct *anc = p;
 +	struct sched_burst_cache *bc;
 +	u32 cnt = 0, sum = 0;
++	u32 base_child_cnt = 0;
++
++	if (clone_flags & CLONE_PARENT) {
++		anc = anc->real_parent;
++		base_child_cnt = 1;
++	}
 +
 +	for (struct task_struct *next;
 +		 anc != (next = anc->real_parent) &&
-+		 	count_children_max2(anc) < 2;
-+		 anc = next) {}
++		 	count_children_max2(anc) <= base_child_cnt;) {
++		anc = next;
++		base_child_cnt = 1;
++	}
 +
 +	bc = &anc->se.child_burst;
 +	spin_lock(&bc->lock);
