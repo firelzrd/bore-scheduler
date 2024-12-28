@@ -29,7 +29,7 @@ extern int sched_bore_update_handler(const struct ctl_table *table, int write,
 	void __user *buffer, size_t *lenp, loff_t *ppos);
 
 extern void sched_clone_bore(
-	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
+	struct task_struct *p, struct task_struct *parent, u64 clone_flags, u64 now);
 
 extern void reset_task_bore(struct task_struct *p);
 extern void sched_bore_init(void);
