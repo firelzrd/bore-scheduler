@@ -298,10 +298,9 @@ static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	return bc->score;
 }
 
-void sched_clone_bore(
-	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
+void sched_clone_bore(struct task_struct *p,
+	struct task_struct *parent, u64 clone_flags, u64 now) {
 	struct sched_entity *se = &p->se;
-	u64 now;
 	u8 penalty;
 
 	init_task_burst_cache_lock(p);
@@ -310,12 +309,10 @@ void sched_clone_bore(
 
 	if (clone_flags & CLONE_THREAD) {
 		rcu_read_lock();
-		now = jiffies_to_nsecs(jiffies);
 		penalty = inherit_burst_tg(parent, now);
 		rcu_read_unlock();
 	} else {
 		read_lock(&tasklist_lock);
-		now = jiffies_to_nsecs(jiffies);
 		penalty = likely(sched_burst_fork_atavistic) ?
 			inherit_burst_topological(parent, now, clone_flags):
 			inherit_burst_direct(parent, now, clone_flags);
