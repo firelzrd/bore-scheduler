@@ -1,29 +1,30 @@
-From dbedc64a89d0e00287ab376b2bbaa5d49d1a214d Mon Sep 17 00:00:00 2001
+From 6c84bb284ad1d509a9d02bb8e814e2a4bdcdc564 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 28 Dec 2024 01:51:44 +0900
-Subject: [PATCH] linux6.13.y-bore5.9.4
+Date: Tue, 31 Dec 2024 21:49:13 +0900
+Subject: [PATCH] linux6.6.67-bore5.9.5
 
 ---
- include/linux/sched.h      |  18 ++
+ include/linux/sched.h      |  21 +-
  include/linux/sched/bore.h |  40 ++++
  init/Kconfig               |  17 ++
  kernel/Kconfig.hz          |  17 ++
- kernel/fork.c              |   6 +
+ kernel/fork.c              |  10 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 451 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 446 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 ++++-
- kernel/sched/fair.c        |  73 +++++-
+ kernel/sched/fair.c        |  87 +++++++-
+ kernel/sched/features.h    |   4 +
  kernel/sched/sched.h       |   9 +
- 11 files changed, 694 insertions(+), 5 deletions(-)
+ 12 files changed, 713 insertions(+), 6 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 66b311fbd5..43a00a7308 100644
+index 4809f27b52..ce5c55cbd9 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -538,6 +538,15 @@ struct sched_statistics {
+@@ -548,6 +548,15 @@ struct sched_statistics {
  #endif /* CONFIG_SCHEDSTATS */
  } ____cacheline_aligned;
  
@@ -39,7 +40,15 @@ index 66b311fbd5..43a00a7308 100644
  struct sched_entity {
  	/* For load-balancing: */
  	struct load_weight		load;
-@@ -557,6 +566,15 @@ struct sched_entity {
+@@ -556,12 +565,22 @@ struct sched_entity {
+ 	u64				min_deadline;
+ 
+ 	struct list_head		group_node;
+-	unsigned int			on_rq;
++	unsigned char			on_rq;
++	unsigned char			rel_deadline;
+ 
+ 	u64				exec_start;
  	u64				sum_exec_runtime;
  	u64				prev_sum_exec_runtime;
  	u64				vruntime;
@@ -57,7 +66,7 @@ index 66b311fbd5..43a00a7308 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..bdafd2da13
+index 0000000000..ee6a84cf29
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,40 @@
@@ -67,7 +76,7 @@ index 0000000000..bdafd2da13
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "5.9.4"
++#define SCHED_BORE_VERSION "5.9.5"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -88,11 +97,11 @@ index 0000000000..bdafd2da13
 +extern void restart_burst(struct sched_entity *se);
 +extern void restart_burst_rescale_deadline(struct sched_entity *se);
 +
-+extern int sched_bore_update_handler(const struct ctl_table *table, int write,
++extern int sched_bore_update_handler(struct ctl_table *table, int write,
 +	void __user *buffer, size_t *lenp, loff_t *ppos);
 +
 +extern void sched_clone_bore(
-+	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
++	struct task_struct *p, struct task_struct *parent, u64 clone_flags, u64 now);
 +
 +extern void reset_task_bore(struct task_struct *p);
 +extern void sched_bore_init(void);
@@ -102,10 +111,10 @@ index 0000000000..bdafd2da13
 +#endif // CONFIG_SCHED_BORE
 +#endif // _LINUX_SCHED_BORE_H
 diff --git a/init/Kconfig b/init/Kconfig
-index a20e6efd3f..0b17af19d3 100644
+index 60ed7713b5..629dac0eb4 100644
 --- a/init/Kconfig
 +++ b/init/Kconfig
-@@ -1342,6 +1342,23 @@ config CHECKPOINT_RESTORE
+@@ -1276,6 +1276,23 @@ config CHECKPOINT_RESTORE
  
  	  If unsure, say N here.
  
@@ -157,10 +166,20 @@ index 38ef6d0688..253c566b59 100644
  config SCHED_HRTICK
  	def_bool HIGH_RES_TIMERS
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 9b301180fd..12f78fa279 100644
+index 23efaa2c42..d8f36a8c2e 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -112,6 +112,8 @@
+@@ -101,12 +101,18 @@
+ #include <linux/iommu.h>
+ #include <linux/tick.h>
+ 
++#ifdef CONFIG_USER_NS
++#include <linux/user_namespace.h>
++#endif
++
+ #include <asm/pgalloc.h>
+ #include <linux/uaccess.h>
+ #include <asm/mmu_context.h>
  #include <asm/cacheflush.h>
  #include <asm/tlbflush.h>
  
@@ -169,17 +188,17 @@ index 9b301180fd..12f78fa279 100644
  #include <trace/events/sched.h>
  
  #define CREATE_TRACE_POINTS
-@@ -2504,6 +2506,10 @@ __latent_entropy struct task_struct *copy_process(
- 	if (retval)
- 		goto bad_fork_cancel_cgroup;
+@@ -2619,6 +2625,10 @@ __latent_entropy struct task_struct *copy_process(
+ 	p->start_time = ktime_get_ns();
+ 	p->start_boottime = ktime_get_boottime_ns();
  
 +#ifdef CONFIG_SCHED_BORE
 +	if (likely(p->pid))
-+		sched_clone_bore(p, current, clone_flags);
++		sched_clone_bore(p, current, clone_flags, p->start_time);
 +#endif // CONFIG_SCHED_BORE
  	/*
- 	 * From this point on we must avoid any synchronous user-space
- 	 * communication until we take the tasklist-lock. In particular, we do
+ 	 * Make it visible to the rest of the system, but dont wake it up yet.
+ 	 * Need tasklist lock for parent etc handling!
 diff --git a/kernel/sched/Makefile b/kernel/sched/Makefile
 index 976092b7bd..293aad6754 100644
 --- a/kernel/sched/Makefile
@@ -191,10 +210,10 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..027053653a
+index 0000000000..1437b63d24
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,446 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
@@ -337,7 +356,7 @@ index 0000000000..027053653a
 +	write_unlock_irq(&tasklist_lock);
 +}
 +
-+int sched_bore_update_handler(const struct ctl_table *table, int write,
++int sched_bore_update_handler(struct ctl_table *table, int write,
 +	void __user *buffer, size_t *lenp, loff_t *ppos) {
 +	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 +	if (ret || !write)
@@ -351,11 +370,9 @@ index 0000000000..027053653a
 +#define for_each_child(p, t) \
 +	list_for_each_entry(t, &(p)->children, sibling)
 +
-+static u32 count_children_max2(struct task_struct *p) {
-+	u32 cnt = 0;
-+	struct task_struct *child;
-+	for_each_child(p, child) {if (2 <= ++cnt) break;}
-+	return cnt;
++static u32 count_entries_upto2(struct list_head *head) {
++	struct list_head *next = head->next;
++	return (next != head) + (next->next != head);
 +}
 +
 +static inline void init_task_burst_cache_lock(struct task_struct *p) {
@@ -412,7 +429,7 @@ index 0000000000..027053653a
 +
 +	for_each_child(p, child) {
 +		dec = child;
-+		while ((dcnt = count_children_max2(dec)) == 1)
++		while ((dcnt = count_entries_upto2(&dec->children)) == 1)
 +			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 +		
 +		if (!dcnt || !depth) {
@@ -456,7 +473,7 @@ index 0000000000..027053653a
 +
 +	for (struct task_struct *next;
 +		 anc != (next = anc->real_parent) &&
-+		 	count_children_max2(anc) <= base_child_cnt;) {
++		 	count_entries_upto2(&anc->children) <= base_child_cnt;) {
 +		anc = next;
 +		base_child_cnt = 1;
 +	}
@@ -495,10 +512,9 @@ index 0000000000..027053653a
 +	return bc->score;
 +}
 +
-+void sched_clone_bore(
-+	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
++void sched_clone_bore(struct task_struct *p,
++	struct task_struct *parent, u64 clone_flags, u64 now) {
 +	struct sched_entity *se = &p->se;
-+	u64 now;
 +	u8 penalty;
 +
 +	init_task_burst_cache_lock(p);
@@ -507,12 +523,10 @@ index 0000000000..027053653a
 +
 +	if (clone_flags & CLONE_THREAD) {
 +		rcu_read_lock();
-+		now = jiffies_to_nsecs(jiffies);
 +		penalty = inherit_burst_tg(parent, now);
 +		rcu_read_unlock();
 +	} else {
 +		read_lock(&tasklist_lock);
-+		now = jiffies_to_nsecs(jiffies);
 +		penalty = likely(sched_burst_fork_atavistic) ?
 +			inherit_burst_topological(parent, now, clone_flags):
 +			inherit_burst_direct(parent, now, clone_flags);
@@ -647,10 +661,10 @@ index 0000000000..027053653a
 +#endif // CONFIG_SYSCTL
 +#endif // CONFIG_SCHED_BORE
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 3e5a6bf587..fb4bb3fa5a 100644
+index 228f7c07da..76c54361fa 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -97,6 +97,8 @@
+@@ -96,6 +96,8 @@
  #include "../../io_uring/io-wq.h"
  #include "../smpboot.h"
  
@@ -659,8 +673,8 @@ index 3e5a6bf587..fb4bb3fa5a 100644
  EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpu);
  EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpumask);
  
-@@ -8481,6 +8483,10 @@ void __init sched_init(void)
- 	BUG_ON(!sched_class_above(&ext_sched_class, &idle_sched_class));
+@@ -9946,6 +9948,10 @@ void __init sched_init(void)
+ 	BUG_ON(&dl_sched_class != &stop_sched_class + 1);
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
@@ -671,7 +685,7 @@ index 3e5a6bf587..fb4bb3fa5a 100644
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 diff --git a/kernel/sched/debug.c b/kernel/sched/debug.c
-index a1be00a988..66fcb22900 100644
+index 4c3d0d9f3d..638a71f0fa 100644
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -167,7 +167,53 @@ static const struct file_operations sched_feat_fops = {
@@ -737,7 +751,7 @@ index a1be00a988..66fcb22900 100644
  #endif /* SMP */
  
  #ifdef CONFIG_PREEMPT_DYNAMIC
-@@ -505,13 +551,20 @@ static __init int sched_init_debug(void)
+@@ -347,13 +393,20 @@ static __init int sched_init_debug(void)
  	debugfs_create_file("preempt", 0644, debugfs_sched, NULL, &sched_dynamic_fops);
  #endif
  
@@ -758,7 +772,7 @@ index a1be00a988..66fcb22900 100644
  	debugfs_create_u32("migration_cost_ns", 0644, debugfs_sched, &sysctl_sched_migration_cost);
  	debugfs_create_u32("nr_migrate", 0644, debugfs_sched, &sysctl_sched_nr_migrate);
  
-@@ -756,6 +809,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
+@@ -595,6 +648,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
  		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_sleep_runtime)),
  		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_block_runtime)));
  
@@ -766,9 +780,9 @@ index a1be00a988..66fcb22900 100644
 +	SEQ_printf(m, " %2d", p->se.burst_score);
 +#endif // CONFIG_SCHED_BORE
  #ifdef CONFIG_NUMA_BALANCING
- 	SEQ_printf(m, "   %d      %d", task_node(p), task_numa_group_id(p));
+ 	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
  #endif
-@@ -1245,6 +1301,9 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
+@@ -1068,6 +1124,9 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
  
  	P(se.load.weight);
  #ifdef CONFIG_SMP
@@ -779,10 +793,10 @@ index a1be00a988..66fcb22900 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 3e9ca38512..647b25840d 100644
+index 3b2cfdb8d7..6268ccb187 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -55,6 +55,8 @@
+@@ -57,6 +57,8 @@
  #include "stats.h"
  #include "autogroup.h"
  
@@ -791,8 +805,8 @@ index 3e9ca38512..647b25840d 100644
  /*
   * The initial- and re-scaling of tunables is configurable
   *
-@@ -64,17 +66,30 @@
-  *   SCHED_TUNABLESCALING_LOG - scaled logarithmically, *1+ilog(ncpus)
+@@ -66,17 +68,30 @@
+  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
   *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
   *
 - * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
@@ -822,9 +836,9 @@ index 3e9ca38512..647b25840d 100644
  static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
 +#endif // CONFIG_SCHED_BORE
  
- const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
- 
-@@ -188,6 +203,13 @@ static inline void update_load_set(struct load_weight *lw, unsigned long w)
+ /*
+  * After fork, child runs first. If set to 0 (default) then
+@@ -210,6 +225,13 @@ static inline void update_load_set(struct load_weight *lw, unsigned long w)
   *
   * This idea comes from the SD scheduler of Con Kolivas:
   */
@@ -838,7 +852,7 @@ index 3e9ca38512..647b25840d 100644
  static unsigned int get_update_sysctl_factor(void)
  {
  	unsigned int cpus = min_t(unsigned int, num_online_cpus(), 8);
-@@ -218,6 +240,7 @@ static void update_sysctl(void)
+@@ -240,6 +262,7 @@ static void update_sysctl(void)
  	SET_SYSCTL(sched_base_slice);
  #undef SET_SYSCTL
  }
@@ -846,7 +860,7 @@ index 3e9ca38512..647b25840d 100644
  
  void __init sched_init_granularity(void)
  {
-@@ -695,6 +718,9 @@ static s64 entity_lag(u64 avruntime, struct sched_entity *se)
+@@ -713,6 +736,9 @@ static s64 entity_lag(u64 avruntime, struct sched_entity *se)
  
  	vlag = avruntime - se->vruntime;
  	limit = calc_delta_fair(max_t(u64, 2*se->slice, TICK_NSEC), se);
@@ -856,7 +870,7 @@ index 3e9ca38512..647b25840d 100644
  
  	return clamp(vlag, -limit, limit);
  }
-@@ -926,6 +952,10 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
+@@ -894,6 +920,10 @@ static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
  	 * until it gets a new slice. See the HACK in set_next_entity().
  	 */
  	if (sched_feat(RUN_TO_PARITY) && curr && curr->vlag == curr->deadline)
@@ -866,8 +880,8 @@ index 3e9ca38512..647b25840d 100644
 +#endif // CONFIG_SCHED_BORE
  		return curr;
  
- 	/* Pick the leftmost entity if it's eligible */
-@@ -984,6 +1014,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
+ 	while (node) {
+@@ -1002,6 +1032,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
   * Scheduling class statistics methods:
   */
  #ifdef CONFIG_SMP
@@ -875,7 +889,7 @@ index 3e9ca38512..647b25840d 100644
  int sched_update_scaling(void)
  {
  	unsigned int factor = get_update_sysctl_factor();
-@@ -995,6 +1026,7 @@ int sched_update_scaling(void)
+@@ -1013,6 +1044,7 @@ int sched_update_scaling(void)
  
  	return 0;
  }
@@ -883,7 +897,7 @@ index 3e9ca38512..647b25840d 100644
  #endif
  #endif
  
-@@ -1225,6 +1257,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
+@@ -1210,6 +1242,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
  	if (unlikely(delta_exec <= 0))
  		return;
  
@@ -892,9 +906,9 @@ index 3e9ca38512..647b25840d 100644
 +	update_burst_penalty(curr);
 +#endif // CONFIG_SCHED_BORE
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
- 	resched = update_deadline(cfs_rq, curr);
+ 	update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
-@@ -3880,7 +3916,7 @@ static void reweight_eevdf(struct sched_entity *se, u64 avruntime,
+@@ -3848,7 +3884,7 @@ static void reweight_eevdf(struct sched_entity *se, u64 avruntime,
  	se->deadline = avruntime + vslice;
  }
  
@@ -903,36 +917,72 @@ index 3e9ca38512..647b25840d 100644
  			    unsigned long weight)
  {
  	bool curr = cfs_rq->curr == se;
-@@ -5364,7 +5400,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
- 		se->rel_deadline = 0;
- 		return;
- 	}
--
+@@ -5191,6 +5227,9 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 	 *
+ 	 * EEVDF: placement strategy #1 / #2
+ 	 */
++#ifdef CONFIG_SCHED_BORE
++	if (se->vlag)
++#endif // CONFIG_SCHED_BORE
+ 	if (sched_feat(PLACE_LAG) && cfs_rq->nr_running) {
+ 		struct sched_entity *curr = cfs_rq->curr;
+ 		unsigned long load;
+@@ -5261,8 +5300,18 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 
+ 	se->vruntime = vruntime - lag;
+ 
++	if (sched_feat(PLACE_REL_DEADLINE) && se->rel_deadline) {
++		se->deadline += se->vruntime;
++		se->rel_deadline = 0;
++		return;
++	}
 +#ifdef CONFIG_SCHED_BORE
 +	else if (likely(sched_bore))
 +		vslice >>= !!(flags & sched_deadline_boost_mask);
 +	else
 +#endif // CONFIG_SCHED_BORE
  	/*
- 	 * When joining the competition; the existing tasks will be,
+-	 * When joining the competition; the exisiting tasks will be,
++	 * When joining the competition; the existing tasks will be,
  	 * on average, halfway through their slice, as such start tasks
-@@ -7240,6 +7280,15 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
- 		util_est_dequeue(&rq->cfs, p);
+ 	 * off with half a slice to ease into the competition.
+ 	 */
+@@ -5370,6 +5419,7 @@ static __always_inline void return_cfs_rq_runtime(struct cfs_rq *cfs_rq);
+ static void
+ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ {
++	bool sleep = flags & DEQUEUE_SLEEP;
+ 	int action = UPDATE_TG;
  
- 	util_est_update(&rq->cfs, p, flags & DEQUEUE_SLEEP);
+ 	if (entity_is_task(se) && task_on_rq_migrating(task_of(se)))
+@@ -5397,6 +5447,11 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 	clear_buddies(cfs_rq, se);
+ 
+ 	update_entity_lag(cfs_rq, se);
++	if (sched_feat(PLACE_REL_DEADLINE) && !sleep) {
++		se->deadline -= se->vruntime;
++		se->rel_deadline = 1;
++	}
++
+ 	if (se != cfs_rq->curr)
+ 		__dequeue_entity(cfs_rq, se);
+ 	se->on_rq = 0;
+@@ -6833,6 +6888,14 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+ 	bool was_sched_idle = sched_idle_rq(rq);
+ 
+ 	util_est_dequeue(&rq->cfs, p);
 +#ifdef CONFIG_SCHED_BORE
-+	struct cfs_rq *cfs_rq = &rq->cfs;
-+	struct sched_entity *se = &p->se;
-+	if (flags & DEQUEUE_SLEEP && entity_is_task(se)) {
++	if (task_sleep) {
++		cfs_rq = cfs_rq_of(se);
 +		if (cfs_rq->curr == se)
 +			update_curr(cfs_rq);
 +		restart_burst(se);
 +	}
 +#endif // CONFIG_SCHED_BORE
- 	if (dequeue_entities(rq, &p->se, flags) < 0)
- 		return false;
  
-@@ -9053,16 +9102,25 @@ static void yield_task_fair(struct rq *rq)
+ 	for_each_sched_entity(se) {
+ 		cfs_rq = cfs_rq_of(se);
+@@ -8566,16 +8629,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -958,17 +1008,17 @@ index 3e9ca38512..647b25840d 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -13114,6 +13172,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
- static void task_fork_fair(struct task_struct *p)
- {
- 	set_task_max_allowed_capacity(p);
+@@ -12641,6 +12713,9 @@ static void task_fork_fair(struct task_struct *p)
+ 	curr = cfs_rq->curr;
+ 	if (curr)
+ 		update_curr(cfs_rq);
 +#ifdef CONFIG_SCHED_BORE
-+	update_burst_score(&p->se);
++	update_burst_score(se);
 +#endif // CONFIG_SCHED_BORE
+ 	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
+ 	rq_unlock(rq, &rf);
  }
- 
- /*
-@@ -13224,6 +13285,10 @@ static void attach_task_cfs_rq(struct task_struct *p)
+@@ -12753,6 +12828,10 @@ static void attach_task_cfs_rq(struct task_struct *p)
  
  static void switched_from_fair(struct rq *rq, struct task_struct *p)
  {
@@ -979,12 +1029,27 @@ index 3e9ca38512..647b25840d 100644
  	detach_task_cfs_rq(p);
  }
  
+diff --git a/kernel/sched/features.h b/kernel/sched/features.h
+index f770168230..87464a97d0 100644
+--- a/kernel/sched/features.h
++++ b/kernel/sched/features.h
+@@ -6,6 +6,10 @@
+  */
+ SCHED_FEAT(PLACE_LAG, true)
+ SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
++/*
++ * Preserve relative virtual deadline on 'migration'.
++ */
++SCHED_FEAT(PLACE_REL_DEADLINE, true)
+ SCHED_FEAT(RUN_TO_PARITY, true)
+ 
+ /*
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index c5d67a43fe..e14855d24a 100644
+index d48c6a292a..75acf2f6e2 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2092,7 +2092,11 @@ static inline void update_sched_domain_debugfs(void) { }
- static inline void dirty_sched_domain_sysctl(int cpu) { }
+@@ -1946,7 +1946,11 @@ static inline void dirty_sched_domain_sysctl(int cpu)
+ }
  #endif
  
 +#ifdef CONFIG_SCHED_BORE
@@ -995,7 +1060,7 @@ index c5d67a43fe..e14855d24a 100644
  
  static inline const struct cpumask *task_user_cpus(struct task_struct *p)
  {
-@@ -2829,7 +2833,12 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
+@@ -2532,7 +2536,12 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
  extern const_debug unsigned int sysctl_sched_nr_migrate;
  extern const_debug unsigned int sysctl_sched_migration_cost;
  

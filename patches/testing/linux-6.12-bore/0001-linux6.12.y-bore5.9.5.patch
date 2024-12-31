@@ -1,7 +1,7 @@
-From 170ac88e0d4a816d84cb6ef4378f245e4170c533 Mon Sep 17 00:00:00 2001
+From eccdeda2cb2637f964b4b50e6f30c37b16bd098a Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 28 Dec 2024 01:55:29 +0900
-Subject: [PATCH] linux6.12.y-bore5.9.4
+Date: Tue, 31 Dec 2024 21:49:13 +0900
+Subject: [PATCH] linux6.12.y-bore5.9.5
 
 ---
  include/linux/sched.h      |  18 ++
@@ -10,12 +10,12 @@ Subject: [PATCH] linux6.12.y-bore5.9.4
  kernel/Kconfig.hz          |  17 ++
  kernel/fork.c              |   6 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 451 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 446 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 ++++-
  kernel/sched/fair.c        |  76 ++++++-
  kernel/sched/sched.h       |   9 +
- 11 files changed, 697 insertions(+), 5 deletions(-)
+ 11 files changed, 692 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -57,7 +57,7 @@ index bb343136dd..00e9f59d4c 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..bdafd2da13
+index 0000000000..a36947e12c
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,40 @@
@@ -67,7 +67,7 @@ index 0000000000..bdafd2da13
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "5.9.4"
++#define SCHED_BORE_VERSION "5.9.5"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -92,7 +92,7 @@ index 0000000000..bdafd2da13
 +	void __user *buffer, size_t *lenp, loff_t *ppos);
 +
 +extern void sched_clone_bore(
-+	struct task_struct *p, struct task_struct *parent, u64 clone_flags);
++	struct task_struct *p, struct task_struct *parent, u64 clone_flags, u64 now);
 +
 +extern void reset_task_bore(struct task_struct *p);
 +extern void sched_bore_init(void);
@@ -157,7 +157,7 @@ index 38ef6d0688..253c566b59 100644
  config SCHED_HRTICK
  	def_bool HIGH_RES_TIMERS
 diff --git a/kernel/fork.c b/kernel/fork.c
-index ce8be55e5e..10d0838765 100644
+index ce8be55e5e..1ccd325c08 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -113,6 +113,8 @@
@@ -169,17 +169,17 @@ index ce8be55e5e..10d0838765 100644
  #include <trace/events/sched.h>
  
  #define CREATE_TRACE_POINTS
-@@ -2504,6 +2506,10 @@ __latent_entropy struct task_struct *copy_process(
- 	if (retval)
- 		goto bad_fork_cancel_cgroup;
+@@ -2515,6 +2517,10 @@ __latent_entropy struct task_struct *copy_process(
+ 	p->start_time = ktime_get_ns();
+ 	p->start_boottime = ktime_get_boottime_ns();
  
 +#ifdef CONFIG_SCHED_BORE
 +	if (likely(p->pid))
-+		sched_clone_bore(p, current, clone_flags);
++		sched_clone_bore(p, current, clone_flags, p->start_time);
 +#endif // CONFIG_SCHED_BORE
  	/*
- 	 * From this point on we must avoid any synchronous user-space
- 	 * communication until we take the tasklist-lock. In particular, we do
+ 	 * Make it visible to the rest of the system, but dont wake it up yet.
+ 	 * Need tasklist lock for parent etc handling!
 diff --git a/kernel/sched/Makefile b/kernel/sched/Makefile
 index 976092b7bd..293aad6754 100644
 --- a/kernel/sched/Makefile
@@ -191,10 +191,10 @@ index 976092b7bd..293aad6754 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..027053653a
+index 0000000000..d55cd32b34
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,446 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
@@ -351,11 +351,9 @@ index 0000000000..027053653a
 +#define for_each_child(p, t) \
 +	list_for_each_entry(t, &(p)->children, sibling)
 +
-+static u32 count_children_max2(struct task_struct *p) {
-+	u32 cnt = 0;
-+	struct task_struct *child;
-+	for_each_child(p, child) {if (2 <= ++cnt) break;}
-+	return cnt;
++static u32 count_entries_upto2(struct list_head *head) {
++	struct list_head *next = head->next;
++	return (next != head) + (next->next != head);
 +}
 +
 +static inline void init_task_burst_cache_lock(struct task_struct *p) {
@@ -412,7 +410,7 @@ index 0000000000..027053653a
 +
 +	for_each_child(p, child) {
 +		dec = child;
-+		while ((dcnt = count_children_max2(dec)) == 1)
++		while ((dcnt = count_entries_upto2(&dec->children)) == 1)
 +			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 +		
 +		if (!dcnt || !depth) {
@@ -456,7 +454,7 @@ index 0000000000..027053653a
 +
 +	for (struct task_struct *next;
 +		 anc != (next = anc->real_parent) &&
-+		 	count_children_max2(anc) <= base_child_cnt;) {
++		 	count_entries_upto2(&anc->children) <= base_child_cnt;) {
 +		anc = next;
 +		base_child_cnt = 1;
 +	}
@@ -495,10 +493,9 @@ index 0000000000..027053653a
 +	return bc->score;
 +}
 +
-+void sched_clone_bore(
-+	struct task_struct *p, struct task_struct *parent, u64 clone_flags) {
++void sched_clone_bore(struct task_struct *p,
++	struct task_struct *parent, u64 clone_flags, u64 now) {
 +	struct sched_entity *se = &p->se;
-+	u64 now;
 +	u8 penalty;
 +
 +	init_task_burst_cache_lock(p);
@@ -507,12 +504,10 @@ index 0000000000..027053653a
 +
 +	if (clone_flags & CLONE_THREAD) {
 +		rcu_read_lock();
-+		now = jiffies_to_nsecs(jiffies);
 +		penalty = inherit_burst_tg(parent, now);
 +		rcu_read_unlock();
 +	} else {
 +		read_lock(&tasklist_lock);
-+		now = jiffies_to_nsecs(jiffies);
 +		penalty = likely(sched_burst_fork_atavistic) ?
 +			inherit_burst_topological(parent, now, clone_flags):
 +			inherit_burst_direct(parent, now, clone_flags);
