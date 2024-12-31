@@ -154,11 +154,9 @@ int sched_bore_update_handler(struct ctl_table *table, int write,
 #define for_each_child(p, t) \
 	list_for_each_entry(t, &(p)->children, sibling)
 
-static u32 count_children_max2(struct task_struct *p) {
-	u32 cnt = 0;
-	struct task_struct *child;
-	for_each_child(p, child) {if (2 <= ++cnt) break;}
-	return cnt;
+static u32 count_entries_upto2(struct list_head *head) {
+	struct list_head *next = head->next;
+	return (next != head) + (next->next != head);
 }
 
 static inline void init_task_burst_cache_lock(struct task_struct *p) {
@@ -215,7 +213,7 @@ static void update_child_burst_topological(
 
 	for_each_child(p, child) {
 		dec = child;
-		while ((dcnt = count_children_max2(dec)) == 1)
+		while ((dcnt = count_entries_upto2(&dec->children)) == 1)
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
 		
 		if (!dcnt || !depth) {
@@ -259,7 +257,7 @@ static inline u8 inherit_burst_topological(
 
 	for (struct task_struct *next;
 		 anc != (next = anc->real_parent) &&
-		 	count_children_max2(anc) <= base_child_cnt;) {
+		 	count_entries_upto2(&anc->children) <= base_child_cnt;) {
 		anc = next;
 		base_child_cnt = 1;
 	}
