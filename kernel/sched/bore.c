@@ -197,10 +197,9 @@ static inline u8 inherit_burst_direct(
 		parent = parent->real_parent;
 
 	bc = &parent->se.child_burst;
-	spin_lock(&bc->lock);
+	guard(spinlock)(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_child_burst_direct(parent, now);
-	spin_unlock(&bc->lock);
 
 	return bc->score;
 }
@@ -263,11 +262,10 @@ static inline u8 inherit_burst_topological(
 	}
 
 	bc = &anc->se.child_burst;
-	spin_lock(&bc->lock);
+	guard(spinlock)(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_child_burst_topological(
 			anc, now, sched_burst_fork_atavistic - 1, &cnt, &sum);
-	spin_unlock(&bc->lock);
 
 	return bc->score;
 }
@@ -288,10 +286,9 @@ static inline void update_tg_burst(struct task_struct *p, u64 now) {
 static inline u8 inherit_burst_tg(struct task_struct *p, u64 now) {
 	struct task_struct *parent = rcu_dereference(p->group_leader);
 	struct sched_burst_cache *bc = &parent->se.group_burst;
-	spin_lock(&bc->lock);
+	guard(spinlock)(&bc->lock);
 	if (burst_cache_expired(bc, now))
 		update_tg_burst(parent, now);
-	spin_unlock(&bc->lock);
 
 	return bc->score;
 }
