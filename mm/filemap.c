@@ -1523,7 +1523,7 @@ void folio_end_read(struct folio *folio, bool success)
 	/* Must be in bottom byte for x86 to work */
 	BUILD_BUG_ON(PG_uptodate > 7);
 	VM_BUG_ON_FOLIO(!folio_test_locked(folio), folio);
-	VM_BUG_ON_FOLIO(folio_test_uptodate(folio), folio);
+	VM_BUG_ON_FOLIO(success && folio_test_uptodate(folio), folio);
 
 	if (likely(success))
 		mask |= 1 << PG_uptodate;
@@ -2996,7 +2996,7 @@ static inline loff_t folio_seek_hole_data(struct xa_state *xas,
 		if (ops->is_partially_uptodate(folio, offset, bsz) ==
 							seek_data)
 			break;
-		start = (start + bsz) & ~(bsz - 1);
+		start = (start + bsz) & ~((u64)bsz - 1);
 		offset += bsz;
 	} while (offset < folio_size(folio));
 unlock:
@@ -4376,6 +4376,20 @@ resched:
 }
 
 /*
+ * See mincore: reveal pagecache information only for files
+ * that the calling process has write access to, or could (if
+ * tried) open for writing.
+ */
+static inline bool can_do_cachestat(struct file *f)
+{
+	if (f->f_mode & FMODE_WRITE)
+		return true;
+	if (inode_owner_or_capable(file_mnt_idmap(f), file_inode(f)))
+		return true;
+	return file_permission(f, MAY_WRITE) == 0;
+}
+
+/*
  * The cachestat(2) system call.
  *
  * cachestat() returns the page cache statistics of a file in the
@@ -4429,6 +4443,9 @@ SYSCALL_DEFINE4(cachestat, unsigned int, fd,
 	/* hugetlbfs is not supported */
 	if (is_file_hugepages(fd_file(f)))
 		return -EOPNOTSUPP;
+
+	if (!can_do_cachestat(fd_file(f)))
+		return -EPERM;
 
 	if (flags != 0)
 		return -EINVAL;

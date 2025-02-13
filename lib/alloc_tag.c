@@ -29,6 +29,8 @@ EXPORT_SYMBOL(_shared_alloc_tag);
 
 DEFINE_STATIC_KEY_MAYBE(CONFIG_MEM_ALLOC_PROFILING_ENABLED_BY_DEFAULT,
 			mem_alloc_profiling_key);
+EXPORT_SYMBOL(mem_alloc_profiling_key);
+
 DEFINE_STATIC_KEY_FALSE(mem_profiling_compressed);
 
 struct alloc_tag_kernel_section kernel_tags = { NULL, 0 };
@@ -194,6 +196,9 @@ void pgalloc_tag_swap(struct folio *new, struct folio *old)
 	union pgtag_ref_handle handle_old, handle_new;
 	union codetag_ref ref_old, ref_new;
 	struct alloc_tag *tag_old, *tag_new;
+
+	if (!mem_alloc_profiling_enabled())
+		return;
 
 	tag_old = pgalloc_tag_get(&old->page);
 	if (!tag_old)

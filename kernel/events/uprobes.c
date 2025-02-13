@@ -28,6 +28,7 @@
 #include <linux/rcupdate_trace.h>
 #include <linux/workqueue.h>
 #include <linux/srcu.h>
+#include <linux/oom.h>          /* check_stable_address_space */
 
 #include <linux/uprobes.h>
 
@@ -1260,6 +1261,9 @@ register_for_each_vma(struct uprobe *uprobe, struct uprobe_consumer *new)
 		 * returns NULL in find_active_uprobe_rcu().
 		 */
 		mmap_write_lock(mm);
+		if (check_stable_address_space(mm))
+			goto unlock;
+
 		vma = find_vma(mm, info->vaddr);
 		if (!vma || !valid_vma(vma, is_register) ||
 		    file_inode(vma->vm_file) != uprobe->inode)
@@ -1915,6 +1919,7 @@ void uprobe_free_utask(struct task_struct *t)
 	if (!utask)
 		return;
 
+	t->utask = NULL;
 	WARN_ON_ONCE(utask->active_uprobe || utask->xol_vaddr);
 
 	timer_delete_sync(&utask->ri_timer);
@@ -1924,7 +1929,6 @@ void uprobe_free_utask(struct task_struct *t)
 		ri = free_ret_instance(ri, true /* cleanup_hprobe */);
 
 	kfree(utask);
-	t->utask = NULL;
 }
 
 #define RI_TIMER_PERIOD (HZ / 10) /* 100 ms */

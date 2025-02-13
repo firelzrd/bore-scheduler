@@ -1989,6 +1989,7 @@ void amdgpu_gfx_enforce_isolation_ring_begin_use(struct amdgpu_ring *ring)
 {
 	struct amdgpu_device *adev = ring->adev;
 	u32 idx;
+	bool sched_work = false;
 
 	if (!adev->gfx.enable_cleaner_shader)
 		return;
@@ -2007,15 +2008,19 @@ void amdgpu_gfx_enforce_isolation_ring_begin_use(struct amdgpu_ring *ring)
 	mutex_lock(&adev->enforce_isolation_mutex);
 	if (adev->enforce_isolation[idx]) {
 		if (adev->kfd.init_complete)
-			amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
+			sched_work = true;
 	}
 	mutex_unlock(&adev->enforce_isolation_mutex);
+
+	if (sched_work)
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, false);
 }
 
 void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
 {
 	struct amdgpu_device *adev = ring->adev;
 	u32 idx;
+	bool sched_work = false;
 
 	if (!adev->gfx.enable_cleaner_shader)
 		return;
@@ -2031,9 +2036,12 @@ void amdgpu_gfx_enforce_isolation_ring_end_use(struct amdgpu_ring *ring)
 	mutex_lock(&adev->enforce_isolation_mutex);
 	if (adev->enforce_isolation[idx]) {
 		if (adev->kfd.init_complete)
-			amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
+			sched_work = true;
 	}
 	mutex_unlock(&adev->enforce_isolation_mutex);
+
+	if (sched_work)
+		amdgpu_gfx_kfd_sch_ctrl(adev, idx, true);
 }
 
 /*
@@ -2050,7 +2058,7 @@ static int amdgpu_debugfs_gfx_sched_mask_set(void *data, u64 val)
 	if (!adev)
 		return -ENODEV;
 
-	mask = (1 << adev->gfx.num_gfx_rings) - 1;
+	mask = (1ULL << adev->gfx.num_gfx_rings) - 1;
 	if ((val & mask) == 0)
 		return -EINVAL;
 
@@ -2078,7 +2086,7 @@ static int amdgpu_debugfs_gfx_sched_mask_get(void *data, u64 *val)
 	for (i = 0; i < adev->gfx.num_gfx_rings; ++i) {
 		ring = &adev->gfx.gfx_ring[i];
 		if (ring->sched.ready)
-			mask |= 1 << i;
+			mask |= 1ULL << i;
 	}
 
 	*val = mask;
@@ -2120,7 +2128,7 @@ static int amdgpu_debugfs_compute_sched_mask_set(void *data, u64 val)
 	if (!adev)
 		return -ENODEV;
 
-	mask = (1 << adev->gfx.num_compute_rings) - 1;
+	mask = (1ULL << adev->gfx.num_compute_rings) - 1;
 	if ((val & mask) == 0)
 		return -EINVAL;
 
@@ -2149,7 +2157,7 @@ static int amdgpu_debugfs_compute_sched_mask_get(void *data, u64 *val)
 	for (i = 0; i < adev->gfx.num_compute_rings; ++i) {
 		ring = &adev->gfx.compute_ring[i];
 		if (ring->sched.ready)
-			mask |= 1 << i;
+			mask |= 1ULL << i;
 	}
 
 	*val = mask;

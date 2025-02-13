@@ -2747,6 +2747,7 @@ static int balance_one(struct rq *rq, struct task_struct *prev)
 {
 	struct scx_dsp_ctx *dspc = this_cpu_ptr(scx_dsp_ctx);
 	bool prev_on_scx = prev->sched_class == &ext_sched_class;
+	bool prev_on_rq = prev->scx.flags & SCX_TASK_QUEUED;
 	int nr_loops = SCX_DSP_MAX_LOOPS;
 
 	lockdep_assert_rq_held(rq);
@@ -2779,8 +2780,7 @@ static int balance_one(struct rq *rq, struct task_struct *prev)
 		 * See scx_ops_disable_workfn() for the explanation on the
 		 * bypassing test.
 		 */
-		if ((prev->scx.flags & SCX_TASK_QUEUED) &&
-		    prev->scx.slice && !scx_rq_bypassing(rq)) {
+		if (prev_on_rq && prev->scx.slice && !scx_rq_bypassing(rq)) {
 			rq->scx.flags |= SCX_RQ_BAL_KEEP;
 			goto has_tasks;
 		}
@@ -2813,6 +2813,10 @@ static int balance_one(struct rq *rq, struct task_struct *prev)
 
 		flush_dispatch_buf(rq);
 
+		if (prev_on_rq && prev->scx.slice) {
+			rq->scx.flags |= SCX_RQ_BAL_KEEP;
+			goto has_tasks;
+		}
 		if (rq->scx.local_dsq.nr)
 			goto has_tasks;
 		if (consume_global_dsq(rq))
@@ -2838,8 +2842,7 @@ no_tasks:
 	 * Didn't find another task to run. Keep running @prev unless
 	 * %SCX_OPS_ENQ_LAST is in effect.
 	 */
-	if ((prev->scx.flags & SCX_TASK_QUEUED) &&
-	    (!static_branch_unlikely(&scx_ops_enq_last) ||
+	if (prev_on_rq && (!static_branch_unlikely(&scx_ops_enq_last) ||
 	     scx_rq_bypassing(rq))) {
 		rq->scx.flags |= SCX_RQ_BAL_KEEP;
 		goto has_tasks;
@@ -3034,7 +3037,7 @@ static void put_prev_task_scx(struct rq *rq, struct task_struct *p,
 		 */
 		if (p->scx.slice && !scx_rq_bypassing(rq)) {
 			dispatch_enqueue(&rq->scx.local_dsq, p, SCX_ENQ_HEAD);
-			return;
+			goto switch_class;
 		}
 
 		/*
@@ -3051,6 +3054,7 @@ static void put_prev_task_scx(struct rq *rq, struct task_struct *p,
 		}
 	}
 
+switch_class:
 	if (next && next->sched_class != &ext_sched_class)
 		switch_class(rq, next);
 }
@@ -3216,6 +3220,74 @@ found:
 }
 
 /*
+ * Return the amount of CPUs in the same LLC domain of @cpu (or zero if the LLC
+ * domain is not defined).
+ */
+static unsigned int llc_weight(s32 cpu)
+{
+	struct sched_domain *sd;
+
+	sd = rcu_dereference(per_cpu(sd_llc, cpu));
+	if (!sd)
+		return 0;
+
+	return sd->span_weight;
+}
+
+/*
+ * Return the cpumask representing the LLC domain of @cpu (or NULL if the LLC
+ * domain is not defined).
+ */
+static struct cpumask *llc_span(s32 cpu)
+{
+	struct sched_domain *sd;
+
+	sd = rcu_dereference(per_cpu(sd_llc, cpu));
+	if (!sd)
+		return 0;
+
+	return sched_domain_span(sd);
+}
+
+/*
+ * Return the amount of CPUs in the same NUMA domain of @cpu (or zero if the
+ * NUMA domain is not defined).
+ */
+static unsigned int numa_weight(s32 cpu)
+{
+	struct sched_domain *sd;
+	struct sched_group *sg;
+
+	sd = rcu_dereference(per_cpu(sd_numa, cpu));
+	if (!sd)
+		return 0;
+	sg = sd->groups;
+	if (!sg)
+		return 0;
+
+	return sg->group_weight;
+}
+
+/*
+ * Return the cpumask representing the NUMA domain of @cpu (or NULL if the NUMA
+ * domain is not defined).
+ */
+static struct cpumask *numa_span(s32 cpu)
+{
+	struct sched_domain *sd;
+	struct sched_group *sg;
+
+	sd = rcu_dereference(per_cpu(sd_numa, cpu));
+	if (!sd)
+		return NULL;
+	sg = sd->groups;
+	if (!sg)
+		return NULL;
+
+	return sched_group_span(sg);
+}
+
+/*
  * Return true if the LLC domains do not perfectly overlap with the NUMA
  * domains, false otherwise.
  */
@@ -3246,18 +3318,9 @@ static bool llc_numa_mismatch(void)
 	 * overlapping, which is incorrect (as NUMA 1 has two distinct LLC
 	 * domains).
 	 */
-	for_each_online_cpu(cpu) {
-		const struct cpumask *numa_cpus;
-		struct sched_domain *sd;
-
-		sd = rcu_dereference(per_cpu(sd_llc, cpu));
-		if (!sd)
+	for_each_online_cpu(cpu)
+		if (llc_weight(cpu) != numa_weight(cpu))
 			return true;
-
-		numa_cpus = cpumask_of_node(cpu_to_node(cpu));
-		if (sd->span_weight != cpumask_weight(numa_cpus))
-			return true;
-	}
 
 	return false;
 }
@@ -3276,8 +3339,7 @@ static bool llc_numa_mismatch(void)
 static void update_selcpu_topology(void)
 {
 	bool enable_llc = false, enable_numa = false;
-	struct sched_domain *sd;
-	const struct cpumask *cpus;
+	unsigned int nr_cpus;
 	s32 cpu = cpumask_first(cpu_online_mask);
 
 	/*
@@ -3291,10 +3353,12 @@ static void update_selcpu_topology(void)
 	 * CPUs.
 	 */
 	rcu_read_lock();
-	sd = rcu_dereference(per_cpu(sd_llc, cpu));
-	if (sd) {
-		if (sd->span_weight < num_online_cpus())
+	nr_cpus = llc_weight(cpu);
+	if (nr_cpus > 0) {
+		if (nr_cpus < num_online_cpus())
 			enable_llc = true;
+		pr_debug("sched_ext: LLC=%*pb weight=%u\n",
+			 cpumask_pr_args(llc_span(cpu)), llc_weight(cpu));
 	}
 
 	/*
@@ -3306,9 +3370,13 @@ static void update_selcpu_topology(void)
 	 * enabling both NUMA and LLC optimizations is unnecessary, as checking
 	 * for an idle CPU in the same domain twice is redundant.
 	 */
-	cpus = cpumask_of_node(cpu_to_node(cpu));
-	if ((cpumask_weight(cpus) < num_online_cpus()) && llc_numa_mismatch())
-		enable_numa = true;
+	nr_cpus = numa_weight(cpu);
+	if (nr_cpus > 0) {
+		if (nr_cpus < num_online_cpus() && llc_numa_mismatch())
+			enable_numa = true;
+		pr_debug("sched_ext: NUMA=%*pb weight=%u\n",
+			 cpumask_pr_args(numa_span(cpu)), numa_weight(cpu));
+	}
 	rcu_read_unlock();
 
 	pr_debug("sched_ext: LLC idle selection %s\n",
@@ -3360,7 +3428,6 @@ static s32 scx_select_cpu_dfl(struct task_struct *p, s32 prev_cpu,
 
 	*found = false;
 
-
 	/*
 	 * This is necessary to protect llc_cpus.
 	 */
@@ -3379,15 +3446,10 @@ static s32 scx_select_cpu_dfl(struct task_struct *p, s32 prev_cpu,
 	 */
 	if (p->nr_cpus_allowed >= num_possible_cpus()) {
 		if (static_branch_maybe(CONFIG_NUMA, &scx_selcpu_topo_numa))
-			numa_cpus = cpumask_of_node(cpu_to_node(prev_cpu));
+			numa_cpus = numa_span(prev_cpu);
 
-		if (static_branch_maybe(CONFIG_SCHED_MC, &scx_selcpu_topo_llc)) {
-			struct sched_domain *sd;
-
-			sd = rcu_dereference(per_cpu(sd_llc, prev_cpu));
-			if (sd)
-				llc_cpus = sched_domain_span(sd);
-		}
+		if (static_branch_maybe(CONFIG_SCHED_MC, &scx_selcpu_topo_llc))
+			llc_cpus = llc_span(prev_cpu);
 	}
 
 	/*
@@ -3586,16 +3648,8 @@ static void reset_idle_masks(void)
 	cpumask_copy(idle_masks.smt, cpu_online_mask);
 }
 
-void __scx_update_idle(struct rq *rq, bool idle)
+static void update_builtin_idle(int cpu, bool idle)
 {
-	int cpu = cpu_of(rq);
-
-	if (SCX_HAS_OP(update_idle) && !scx_rq_bypassing(rq)) {
-		SCX_CALL_OP(SCX_KF_REST, update_idle, cpu_of(rq), idle);
-		if (!static_branch_unlikely(&scx_builtin_idle_enabled))
-			return;
-	}
-
 	if (idle)
 		cpumask_set_cpu(cpu, idle_masks.cpu);
 	else
@@ -3620,6 +3674,57 @@ void __scx_update_idle(struct rq *rq, bool idle)
 		}
 	}
 #endif
+}
+
+/*
+ * Update the idle state of a CPU to @idle.
+ *
+ * If @do_notify is true, ops.update_idle() is invoked to notify the scx
+ * scheduler of an actual idle state transition (idle to busy or vice
+ * versa). If @do_notify is false, only the idle state in the idle masks is
+ * refreshed without invoking ops.update_idle().
+ *
+ * This distinction is necessary, because an idle CPU can be "reserved" and
+ * awakened via scx_bpf_pick_idle_cpu() + scx_bpf_kick_cpu(), marking it as
+ * busy even if no tasks are dispatched. In this case, the CPU may return
+ * to idle without a true state transition. Refreshing the idle masks
+ * without invoking ops.update_idle() ensures accurate idle state tracking
+ * while avoiding unnecessary updates and maintaining balanced state
+ * transitions.
+ */
+void __scx_update_idle(struct rq *rq, bool idle, bool do_notify)
+{
+	int cpu = cpu_of(rq);
+
+	lockdep_assert_rq_held(rq);
+
+	/*
+	 * Trigger ops.update_idle() only when transitioning from a task to
+	 * the idle thread and vice versa.
+	 *
+	 * Idle transitions are indicated by do_notify being set to true,
+	 * managed by put_prev_task_idle()/set_next_task_idle().
+	 */
+	if (SCX_HAS_OP(update_idle) && do_notify && !scx_rq_bypassing(rq))
+		SCX_CALL_OP(SCX_KF_REST, update_idle, cpu_of(rq), idle);
+
+	/*
+	 * Update the idle masks:
+	 * - for real idle transitions (do_notify == true)
+	 * - for idle-to-idle transitions (indicated by the previous task
+	 *   being the idle thread, managed by pick_task_idle())
+	 *
+	 * Skip updating idle masks if the previous task is not the idle
+	 * thread, since set_next_task_idle() has already handled it when
+	 * transitioning from a task to the idle thread (calling this
+	 * function with do_notify == true).
+	 *
+	 * In this way we can avoid updating the idle masks twice,
+	 * unnecessarily.
+	 */
+	if (static_branch_likely(&scx_builtin_idle_enabled))
+		if (do_notify || is_idle_task(rq->curr))
+			update_builtin_idle(cpu, idle);
 }
 
 static void handle_hotplug(struct rq *rq, bool online)
@@ -4744,10 +4849,9 @@ static void scx_ops_bypass(bool bypass)
 	 */
 	for_each_possible_cpu(cpu) {
 		struct rq *rq = cpu_rq(cpu);
-		struct rq_flags rf;
 		struct task_struct *p, *n;
 
-		rq_lock(rq, &rf);
+		raw_spin_rq_lock(rq);
 
 		if (bypass) {
 			WARN_ON_ONCE(rq->scx.flags & SCX_RQ_BYPASSING);
@@ -4763,7 +4867,7 @@ static void scx_ops_bypass(bool bypass)
 		 * sees scx_rq_bypassing() before moving tasks to SCX.
 		 */
 		if (!scx_enabled()) {
-			rq_unlock(rq, &rf);
+			raw_spin_rq_unlock(rq);
 			continue;
 		}
 
@@ -4783,10 +4887,11 @@ static void scx_ops_bypass(bool bypass)
 			sched_enq_and_set_task(&ctx);
 		}
 
-		rq_unlock(rq, &rf);
-
 		/* resched to restore ticks and idle state */
-		resched_cpu(cpu);
+		if (cpu_online(cpu) || cpu == smp_processor_id())
+			resched_curr(rq);
+
+		raw_spin_rq_unlock(rq);
 	}
 
 	atomic_dec(&scx_ops_breather_depth);
