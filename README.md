@@ -70,14 +70,14 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 
 ### sched_burst_exclude_kthreads (range: 0 - 1, default: 1)
 
-1 BORE takes effect on non-kernel tasks.  
-0 BORE takes effect on non-kernel and kernel tasks.
+1: BORE takes effect on non-kernel tasks.  
+0: BORE takes effect on non-kernel and kernel tasks.
 
 ### sched_burst_parity_threshold (range: u8, default: 2)
 
 The `RUN_TO_PARITY` sched feature flag is benefitial for throughput for slightly less responsiveness in trade-off, but it rapidly loses its advantage as task count in runqueue increases. Thus, instead of consistently take either behavior, an adaptive method is favorable.  
 When set to 0, BORE simply obeys `RUN_TO_PARITY`.  
-When set to greater than zero, `RUN_TO_PARITY` is adaptively disabled if there're more tasks than this value in a CFQ runqueue.
+When set to greater than zero, `RUN_TO_PARITY` is adaptively disabled if there're more tasks than this value in a CFS runqueue.
 
 ### sched_deadline_boost_mask (range: u32, default: ENQUEUE_INITIAL | ENQUEUE_WAKEUP)
 
@@ -85,12 +85,12 @@ When a task is being enqueued with one of these flags, deadline is halved.
 
 ## Special thanks
 
-* Hamad Al Marri, the developer famous for his task schedulers Cachy, CacULE, Baby and TT. BORE has been massively inspired from his great works. He also helped me a lot in the development.
+* Hamad Al Marri, the developer famous for his task schedulers Cachy, CacULE, Baby, TT and ECHO. BORE has been massively inspired from his great works. He also helped me a lot in the development.
 * Peter "ptr1337" Jung, the founder of CachyOS high-performance linux distribution, also being the admin of its development community. His continuous support, sharp analysis and dedicated tests and advice helped me shoot many problems.
 * Ching-Chun "jserv" Huang from National Cheng Kung University of Taiwan, and Hui Chun "foxhoundsk" Feng from National Taiwan Ocean University, for detailed analysis and explanation of the scheduler in their excellent treatise.
 * Piotr Górski a.k.a. "sir_lucjan" from the CachyOS community, for hosting BORE-powered CachyOS kernels for Fedora, as well as helping me shoot some bugs.
 * dim-geo, for assisting me with optimization hints.
-* Array, for helping me investigate a serious lockup bug and providing me usefultest reports.
+* Array, for helping me investigate a serious lockup bug and providing me useful test reports.
 * Mario Roy, for providing me good insights by various detailed test reports, hosting a BORE-powered, clearlinux-based optimized kernel, and also helping me integrating some early upstream patches for improvement, by curating them for me. He also helped me fix a bug that was causing massive slow-downs in combination with CGROUP v1.
 * And many whom I haven't added here yet.
 
