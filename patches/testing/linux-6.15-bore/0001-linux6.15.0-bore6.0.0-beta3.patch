@@ -1,7 +1,7 @@
-From 493a3a0d4ba67fe10ce58f3f8f45f60940ac9a96 Mon Sep 17 00:00:00 2001
+From de23986e833309b30b6874921fb1584ba87a52fd Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 8 Jul 2025 20:34:40 +0900
-Subject: [PATCH] linux6.15.0-bore6.0.0-beta2
+Date: Tue, 8 Jul 2025 21:54:00 +0900
+Subject: [PATCH] linux6.15.0-bore6.0.0-beta3
 
 ---
  include/linux/sched.h      |  18 ++
@@ -13,9 +13,9 @@ Subject: [PATCH] linux6.15.0-bore6.0.0-beta2
  kernel/sched/bore.c        | 447 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 ++++-
- kernel/sched/fair.c        |  73 +++++-
+ kernel/sched/fair.c        |  90 +++++++-
  kernel/sched/sched.h       |   9 +
- 11 files changed, 689 insertions(+), 5 deletions(-)
+ 11 files changed, 706 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -57,7 +57,7 @@ index f96ac19828..fa6550be5e 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..661fe0a73d
+index 0000000000..1e00b51702
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,39 @@
@@ -67,7 +67,7 @@ index 0000000000..661fe0a73d
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "6.0.0-beta2"
++#define SCHED_BORE_VERSION "6.0.0-beta3"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -96,8 +96,8 @@ index 0000000000..661fe0a73d
 +extern void reset_task_bore(struct task_struct *p);
 +extern void sched_bore_init(void);
 +
-+extern void reweight_entity(
-+	struct cfs_rq *cfs_rq, struct sched_entity *se, unsigned long weight);
++extern void reweight_entity(struct cfs_rq *cfs_rq,
++	struct sched_entity *se, unsigned long weight, bool no_update_curr);
 +#endif // CONFIG_SCHED_BORE
 +#endif // _LINUX_SCHED_BORE_H
 diff --git a/init/Kconfig b/init/Kconfig
@@ -190,7 +190,7 @@ index 8ae86371dd..ab9ad886a1 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..eee89bf565
+index 0000000000..6c03929b64
 --- /dev/null
 +++ b/kernel/sched/bore.c
 @@ -0,0 +1,447 @@
@@ -256,7 +256,7 @@ index 0000000000..eee89bf565
 +	struct sched_entity *se = &p->se;
 +	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
 +
-+	reweight_entity(cfs_rq_of(se), se, weight);
++	reweight_entity(cfs_rq_of(se), se, weight, true);
 +	se->load.inv_weight = sched_prio_to_wmult[prio];
 +}
 +
@@ -774,7 +774,7 @@ index 56ae54e0ce..4302a4d60a 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 0fb9bf995a..45cd035ea7 100644
+index 0fb9bf995a..cd9f82475c 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -58,6 +58,8 @@
@@ -889,16 +889,55 @@ index 0fb9bf995a..45cd035ea7 100644
  	curr->vruntime += calc_delta_fair(delta_exec, curr);
  	resched = update_deadline(cfs_rq, curr);
  	update_min_vruntime(cfs_rq);
-@@ -3784,7 +3820,7 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
+@@ -3784,13 +3820,22 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
  
  static void place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags);
  
 -static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
++
++#ifdef CONFIG_SCHED_BORE
++void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
++			    unsigned long weight, bool no_update_curr)
++#else // !CONFIG_SCHED_BORE
 +void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
  			    unsigned long weight)
++#endif // CONFIG_SCHED_BORE
  {
  	bool curr = cfs_rq->curr == se;
-@@ -5290,7 +5326,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 
+ 	if (se->on_rq) {
+ 		/* commit outstanding execution time */
++#ifdef CONFIG_SCHED_BORE
++		if (!no_update_curr)
++#endif // CONFIG_SCHED_BORE
+ 		update_curr(cfs_rq);
+ 		update_entity_lag(cfs_rq, se);
+ 		se->deadline -= se->vruntime;
+@@ -3844,7 +3889,11 @@ static void reweight_task_fair(struct rq *rq, struct task_struct *p,
+ 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
+ 	struct load_weight *load = &se->load;
+ 
++#ifdef CONFIG_SCHED_BORE
++	reweight_entity(cfs_rq, se, lw->weight, false);
++#else // !CONFIG_SCHED_BORE
+ 	reweight_entity(cfs_rq, se, lw->weight);
++#endif // CONFIG_SCHED_BORE
+ 	load->inv_weight = lw->inv_weight;
+ }
+ 
+@@ -3985,7 +4034,11 @@ static void update_cfs_group(struct sched_entity *se)
+ 	shares = calc_group_shares(gcfs_rq);
+ #endif
+ 	if (unlikely(se->load.weight != shares))
++#ifdef CONFIG_SCHED_BORE
++		reweight_entity(cfs_rq_of(se), se, shares, false);
++#else // !CONFIG_SCHED_BORE
+ 		reweight_entity(cfs_rq_of(se), se, shares);
++#endif // CONFIG_SCHED_BORE
+ }
+ 
+ #else /* CONFIG_FAIR_GROUP_SCHED */
+@@ -5290,7 +5343,11 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  		se->rel_deadline = 0;
  		return;
  	}
@@ -911,7 +950,7 @@ index 0fb9bf995a..45cd035ea7 100644
  	/*
  	 * When joining the competition; the existing tasks will be,
  	 * on average, halfway through their slice, as such start tasks
-@@ -7185,6 +7225,15 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
+@@ -7185,6 +7242,15 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
  		util_est_dequeue(&rq->cfs, p);
  
  	util_est_update(&rq->cfs, p, flags & DEQUEUE_SLEEP);
@@ -927,7 +966,7 @@ index 0fb9bf995a..45cd035ea7 100644
  	if (dequeue_entities(rq, &p->se, flags) < 0)
  		return false;
  
-@@ -9005,16 +9054,25 @@ static void yield_task_fair(struct rq *rq)
+@@ -9005,16 +9071,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -953,7 +992,7 @@ index 0fb9bf995a..45cd035ea7 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -13127,6 +13185,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
+@@ -13127,6 +13202,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
  static void task_fork_fair(struct task_struct *p)
  {
  	set_task_max_allowed_capacity(p);
@@ -963,7 +1002,7 @@ index 0fb9bf995a..45cd035ea7 100644
  }
  
  /*
-@@ -13237,6 +13298,10 @@ static void attach_task_cfs_rq(struct task_struct *p)
+@@ -13237,6 +13315,10 @@ static void attach_task_cfs_rq(struct task_struct *p)
  
  static void switched_from_fair(struct rq *rq, struct task_struct *p)
  {
