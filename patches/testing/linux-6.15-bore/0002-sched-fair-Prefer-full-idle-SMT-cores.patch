@@ -1,34 +1,25 @@
-From 36999bd1e3abfa583a12ab9089ce909079e7054a Mon Sep 17 00:00:00 2001
+From 7d3b9716e8184bb286578d0f22c189bb1a8364dd Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 10 May 2025 13:19:56 +0900
-Subject: [PATCH] "sched/fair: Prefer full-idle SMT cores" by Andrea Righi
- (Original patch at
- https://web.git.kernel.org/pub/scm/linux/kernel/git/arighi/linux.git/commit/?h=sched-smt-idle
- ) Rev.2
+Subject: [PATCH] sched/fair: Prefer full-idle SMT cores
 
+When selecting an idle CPU for a task, always try to prioritize
+full-idle SMT cores (CPUs belonging to an SMT core where all its sibling
+are idle) over partially-idle cores.
+
+Signed-off-by: Andrea Righi <arighi@nvidia.com>
+
+Original patch at:
+https://web.git.kernel.org/pub/scm/linux/kernel/git/arighi/linux.git/commit/?h=sched-smt-idle
 ---
- arch/x86/Kconfig    |  2 +-
  kernel/sched/fair.c | 69 ++++++++++++++++++++-------------------------
- 2 files changed, 32 insertions(+), 39 deletions(-)
+ 1 file changed, 31 insertions(+), 38 deletions(-)
 
-diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
-index e21cca4049..77a7ff4df1 100644
---- a/arch/x86/Kconfig
-+++ b/arch/x86/Kconfig
-@@ -1040,7 +1040,7 @@ config NR_CPUS
- config SCHED_CLUSTER
- 	bool "Cluster scheduler support"
- 	depends on SMP
--	default y
-+	default n
- 	help
- 	  Cluster scheduler support improves the CPU scheduler's decision
- 	  making when dealing with machines that have clusters of CPUs.
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 43ce7bef12..cacea2f9be 100644
+index 72eb5b8dfd..afe6f2ab0d 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -7558,9 +7558,14 @@ static inline int sched_balance_find_dst_cpu(struct sched_domain *sd, struct tas
+@@ -7551,9 +7551,14 @@ static inline int sched_balance_find_dst_cpu(struct sched_domain *sd, struct tas
  	return new_cpu;
  }
  
@@ -44,7 +35,7 @@ index 43ce7bef12..cacea2f9be 100644
  	    sched_cpu_cookie_match(cpu_rq(cpu), p))
  		return cpu;
  
-@@ -7571,6 +7576,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+@@ -7564,6 +7569,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
  DEFINE_STATIC_KEY_FALSE(sched_smt_present);
  EXPORT_SYMBOL_GPL(sched_smt_present);
  
@@ -69,7 +60,7 @@ index 43ce7bef12..cacea2f9be 100644
  static inline void set_idle_cores(int cpu, int val)
  {
  	struct sched_domain_shared *sds;
-@@ -7653,29 +7676,6 @@ static int select_idle_core(struct task_struct *p, int core, struct cpumask *cpu
+@@ -7646,29 +7669,6 @@ static int select_idle_core(struct task_struct *p, int core, struct cpumask *cpu
  	return -1;
  }
  
@@ -99,7 +90,7 @@ index 43ce7bef12..cacea2f9be 100644
  #else /* CONFIG_SCHED_SMT */
  
  static inline void set_idle_cores(int cpu, int val)
-@@ -7692,9 +7692,9 @@ static inline int select_idle_core(struct task_struct *p, int core, struct cpuma
+@@ -7685,9 +7685,9 @@ static inline int select_idle_core(struct task_struct *p, int core, struct cpuma
  	return __select_idle_cpu(core, p);
  }
  
@@ -111,7 +102,7 @@ index 43ce7bef12..cacea2f9be 100644
  }
  
  #endif /* CONFIG_SCHED_SMT */
-@@ -7791,7 +7791,7 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
+@@ -7784,7 +7784,7 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
  	for_each_cpu_wrap(cpu, cpus, target) {
  		unsigned long cpu_cap = capacity_of(cpu);
  
@@ -120,7 +111,7 @@ index 43ce7bef12..cacea2f9be 100644
  			continue;
  
  		fits = util_fits_cpu(task_util, util_min, util_max, cpu);
-@@ -7862,7 +7862,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7855,7 +7855,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  	 */
  	lockdep_assert_irqs_disabled();
  
@@ -129,7 +120,7 @@ index 43ce7bef12..cacea2f9be 100644
  	    asym_fits_cpu(task_util, util_min, util_max, target))
  		return target;
  
-@@ -7870,7 +7870,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7863,7 +7863,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  	 * If the previous CPU is cache affine and idle, don't be stupid:
  	 */
  	if (prev != target && cpus_share_cache(prev, target) &&
@@ -138,7 +129,7 @@ index 43ce7bef12..cacea2f9be 100644
  	    asym_fits_cpu(task_util, util_min, util_max, prev)) {
  
  		if (!static_branch_unlikely(&sched_cluster_active) ||
-@@ -7902,7 +7902,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7895,7 +7895,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  	if (recent_used_cpu != prev &&
  	    recent_used_cpu != target &&
  	    cpus_share_cache(recent_used_cpu, target) &&
@@ -147,7 +138,7 @@ index 43ce7bef12..cacea2f9be 100644
  	    cpumask_test_cpu(recent_used_cpu, p->cpus_ptr) &&
  	    asym_fits_cpu(task_util, util_min, util_max, recent_used_cpu)) {
  
-@@ -7938,16 +7938,9 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7931,16 +7931,9 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  	if (!sd)
  		return target;
  
