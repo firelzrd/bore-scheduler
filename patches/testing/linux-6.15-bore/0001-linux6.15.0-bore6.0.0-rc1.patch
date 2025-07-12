@@ -1,21 +1,21 @@
-From ed522d96015b6e27cc8153198b7b76171fd2da0f Mon Sep 17 00:00:00 2001
+From 00582f56bd5cb1f44bdf8ff813ec4f19e128b6e8 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Fri, 11 Jul 2025 14:57:07 +0900
-Subject: [PATCH] linux6.15.0-bore6.0.0-beta5
+Date: Sat, 12 Jul 2025 15:20:02 +0900
+Subject: [PATCH] linux6.15.0-bore6.0.0-rc1
 
 ---
  include/linux/sched.h      |  19 ++
- include/linux/sched/bore.h |  40 ++++
+ include/linux/sched/bore.h |  39 ++++
  init/Kconfig               |  17 ++
  kernel/Kconfig.hz          |  17 ++
  kernel/fork.c              |   6 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 445 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 447 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |   6 +
  kernel/sched/debug.c       |  61 ++++-
  kernel/sched/fair.c        |  89 +++++++-
  kernel/sched/sched.h       |   9 +
- 11 files changed, 705 insertions(+), 5 deletions(-)
+ 11 files changed, 706 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -58,23 +58,22 @@ index f96ac19828..85c59cc4e6 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..14f6ed7480
+index 0000000000..45d2e79b18
 --- /dev/null
 +++ b/include/linux/sched/bore.h
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,39 @@
 +
 +#include <linux/sched.h>
 +#include <linux/sched/cputime.h>
 +
 +#ifndef _LINUX_SCHED_BORE_H
 +#define _LINUX_SCHED_BORE_H
-+#define SCHED_BORE_VERSION "6.0.0-beta5"
++#define SCHED_BORE_VERSION "6.0.0-rc1"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
 +extern u8   __read_mostly sched_burst_exclude_kthreads;
-+extern u8   __read_mostly sched_burst_smoothness_long;
-+extern u8   __read_mostly sched_burst_smoothness_short;
++extern u8   __read_mostly sched_burst_smoothness;
 +extern u8   __read_mostly sched_burst_fork_atavistic;
 +extern u8   __read_mostly sched_burst_parity_threshold;
 +extern u8   __read_mostly sched_burst_penalty_offset;
@@ -192,10 +191,10 @@ index 8ae86371dd..ab9ad886a1 100644
 +obj-y += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..5acdf38776
+index 0000000000..caf44488d5
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,445 @@
+@@ -0,0 +1,447 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2025 Masahito Suzuki <firelzrd@gmail.com>
@@ -296,18 +295,20 @@ index 0000000000..5acdf38776
 +		old - (-increment / dumper);
 +}
 +
-+static void revolve_burst_penalty(struct sched_entity *se) {
++static void __restart_burst(struct sched_entity *se) {
 +	se->prev_burst_penalty = binary_smooth(
 +		se->curr_burst_penalty, se->prev_burst_penalty, se->burst_count);
 +	se->burst_time = 0;
 +	se->curr_burst_penalty = 0;
 +
-+	se->burst_count = (se->burst_count < sched_burst_smoothness) ?
-+		(se->burst_count + 1) : sched_burst_smoothness;
++	if (se->burst_count < sched_burst_smoothness)
++		se->burst_count++;
++	else if (unlikely(se->burst_count > sched_burst_smoothness))
++		se->burst_count = sched_burst_smoothness;
 +}
 +
 +inline void restart_burst(struct sched_entity *se) {
-+	revolve_burst_penalty(se);
++	__restart_burst(se);
 +	se->burst_penalty = se->prev_burst_penalty;
 +	update_burst_score(se);
 +}
@@ -330,7 +331,7 @@ index 0000000000..5acdf38776
 +static inline bool task_is_bore_eligible(struct task_struct *p)
 +{return p && p->sched_class == &fair_sched_class && !p->exit_state;}
 +
-+static void reset_task_weights_bore(void) {
++static inline void reset_task_weights_bore(void) {
 +	struct task_struct *task;
 +	struct rq *rq;
 +	struct rq_flags rf;
@@ -361,7 +362,7 @@ index 0000000000..5acdf38776
 +#define for_each_child(p, t) \
 +	list_for_each_entry(t, &(p)->children, sibling)
 +
-+static u32 count_entries_upto2(struct list_head *head) {
++static inline u32 count_entries_upto2(struct list_head *head) {
 +	struct list_head *next = head->next;
 +	return (next != head) + (next->next != head);
 +}
@@ -521,7 +522,7 @@ index 0000000000..5acdf38776
 +		read_unlock(&tasklist_lock);
 +	}
 +
-+	revolve_burst_penalty(se);
++	__restart_burst(se);
 +	se->burst_penalty = se->prev_burst_penalty =
 +		max(se->prev_burst_penalty, penalty);
 +	se->burst_count = 1;
