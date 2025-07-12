@@ -1,6 +1,6 @@
 # BORE (Burst-Oriented Response Enhancer) CPU Scheduler
 
-BORE (Burst-Oriented Response Enhancer) is enhanced versions of CFS (Completely Fair Scheduler) and EEVDF (Earliest Eligible Virtual Deadline First) Linux schedulers.
+BORE (Burst-Oriented Response Enhancer) is an enhanced versions of the EEVDF (Earliest Eligible Virtual Deadline First) Linux schedulers.
 Developed with the aim of maintaining these schedulers' high performance while delivering resilient responsiveness to user input under as versatile load scenario as possible.
 
 To achieve this, BORE introduces a dimension of flexibility known as "burstiness" for each individual tasks, partially departing from CFS's inherent "complete fairness" principle.
@@ -38,7 +38,7 @@ https://youtu.be/kKumW_qH4a0
 1 Enables the BORE mechanism.  
 0 Disables the BORE mechanism.
 
-### sched_burst_cache_lifetime (range: 0 - 4294967295, default: 60000000)
+### sched_burst_cache_lifetime (range: 0 - 4294967295, default: 75000000)
 
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
@@ -50,7 +50,7 @@ Increasing this value results in less frequent re-calculation of average burst t
 When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
 Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.  
 
-### sched_burst_penalty_offset (range: 0 - 64, default: 22)
+### sched_burst_penalty_offset (range: 0 - 63, default: 24)
 
 How many bits to reduce from burst time bit count when calculating burst score.  
 Increasing this value prevents tasks of shorter burst time from being too strong.  
@@ -62,11 +62,10 @@ How strongly tasks are discriminated accordingly to their burst time ratio, scal
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness_long (range: 0 - 1, default: 1)
-### sched_burst_smoothness_short (range: 0 - 1, default: 0)
+### sched_burst_smoothness (range: 1 - 255, default: 20)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
-Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time / (2 ^ burst_smoothness) into prev_burst_time. but this mixing occurs only when prev_burst_time increases. burst_smoothness=0 means no smoothening.
+Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time into the previous history in an exponential moving average style. burst_smoothness=1 means no smoothening.
 
 ### sched_burst_exclude_kthreads (range: 0 - 1, default: 1)
 
