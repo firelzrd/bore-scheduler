@@ -1,7 +1,7 @@
-From 542b05b8c3728bf1bc7ae6f57f8699cb3f30fd59 Mon Sep 17 00:00:00 2001
+From b8ae612ff9f30d454738492087ef11e907058979 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 9 Aug 2025 15:12:46 +0900
-Subject: [PATCH] linux6.6.97-bore-6.2.2
+Date: Sat, 9 Aug 2025 16:46:05 +0900
+Subject: [PATCH] linux6.6.97-bore-6.2.2r2
 
 ---
  include/linux/sched.h      |  19 ++
@@ -12,11 +12,11 @@ Subject: [PATCH] linux6.6.97-bore-6.2.2
  kernel/futex/waitwake.c    |  16 ++
  kernel/sched/Makefile      |   1 +
  kernel/sched/bore.c        | 445 +++++++++++++++++++++++++++++++++++++
- kernel/sched/core.c        |  12 +
+ kernel/sched/core.c        |  14 +-
  kernel/sched/debug.c       |  61 ++++-
  kernel/sched/fair.c        |  92 +++++++-
- kernel/sched/sched.h       |   9 +
- 12 files changed, 742 insertions(+), 4 deletions(-)
+ kernel/sched/sched.h       |  10 +
+ 12 files changed, 744 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -200,7 +200,7 @@ index 7966c9a1c1..5417dc271e 100644
  	/* CLONE_PARENT re-uses the old parent */
  	if (clone_flags & (CLONE_PARENT|CLONE_THREAD)) {
 diff --git a/kernel/futex/waitwake.c b/kernel/futex/waitwake.c
-index ba01b94082..eda500e821 100644
+index ba01b94082..1ccb920613 100644
 --- a/kernel/futex/waitwake.c
 +++ b/kernel/futex/waitwake.c
 @@ -3,6 +3,9 @@
@@ -697,7 +697,7 @@ index 0000000000..04ea0b180c
 +#endif // CONFIG_SYSCTL
 +#endif // CONFIG_SCHED_BORE
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 760a6c3781..b33411e26e 100644
+index 760a6c3781..6327861892 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -96,6 +96,10 @@
@@ -711,9 +711,12 @@ index 760a6c3781..b33411e26e 100644
  EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpu);
  EXPORT_TRACEPOINT_SYMBOL_GPL(ipi_send_cpumask);
  
-@@ -1306,7 +1310,11 @@ int tg_nop(struct task_group *tg, void *data)
+@@ -1304,9 +1308,13 @@ int tg_nop(struct task_group *tg, void *data)
+ }
+ #endif
  
- static void set_load_weight(struct task_struct *p, bool update_load)
+-static void set_load_weight(struct task_struct *p, bool update_load)
++void set_load_weight(struct task_struct *p, bool update_load)
  {
 +#ifdef CONFIG_SCHED_BORE
 +	int prio = effective_prio_bore(p);
@@ -1102,10 +1105,18 @@ index 6ce3028e6e..ecd18dfdfb 100644
  
  	if (task_on_rq_queued(p)) {
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 60dc51f43d..ac94f17ebf 100644
+index 60dc51f43d..d33defd39c 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -1945,7 +1945,11 @@ static inline void dirty_sched_domain_sysctl(int cpu)
+@@ -1312,6 +1312,7 @@ static inline bool sched_core_enqueued(struct task_struct *p)
+ 	return !RB_EMPTY_NODE(&p->core_node);
+ }
+ 
++extern void set_load_weight(struct task_struct *p, bool update_load);
+ extern void sched_core_enqueue(struct rq *rq, struct task_struct *p);
+ extern void sched_core_dequeue(struct rq *rq, struct task_struct *p, int flags);
+ 
+@@ -1945,7 +1946,11 @@ static inline void dirty_sched_domain_sysctl(int cpu)
  }
  #endif
  
@@ -1117,7 +1128,7 @@ index 60dc51f43d..ac94f17ebf 100644
  
  static inline const struct cpumask *task_user_cpus(struct task_struct *p)
  {
-@@ -2531,7 +2535,12 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
+@@ -2531,7 +2536,12 @@ extern void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags);
  extern const_debug unsigned int sysctl_sched_nr_migrate;
  extern const_debug unsigned int sysctl_sched_migration_cost;
  
