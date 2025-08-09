@@ -1,7 +1,7 @@
-From 13aeed30681e60375426e1a25aa2d57b30f34b37 Mon Sep 17 00:00:00 2001
+From 2cec403ab8479cfcf2ae76b82503d8bc2ecbc2a8 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 9 Aug 2025 10:42:49 +0900
-Subject: [PATCH] linux6.12.37-bore-6.2.1
+Date: Sat, 9 Aug 2025 15:12:46 +0900
+Subject: [PATCH] linux6.12.37-bore-6.2.2
 
 ---
  include/linux/sched.h      |  19 ++
@@ -11,12 +11,12 @@ Subject: [PATCH] linux6.12.37-bore-6.2.1
  kernel/fork.c              |   8 +
  kernel/futex/waitwake.c    |  16 ++
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 446 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 445 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |  12 +
  kernel/sched/debug.c       |  61 ++++-
  kernel/sched/fair.c        |  88 +++++++-
  kernel/sched/sched.h       |   9 +
- 12 files changed, 735 insertions(+), 4 deletions(-)
+ 12 files changed, 734 insertions(+), 4 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -59,7 +59,7 @@ index 0d1d70aded..aa19bb08ae 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..332be2c629
+index 0000000000..08bee5d20f
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,45 @@
@@ -72,7 +72,7 @@ index 0000000000..332be2c629
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.2.1"
++#define SCHED_BORE_VERSION  "6.2.2"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -190,7 +190,7 @@ index 97c9afe3ef..b317d65c5c 100644
  	/* CLONE_PARENT re-uses the old parent */
  	if (clone_flags & (CLONE_PARENT|CLONE_THREAD)) {
 diff --git a/kernel/futex/waitwake.c b/kernel/futex/waitwake.c
-index a9056acb75..0e30489f14 100644
+index a9056acb75..8c865f8079 100644
 --- a/kernel/futex/waitwake.c
 +++ b/kernel/futex/waitwake.c
 @@ -4,6 +4,9 @@
@@ -208,9 +208,9 @@ index a9056acb75..0e30489f14 100644
  		return ret;
  
 +#ifdef CONFIG_SCHED_BORE
-+	u8 orig_bore = sched_bore;
++	bool boost = likely(sched_bore && sched_burst_futex_boost);
 +	current->se.is_waiting_for_lock = true;
-+	if (likely(orig_bore))
++	if (boost)
 +		set_load_weight_rq_lock(current, true);
 +#endif // CONFIG_SCHED_BORE
 +
@@ -219,7 +219,7 @@ index a9056acb75..0e30489f14 100644
  
 +#ifdef CONFIG_SCHED_BORE
 +	current->se.is_waiting_for_lock = false;
-+	if (likely(orig_bore))
++	if (boost)
 +		set_load_weight_rq_lock(current, true);
 +#endif // CONFIG_SCHED_BORE
 +
@@ -237,10 +237,10 @@ index 976092b7bd..83cbd093b8 100644
 +obj-$(CONFIG_SCHED_BORE) += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..5e835fa195
+index 0000000000..5fc13c22f9
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,446 @@
+@@ -0,0 +1,445 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2025 Masahito Suzuki <firelzrd@gmail.com>
@@ -397,11 +397,10 @@ index 0000000000..5e835fa195
 +	write_lock_irq(&tasklist_lock);
 +	for_each_process(task) {
 +		if (!task_is_bore_eligible(task)) continue;
-+		rq = task_rq(task);
-+		rq_pin_lock(rq, &rf);
++		rq = task_rq_lock(task, &rf);
 +		update_rq_clock(rq);
 +		reweight_task_by_prio(task, effective_prio_bore(task));
-+		rq_unpin_lock(rq, &rf);
++		task_rq_unlock(rq, task, &rf);
 +	}
 +	write_unlock_irq(&tasklist_lock);
 +}
