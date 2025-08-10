@@ -1,7 +1,7 @@
-From 44802b62d79495a8954f70558bc60b917e6c727b Mon Sep 17 00:00:00 2001
+From 4f0bbb9c23db14dbf7bc96ad519968ce0073631c Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sun, 10 Aug 2025 04:54:27 +0900
-Subject: [PATCH] linux6.15.6-bore-6.2.3
+Date: Mon, 11 Aug 2025 03:50:09 +0900
+Subject: [PATCH] linux6.15.6-bore-6.2.4
 
 ---
  include/linux/sched.h      |  19 ++
@@ -21,7 +21,7 @@ Subject: [PATCH] linux6.15.6-bore-6.2.3
  create mode 100644 kernel/sched/bore.c
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index f96ac19828..d7137a727a 100644
+index f96ac19828..3b7f51909a 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
 @@ -566,6 +566,14 @@ struct sched_statistics {
@@ -50,7 +50,7 @@ index f96ac19828..d7137a727a 100644
 +	u32				burst_penalty;
 +	u8				burst_score;
 +	u8				burst_count;
-+	bool			is_waiting_for_lock;
++	bool			waiting_for_futex;
 +	struct sched_burst_cache child_burst;
 +	struct sched_burst_cache group_burst;
 +#endif // CONFIG_SCHED_BORE
@@ -59,7 +59,7 @@ index f96ac19828..d7137a727a 100644
  
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..3b85e4e424
+index 0000000000..3fe4f17de5
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,44 @@
@@ -72,7 +72,7 @@ index 0000000000..3b85e4e424
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.2.3"
++#define SCHED_BORE_VERSION  "6.2.4"
 +
 +#ifdef CONFIG_SCHED_BORE
 +extern u8   __read_mostly sched_bore;
@@ -189,7 +189,7 @@ index 168681fc4b..6b1644cfd1 100644
  	/* CLONE_PARENT re-uses the old parent */
  	if (clone_flags & (CLONE_PARENT|CLONE_THREAD)) {
 diff --git a/kernel/futex/waitwake.c b/kernel/futex/waitwake.c
-index 25877d4f2f..12f06c8210 100644
+index 25877d4f2f..ce606fe0fb 100644
 --- a/kernel/futex/waitwake.c
 +++ b/kernel/futex/waitwake.c
 @@ -4,6 +4,9 @@
@@ -202,29 +202,27 @@ index 25877d4f2f..12f06c8210 100644
  
  #include "futex.h"
  
-@@ -664,9 +667,22 @@ int __futex_wait(u32 __user *uaddr, unsigned int flags, u32 val,
- 	if (ret)
- 		return ret;
- 
+@@ -366,7 +369,20 @@ void futex_wait_queue(struct futex_hash_bucket *hb, struct futex_q *q,
+ 		 * is no timeout, or if it has yet to expire.
+ 		 */
+ 		if (!timeout || timeout->task)
 +#ifdef CONFIG_SCHED_BORE
-+	bool boost = likely(sched_bore && sched_burst_futex_boost);
-+	current->se.is_waiting_for_lock = true;
-+	if (boost)
-+		set_load_weight_rq_lock(current, true);
++		{
++			bool boost = likely(sched_bore && sched_burst_futex_boost);
++			current->se.waiting_for_futex = true;
++			if (boost)
++				set_load_weight_rq_lock(current, true);
 +#endif // CONFIG_SCHED_BORE
-+
- 	/* futex_queue and wait for wakeup, timeout, or a signal. */
- 	futex_wait_queue(hb, &q, to);
- 
+ 			schedule();
 +#ifdef CONFIG_SCHED_BORE
-+	current->se.is_waiting_for_lock = false;
-+	if (boost)
-+		set_load_weight_rq_lock(current, true);
++			current->se.waiting_for_futex = false;
++			if (boost)
++				set_load_weight_rq_lock(current, true);
++		}
 +#endif // CONFIG_SCHED_BORE
-+
- 	/* If we were woken (and unqueued), we succeeded, whatever. */
- 	if (!futex_unqueue(&q))
- 		return 0;
+ 	}
+ 	__set_current_state(TASK_RUNNING);
+ }
 diff --git a/kernel/sched/Makefile b/kernel/sched/Makefile
 index 8ae86371dd..b688084bce 100644
 --- a/kernel/sched/Makefile
@@ -236,7 +234,7 @@ index 8ae86371dd..b688084bce 100644
 +obj-$(CONFIG_SCHED_BORE) += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..b4f65d3899
+index 0000000000..861861808b
 --- /dev/null
 +++ b/kernel/sched/bore.c
 @@ -0,0 +1,435 @@
@@ -255,7 +253,7 @@ index 0000000000..b4f65d3899
 +u8   __read_mostly sched_burst_smoothness       = 40;
 +u8   __read_mostly sched_burst_fork_atavistic   = 1;
 +u8   __read_mostly sched_burst_penalty_offset   = 24;
-+u8   __read_mostly sched_burst_futex_boost      = 12;
++u8   __read_mostly sched_burst_futex_boost      = 10;
 +uint __read_mostly sched_burst_penalty_scale    = 3180;
 +uint __read_mostly sched_burst_cache_stop_count = 64;
 +uint __read_mostly sched_burst_cache_lifetime   = 75000000;
@@ -312,7 +310,7 @@ index 0000000000..b4f65d3899
 +	int prio = p->static_prio - MAX_RT_PRIO;
 +	if (likely(sched_bore)) {
 +		prio += p->se.burst_score;
-+		if (p->se.is_waiting_for_lock)
++		if (p->se.waiting_for_futex)
 +			prio -= sched_burst_futex_boost;
 +	}
 +	return (u8)clamp(prio, 0, maxval_prio);
@@ -822,7 +820,7 @@ index 56ae54e0ce..4302a4d60a 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 138d9f4658..772911f2f3 100644
+index 138d9f4658..fa2cc1eb6d 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -58,6 +58,10 @@
@@ -906,7 +904,7 @@ index 138d9f4658..772911f2f3 100644
  
  	if (sched_feat(RUN_TO_PARITY) && curr && protect_slice(curr))
 +#ifdef CONFIG_SCHED_BORE
-+		if (unlikely(!sched_bore) || !curr->is_waiting_for_lock)
++		if (!curr->waiting_for_futex || unlikely(!sched_bore))
 +#endif // CONFIG_SCHED_BORE
  		return curr;
  
