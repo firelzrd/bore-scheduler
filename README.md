@@ -72,9 +72,10 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 1: BORE takes effect on non-kernel tasks.  
 0: BORE takes effect on non-kernel and kernel tasks.
 
-### sched_burst_futex_boost (range: 0-39, default: 10)
+### sched_burst_futex_boost (range: 0-1, default: 1)
 
-futex waiter tasks are prioritized by this amount at wake up.
+0: futex boost is disabled.  
+1: futex waiter tasks are prioritized (in deadline) at wakeup.
 
 ### sched_deadline_boost_mask (range: u32, default: ENQUEUE_INITIAL | ENQUEUE_WAKEUP)
 
