@@ -1,5 +1,11 @@
 # BORE (Burst-Oriented Response Enhancer) CPU Scheduler
 
+## URGENT UPDATE v6.4.0 (PERFORMANCE FIX)
+I have just fixed a critical performance bug which I've been receiving from some reporters about performance regression in the recent v6.x series.  
+Updating to v6.4.0 is strongly recommended.
+
+## Overview
+
 BORE (Burst-Oriented Response Enhancer) is an enhanced versions of the EEVDF (Earliest Eligible Virtual Deadline First) Linux schedulers.
 Developed with the aim of maintaining these schedulers' high performance while delivering resilient responsiveness to user input under as versatile load scenario as possible.
 
