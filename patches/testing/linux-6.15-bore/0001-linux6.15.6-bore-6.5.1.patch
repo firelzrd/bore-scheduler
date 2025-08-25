@@ -1,17 +1,17 @@
-From cea399046e6d16f357932cbf9949cbcbbb3b6cb3 Mon Sep 17 00:00:00 2001
+From c70221708ac3366cadc7d4af84623d11ebbd591d Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 26 Aug 2025 05:52:09 +0900
-Subject: [PATCH] linux6.15.6-bore-6.5.0
+Date: Tue, 26 Aug 2025 07:23:06 +0900
+Subject: [PATCH] linux6.15.6-bore-6.5.1
 
 ---
- include/linux/sched.h      |  28 +++
+ include/linux/sched.h      |  29 +++
  include/linux/sched/bore.h |  39 ++++
  init/Kconfig               |  17 ++
  kernel/Kconfig.hz          |  17 ++
  kernel/fork.c              |   8 +
  kernel/futex/waitwake.c    |  11 ++
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 392 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 391 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |  12 ++
  kernel/sched/debug.c       |  61 +++++-
  kernel/sched/fair.c        | 111 +++++++++--
@@ -22,17 +22,18 @@ Subject: [PATCH] linux6.15.6-bore-6.5.0
  create mode 100644 kernel/sched/bore.c
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index f96ac19828..f59c48863c 100644
+index f96ac19828..3d6bdb3e8e 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -810,6 +810,31 @@ struct kmap_ctrl {
+@@ -810,6 +810,32 @@ struct kmap_ctrl {
  #endif
  };
  
 +#ifdef CONFIG_SCHED_BORE
++#define BORE_BC_TIMESTAMP_SHIFT 16
++
 +struct bore_bc {
 +	u64				timestamp:	48;
-+	u64				count:		 6;
 +	u64				penalty:	16;
 +};
 +
@@ -57,7 +58,7 @@ index f96ac19828..f59c48863c 100644
  struct task_struct {
  #ifdef CONFIG_THREAD_INFO_IN_TASK
  	/*
-@@ -870,6 +895,9 @@ struct task_struct {
+@@ -870,6 +896,9 @@ struct task_struct {
  #ifdef CONFIG_SCHED_CLASS_EXT
  	struct sched_ext_entity		scx;
  #endif
@@ -69,7 +70,7 @@ index f96ac19828..f59c48863c 100644
  #ifdef CONFIG_SCHED_CORE
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..068b851021
+index 0000000000..7dd8c0f7b2
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,39 @@
@@ -85,7 +86,7 @@ index 0000000000..068b851021
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.5.0"
++#define SCHED_BORE_VERSION  "6.5.1"
 +
 +extern u8   __read_mostly sched_bore;
 +extern u8   __read_mostly sched_burst_inherit_type;
@@ -232,10 +233,10 @@ index 8ae86371dd..b688084bce 100644
 +obj-$(CONFIG_SCHED_BORE) += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..736423982b
+index 0000000000..e27e32ec27
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,391 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2025 Masahito Suzuki <firelzrd@gmail.com>
@@ -384,7 +385,7 @@ index 0000000000..736423982b
 +}
 +
 +static inline bool burst_cache_expired(struct bore_bc *bc, u64 now) {
-+	u64 timestamp = bc->timestamp << 16;
++	u64 timestamp = bc->timestamp << BORE_BC_TIMESTAMP_SHIFT;
 +	return now - timestamp > sched_burst_cache_lifetime;
 +}
 +
@@ -392,8 +393,7 @@ index 0000000000..736423982b
 +		struct task_struct *p, u32 count, u32 total, u64 now) {
 +	u32 average = count ? total / count : 0;
 +	bc->penalty = max(average, p->bore.penalty);
-+	bc->count = count;
-+	bc->timestamp = now >> 22;
++	bc->timestamp = now >> BORE_BC_TIMESTAMP_SHIFT;
 +}
 +
 +static u32 inherit_none(struct task_struct *parent,
