@@ -1,7 +1,7 @@
-From be8d97899e3d15b9ef107b8bde69a5443713397b Mon Sep 17 00:00:00 2001
+From 445962d3a31cee6166ea91206ecb5dd12d7ce985 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Tue, 26 Aug 2025 07:23:06 +0900
-Subject: [PATCH] linux6.17-rc1-bore-6.5.1
+Date: Wed, 27 Aug 2025 08:07:40 +0900
+Subject: [PATCH] linux6.17-rc1-bore-6.5.2
 
 ---
  include/linux/sched.h      |  29 +++
@@ -11,13 +11,13 @@ Subject: [PATCH] linux6.17-rc1-bore-6.5.1
  kernel/fork.c              |   8 +
  kernel/futex/waitwake.c    |  11 ++
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 391 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 393 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |  12 ++
  kernel/sched/debug.c       |  61 ++++++
  kernel/sched/fair.c        | 124 ++++++++++--
  kernel/sched/features.h    |   3 +
  kernel/sched/sched.h       |   9 +
- 13 files changed, 710 insertions(+), 12 deletions(-)
+ 13 files changed, 712 insertions(+), 12 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -70,7 +70,7 @@ index 2b27238267..d44910abf6 100644
  #ifdef CONFIG_SCHED_CORE
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..7dd8c0f7b2
+index 0000000000..5afb5fed4e
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,39 @@
@@ -86,7 +86,7 @@ index 0000000000..7dd8c0f7b2
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.5.1"
++#define SCHED_BORE_VERSION  "6.5.2"
 +
 +extern u8   __read_mostly sched_bore;
 +extern u8   __read_mostly sched_burst_inherit_type;
@@ -233,10 +233,10 @@ index 8ae86371dd..b688084bce 100644
 +obj-$(CONFIG_SCHED_BORE) += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..e27e32ec27
+index 0000000000..c9e76eda35
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,393 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2025 Masahito Suzuki <firelzrd@gmail.com>
@@ -296,6 +296,8 @@ index 0000000000..e27e32ec27
 +}
 +
 +static void reweight_task_by_prio(struct task_struct *p, int prio) {
++	if (task_has_idle_policy(p)) return;
++
 +	struct sched_entity *se = &p->se;
 +	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
 +
