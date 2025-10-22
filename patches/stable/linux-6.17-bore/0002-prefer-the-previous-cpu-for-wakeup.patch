@@ -1,0 +1,111 @@
+sched/fair: Prefer the previous cpu for wakeup, if an idle core
+
+From Andrea Righi
+  The "is_idle_core" function
+  Select target in select_idle_sibling(), if an idle core
+
+From Mario Roy
+  Prefer the previous cpu for wakeup, if an idle core
+
+Results
+  Before, after (with patch), and scx_cosmos results
+  Tested with an AMD Ryzen Threadripper 3970X CPU (32/64)
+  The times are in seconds, lower is faster
+
+  x265
+      time x265 -p slow -b 6 -o /dev/null --no-progress \
+      --log-level none --input /tmp/bosphorus_hd.y4m
+
+      before  patch   cosmos
+      ------  ------  ------
+       19.15   17.81   17.44
+       19.21   17.87   17.46
+       19.45   17.85   17.44
+       19.28   17.89   17.53
+       19.25   17.88   17.51
+
+  Algorithm3 50.00% CPU Saturation [1]
+      ./algorithm3.pl 1e12 --threads=50%
+
+      before  patch   cosmos
+      ------  ------  ------
+       20.01   15.81   15.83
+       19.94   15.90   15.94
+       20.43   15.97   15.86
+       20.80   16.12   15.97
+       20.41   15.99   15.96
+
+  Algorithm3 31.25% CPU Saturation [1]
+      ./algorithm3.pl 1e12 --threads=31.25%
+
+      before  patch   cosmos
+      ------  ------  ------
+       29.70   23.74   24.36
+       30.19   23.99   24.57
+       30.26   24.16   24.59
+       30.26   23.93   24.69
+       30.63   24.14   24.37
+
+  [1] https://github.com/marioroy/mce-sandbox
+
+Tested-by: Mario Roy <...>
+
+diff -uarp a/kernel/sched/fair.c b/kernel/sched/fair.c
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -7460,6 +7460,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+ DEFINE_STATIC_KEY_FALSE(sched_smt_present);
+ EXPORT_SYMBOL_GPL(sched_smt_present);
+ 
++/*
++ * Return true if all the CPUs in the SMT core where @cpu belongs are idle,
++ * false otherwise.
++ */
++static inline bool is_idle_core(int cpu)
++{
++	int sibling;
++
++	if (!sched_smt_active())
++		return (available_idle_cpu(cpu) || sched_idle_cpu(cpu));
++
++	for_each_cpu(sibling, cpu_smt_mask(cpu))
++		if (!available_idle_cpu(sibling) && !sched_idle_cpu(sibling))
++			return false;
++
++	return true;
++}
++
+ static inline void set_idle_cores(int cpu, int val)
+ {
+ 	struct sched_domain_shared *sds;
+@@ -7751,7 +7769,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+ 	 */
+ 	lockdep_assert_irqs_disabled();
+ 
+-	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
++	if (is_idle_core(target) &&
+ 	    asym_fits_cpu(task_util, util_min, util_max, target))
+ 		return target;
+ 
+@@ -8536,7 +8554,18 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
+ 		new_cpu = sched_balance_find_dst_cpu(sd, p, cpu, prev_cpu, sd_flag);
+ 	} else if (wake_flags & WF_TTWU) { /* XXX always ? */
+ 		/* Fast path */
+-		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
++		int recent_used_cpu = p->recent_used_cpu;
++
++		/*
++		 * If the previous CPU is an idle core, retain the same for
++		 * cache locality. Otherwise, search for an idle sibling.
++		 */
++		if (is_idle_core(prev_cpu))
++			new_cpu = prev_cpu;
++		else if (recent_used_cpu != prev_cpu && is_idle_core(recent_used_cpu))
++			new_cpu = recent_used_cpu;
++		else
++			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
+ 	}
+ 	rcu_read_unlock();
+ 
+-- 
+2.40.2
