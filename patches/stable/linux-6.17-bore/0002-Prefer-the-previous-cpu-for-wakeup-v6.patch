@@ -1,0 +1,374 @@
+From 85fa56fa4384522f23800ac2f3ffbdea5a71da6b Mon Sep 17 00:00:00 2001
+From: Masahito S <firelzrd@gmail.com>
+Date: Sun, 2 Nov 2025 09:43:48 +0900
+Subject: [PATCH] Prefer the previous cpu for wakeup v6
+
+---
+ kernel/sched/fair.c | 64 +++++++++++++++++++++++++++++----------------
+ 1 file changed, 42 insertions(+), 22 deletions(-)
+
+sched/fair: Wish list, please not forget limited CPU saturation
+
+EEVDF limited CPU saturation can be lack-luster with CPUs having
+many cores or CCDs. The provided patch improves limited saturation
+by 2%~21% with an AMD Threadripper 3970X CPU, depending on workload.
+
+I'm unqualified in the EEVDF internals. So, the patch was made by
+trial and error, plus much testing. It benefits CPU scheduling with
+the Threadripper machine.
+
+This is more an awareness for the folks in the CPU scheduler domain.
+
+From Andrea Righi
+  The "is_idle_core" function
+  Select target in select_idle_sibling(), if an idle core
+
+From Mario Roy
+  Prefer the previous cpu for wakeup, if an idle core
+  Move the recent_used_cpu heuristic to the top, and check
+  if an idle core
+
+Results
+  Tested with an AMD Ryzen Threadripper 3970X CPU (32/64)
+  EEVDF, EEVDF with patch, scx_cosmos, and BMQ schedulers
+
+  Pinned is affined to the primary CPUs, excluding siblings [6]
+    cgterm_cpus 0-31
+
+  Cosmos is the sched-ext scheduler
+    https://github.com/sched-ext/scx
+    sudo scx_cosmos -m all -s 1250 -l 50000 -c 0 -p 0 -d
+
+:-------------------------------------------------------------------
+: pogocache million ops/sec [7][8]
+:-------------------------------------------------------------------
+  FILE1=1.2.0.tar.gz; FILE2=pogocache-1.2.0.tar.gz
+  wget https://github.com/tidwall/pogocache/archive/refs/tags/$FILE1
+  mv $FILE1 $FILE2 && tar xf $FILE2 && cd pogocache-1.2.0
+  make -j4; cd ..
+
+  FILE1=2.2.0.tar.gz; FILE2=memtier_benchmark-2.2.0.tar.gz
+  wget https://github.com/RedisLabs/memtier_benchmark/archive/refs/tags/$FILE1
+  mv $FILE1 $FILE2 && tar xf $FILE2 && cd memtier_benchmark-2.2.0
+  autoreconf -ivf; ./configure; make -j4; cd ..
+
+  bash -c '
+    NUM_CPU_CORES=32
+
+    cd pogocache-1.2.0
+    ./pogocache -t $NUM_CPU_CORES &
+    POGOCACHE_PID=$!
+    sleep 3
+
+    cd ../memtier_benchmark-2.2.0
+    ./memtier_benchmark --hide-histogram -t $NUM_CPU_CORES \
+      -P memcache_text -c 1 -p 9401 --pipeline=16 --test-time=15 \
+      --ratio=1:1
+    sleep 1
+
+    kill $POGOCACHE_PID
+    sleep 1
+  '
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+    9.67   10.42   10.42    7.53    1.79
+    9.65   10.32   10.43    7.52    1.54
+    9.72   10.45   10.45    7.55    1.64
+    9.61   10.46   10.48    7.59    1.59
+    9.46   10.30   10.45    7.58    1.93
+  ------  ------  ------  ------  ------
+    9.62   10.39   10.45    7.55    1.70  average million ops/sec
+  ------  ------  ------  ------  ------
+  100.0%  108.0%  108.6%   78.5%   17.7%  higher is better
+
+:-------------------------------------------------------------------
+: x265
+:-------------------------------------------------------------------
+  FILE1=Bosphorus_1920x1080_120fps_420_8bit_YUV_Y4M.7z
+  FILE2=Bosphorus_1920x1080_120fps_420_8bit_YUV.y4m
+
+  wget --show-progress -Nq http://ultravideo.cs.tut.fi/video/$FILE1
+  7z e $FILE1 -o./
+
+  time x265 -p slow -b 6 -o /dev/null --no-progress \
+    --log-level none --input $FILE2
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   19.15   17.70   17.43   17.44   17.20
+   19.21   17.70   17.46   17.46   17.18
+   19.45   17.75   17.47   17.44   17.22
+   19.28   17.73   17.46   17.53   17.23
+   19.25   17.74   17.47   17.51   17.23
+  ------  ------  ------  ------  ------
+   96.34   88.62   87.29   87.38   86.06  total time
+  ------  ------  ------  ------  ------
+  100.0%   92.0%   90.6%   90.7%   89.3%  lower is better
+
+:-------------------------------------------------------------------
+: Encode 1920x1080 video with AOM [1]
+:-------------------------------------------------------------------
+  Same input file as above
+
+  time bash -c '
+    FILE=Bosphorus_1920x1080_120fps_420_8bit_YUV.y4m
+    rm -f test.av1
+    time aomenc --threads=16 --cpu-used=6 -o test.av1 $FILE
+  '
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   24.53   23.84   23.88   24.51   24.28
+   24.32   23.84   23.86   24.49   24.25
+   24.46   23.85   23.84   24.45   24.26
+   24.36   23.84   23.86   24.35   24.22
+   24.53   23.77   23.76   24.50   24.28
+  ------  ------  ------  ------  ------
+  122.20  119.14  119.20  122.30  121.29  total time
+  ------  ------  ------  ------  ------
+  100.0%   97.5%   97.5%  100.1%   99.3%  lower is better
+
+:-------------------------------------------------------------------
+: FFmpeg demux AV1 WebM to IVF that can be consumed by dav1d [1]
+:-------------------------------------------------------------------
+  FILE=Stream2_AV1_4K_22.7mbps.webm
+  wget http://www.phoronix-test-suite.com/benchmark-files/$FILE
+
+  time bash -c '
+    FILE1=Stream2_AV1_4K_22.7mbps.webm
+    FILE2=summer_nature_4k.ivf
+    rm -f $FILE2
+    ffmpeg -hide_banner -i $FILE1 -vcodec copy -an -f ivf $FILE2
+    dav1d -i $FILE2 --muxer null --threads 16 --filmgrain 0
+  '
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   13.51   13.21   13.16   13.43   13.27
+   13.47   13.13   13.13   13.46   13.25
+   13.55   13.19   13.07   13.43   13.20
+   13.39   13.25   13.10   13.22   13.13
+   13.37   13.13   13.16   13.24   13.22
+  ------  ------  ------  ------  ------
+   67.29   65.91   65.62   66.78   66.07  total time
+  ------  ------  ------  ------  ------
+  100.0%   97.9%   97.5%   99.2%   98.2%  lower is better
+
+:-------------------------------------------------------------------
+: Query one million rows with SQLite [2]
+:-------------------------------------------------------------------
+  cp -a sampledb /tmp/. && cd /tmp/sampledb
+  ./create.pl 1000000
+  ./query1.pl | tail
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+    9.63    8.68    8.65   10.50    9.92
+    9.82    8.75    8.68   10.07    9.89
+    9.89    8.61    8.64    9.80    9.51
+    9.62    8.61    8.63   10.42    9.77
+    9.63    8.72    8.60   10.59    9.52
+  ------  ------  ------  ------  ------
+   48.59   43.37   43.20   51.38   48.61  total time
+  ------  ------  ------  ------  ------
+  100.0%   89.3%   88.9%  105.7%  100.0%  lower is better
+
+:-------------------------------------------------------------------
+: Chameneos-redux [3]
+:-------------------------------------------------------------------
+  python3 pipe2.py 600000
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+    7.00    6.26    6.23    7.07    7.27
+    6.85    6.19    6.25    6.92    6.39
+    6.83    6.19    6.24    7.15    6.25
+    7.00    6.20    6.19    7.30    7.46
+    6.89    6.25    6.23    7.18    6.11
+  ------  ------  ------  ------  ------
+   34.57   31.09   31.14   35.62   33.48  total time
+  ------  ------  ------  ------  ------
+  100.0%   89.9%   90.1%  103.0%   96.8%  lower is better
+
+:-------------------------------------------------------------------
+: Algorithm3 50% CPU Saturation [4]
+:-------------------------------------------------------------------
+  ./algorithm3.pl 1e12 --threads=50%
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   20.01   15.81   15.82   15.83   17.25
+   19.94   15.90   15.79   15.94   17.30
+   20.43   15.97   15.84   15.86   17.27
+   20.80   16.12   15.81   15.97   17.42
+   20.41   15.99   15.81   15.96   17.53
+  ------  ------  ------  ------  ------
+  101.59   79.79   79.07   79.56   86.77  total time
+  ------  ------  ------  ------  ------
+  100.0%   78.5%   77.8%   78.3%   85.4%  lower is better
+
+:-------------------------------------------------------------------
+: Algorithm3 31.25% CPU Saturation [4]
+:-------------------------------------------------------------------
+  ./algorithm3.pl 1e12 --threads=31.25%
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   29.70   23.74   23.79   24.36   24.08
+   30.19   23.99   23.80   24.57   23.87
+   30.26   24.16   23.88   24.59   24.33
+   30.26   23.93   23.95   24.69   24.33
+   30.63   24.14   23.92   24.37   24.20
+  ------  ------  ------  ------  ------
+  151.04  119.96  119.34  122.58  120.81  total time
+  ------  ------  ------  ------  ------
+  100.0%   79.4%   79.0%   81.2%   80.0%  lower is better
+
+:-------------------------------------------------------------------
+: Primesieve 31.25% CPU Saturation [5]
+:-------------------------------------------------------------------
+  primesieve 2e12 --threads=20
+
+  eevdf   patch   pinned  cosmos   bmq
+  ------  ------  ------  ------  ------
+   18.57   18.30   18.51   18.97   18.41
+   18.57   18.37   18.45   18.60   18.43
+   18.51   18.34   18.35   18.81   18.55
+   18.35   18.41   18.36   18.81   18.42
+   18.33   18.37   18.40   19.05   18.37
+  ------  ------  ------  ------  ------
+   92.33   91.79   92.07   94.24   92.18  total time
+  ------  ------  ------  ------  ------
+  100.0%   99.4%   99.7%  102.1%   99.8%  lower is better
+
+[1] https://openbenchmarking.org/suite/pts/encoding
+[2] https://github.com/marioroy/mce-examples/tree/main/sampledb
+[3] https://github.com/marioroy/mce-examples/tree/main/chameneos
+[4] https://github.com/marioroy/mce-sandbox
+[5] https://github.com/kimwalisch/primesieve
+[6] https://github.com/marioroy/linux-cgroup-always
+[7] https://openbenchmarking.org/test/pts/pogocache
+[8] https://openbenchmarking.org/innhold/969a89ed33ff0f43dd5dbfdaa956a028c9d9e5d0
+
+Signed-off-by: Mario Roy <>
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 8ce56a8d50..81cf8902cc 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -1064,7 +1064,7 @@ static bool update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 
+ #include "pelt.h"
+ 
+-static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu);
++static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu, int sync);
+ static unsigned long task_h_load(struct task_struct *p);
+ static unsigned long capacity_of(int cpu);
+ 
+@@ -7457,6 +7457,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+ DEFINE_STATIC_KEY_FALSE(sched_smt_present);
+ EXPORT_SYMBOL_GPL(sched_smt_present);
+ 
++/*
++ * Return true if all the CPUs in the SMT core where @cpu belongs are idle,
++ * false otherwise.
++ */
++static bool is_idle_core(int cpu)
++{
++	int sibling;
++
++	if (!sched_smt_active())
++		return (available_idle_cpu(cpu) || sched_idle_cpu(cpu));
++
++	for_each_cpu(sibling, cpu_smt_mask(cpu))
++		if (!available_idle_cpu(sibling) && !sched_idle_cpu(sibling))
++			return false;
++
++	return true;
++}
++
+ static inline void set_idle_cores(int cpu, int val)
+ {
+ 	struct sched_domain_shared *sds;
+@@ -7725,13 +7743,26 @@ static inline bool asym_fits_cpu(unsigned long util,
+ /*
+  * Try and locate an idle core/thread in the LLC cache domain.
+  */
+-static int select_idle_sibling(struct task_struct *p, int prev, int target)
++static int select_idle_sibling(struct task_struct *p, int prev, int target, int sync)
+ {
+ 	bool has_idle_core = false;
+ 	struct sched_domain *sd;
+ 	unsigned long task_util, util_min, util_max;
+ 	int i, recent_used_cpu, prev_aff = -1;
+ 
++	/* Check a recently used CPU as a potential idle candidate: */
++	recent_used_cpu = p->recent_used_cpu;
++	p->recent_used_cpu = prev;
++	if (recent_used_cpu != prev &&
++	    recent_used_cpu != target &&
++	    cpus_share_cache(recent_used_cpu, target) &&
++	    is_idle_core(recent_used_cpu) &&
++	    cpumask_test_cpu(recent_used_cpu, p->cpus_ptr)) {
++		return recent_used_cpu;
++	} else {
++		recent_used_cpu = -1;
++	}
++
+ 	/*
+ 	 * On asymmetric system, update task utilization because we will check
+ 	 * that the task fits with CPU's capacity.
+@@ -7748,7 +7779,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+ 	 */
+ 	lockdep_assert_irqs_disabled();
+ 
+-	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
++	if (sync && is_idle_core(target) &&
+ 	    asym_fits_cpu(task_util, util_min, util_max, target))
+ 		return target;
+ 
+@@ -7782,24 +7813,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+ 		return prev;
+ 	}
+ 
+-	/* Check a recently used CPU as a potential idle candidate: */
+-	recent_used_cpu = p->recent_used_cpu;
+-	p->recent_used_cpu = prev;
+-	if (recent_used_cpu != prev &&
+-	    recent_used_cpu != target &&
+-	    cpus_share_cache(recent_used_cpu, target) &&
+-	    (available_idle_cpu(recent_used_cpu) || sched_idle_cpu(recent_used_cpu)) &&
+-	    cpumask_test_cpu(recent_used_cpu, p->cpus_ptr) &&
+-	    asym_fits_cpu(task_util, util_min, util_max, recent_used_cpu)) {
+-
+-		if (!static_branch_unlikely(&sched_cluster_active) ||
+-		    cpus_share_resources(recent_used_cpu, target))
+-			return recent_used_cpu;
+-
+-	} else {
+-		recent_used_cpu = -1;
+-	}
+-
+ 	/*
+ 	 * For asymmetric CPU capacity systems, our domain of interest is
+ 	 * sd_asym_cpucapacity rather than sd_llc.
+@@ -8533,7 +8546,14 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
+ 		new_cpu = sched_balance_find_dst_cpu(sd, p, cpu, prev_cpu, sd_flag);
+ 	} else if (wake_flags & WF_TTWU) { /* XXX always ? */
+ 		/* Fast path */
+-		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
++		/*
++		 * If the previous CPU is an idle core, retain the same for
++		 * cache locality. Otherwise, search for an idle sibling.
++		 */
++		if (is_idle_core(prev_cpu))
++			new_cpu = prev_cpu;
++		else
++			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu, sync);
+ 	}
+ 	rcu_read_unlock();
+ 
+-- 
+2.34.1
+
