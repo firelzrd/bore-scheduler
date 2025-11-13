@@ -1,9 +1,5 @@
 # BORE (Burst-Oriented Response Enhancer) CPU Scheduler
 
-## URGENT UPDATE v6.4.0 (PERFORMANCE FIX)
-I have just fixed a critical performance bug which I've been receiving from some reporters about performance regression in the recent v6.x series.  
-Updating to v6.4.0 and above is strongly recommended.
-
 ## Overview
 
 BORE (Burst-Oriented Response Enhancer) is an enhanced versions of the EEVDF (Earliest Eligible Virtual Deadline First) Linux schedulers.
@@ -49,12 +45,13 @@ https://youtu.be/kKumW_qH4a0
 How many nanoseconds to hold as cache the on-fork calculated average burst time of each task's child tasks.  
 Increasing this value results in less frequent re-calculation of average burst time, in barter of more coarse-grain (=low time resolution) on-fork burst time adjustments.
 
-### sched_burst_fork_atavistic (range: 0 - 3, default: 2)
+### sched_burst_inherit_type (range: 0 - 2, default: 2)
 
 0: Disables the inheritance of the average child burst time from ancestor processes.  
-1-3: Enables the inheritance of the average child burst time from ancestor processes using a topological hub/stub style hierarchy tree, rather than the traditional parent-to-child style.  
-When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance. Any number equal to or greater than 1 also represents the number of hub nodes (with a child process count of 2 or more) that update_child_burst_cache will recursively dig down for each direct child when traversing the process tree to calculate the average of descendant processes' max_burst_time.  
-Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.  
+1: Enables the inheritance from parent processes.  
+2: Enables the inheritance of the average child burst time from ancestor processes using a topological hub/stub style hierarchy tree, rather than the traditional parent-to-child style.  
+When this feature is enabled, nodes with only one child process are ignored when finding and calculating ancestor/descendant processes for inheritance.  
+Enabling this feature may improve system responsiveness in situations with massive process-forking, such as kernel builds.
 
 ### sched_burst_penalty_offset (range: 0 - 63, default: 24)
 
@@ -62,30 +59,16 @@ How many bits to reduce from burst time bit count when calculating burst score.
 Increasing this value prevents tasks of shorter burst time from being too strong.  
 Increasing this value also lengthens the effective burst time range.
 
-### sched_burst_penalty_scale (range: 0 - 4095, default: 1280)
+### sched_burst_penalty_scale (range: 0 - 4095, default: 1536)
 
 How strongly tasks are discriminated accordingly to their burst time ratio, scaled in 1/1024 of its precursor value.  
 Increasing this value makes burst score rapidly grow as the burst time grows. That means tasks that run longer without sleeping/yielding/iowaiting rapidly lose their power against those that run shorter.  
 Decreasing vice versa.
 
-### sched_burst_smoothness (range: 1 - 255, default: 20)
+### sched_burst_smoothness (range: 0 - 3, default: 1)
 
 A task's actual burst score is the larger one of its latest calculated score or its "historical" score which inherits past score(s). This is done to smoothen the user experience under "burst spike" situations.  
 Every time burst score is updated (when the task is dequeued/yielded), its historical score is also updated by mixing burst_time into the previous history in an exponential moving average style. burst_smoothness=1 means no smoothening.
-
-### sched_burst_exclude_kthreads (range: 0 - 1, default: 1)
-
-1: BORE takes effect on non-kernel tasks.  
-0: BORE takes effect on non-kernel and kernel tasks.
-
-### sched_burst_futex_boost (range: 0-1, default: 1)
-
-0: futex boost is disabled.  
-1: futex waiter tasks are prioritized (in deadline) at wakeup.
-
-### sched_deadline_boost_mask (range: u32, default: ENQUEUE_INITIAL | ENQUEUE_WAKEUP)
-
-When a task is being enqueued with one of these flags, deadline is halved.
 
 ## Special thanks
 
@@ -96,6 +79,7 @@ When a task is being enqueued with one of these flags, deadline is halved.
 * dim-geo, for assisting me with optimization hints.
 * Array, for helping me investigate a serious lockup bug and providing me useful test reports.
 * Mario Roy, for providing me good insights by various detailed test reports, hosting a BORE-powered, clearlinux-based optimized kernel, and also helping me integrating some early upstream patches for improvement, by curating them for me. He also helped me fix a bug that was causing massive slow-downs in combination with CGROUP v1.
+* Andrea Righi (the developer of sched-ext and the several amazing schedulers using the framework), for inspiring me about the futex boost feature, and for working together with Mario Roy in their significant contributions to the patch for cache-efficient scheduling decisions improvement, reflected in the changes from v6.5.9 to v6.5.10.
 * And many whom I haven't added here yet.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
