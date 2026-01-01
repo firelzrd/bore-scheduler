@@ -1,12 +1,5 @@
-From 85fa56fa4384522f23800ac2f3ffbdea5a71da6b Mon Sep 17 00:00:00 2001
-From: Masahito S <firelzrd@gmail.com>
-Date: Sun, 2 Nov 2025 09:43:48 +0900
-Subject: [PATCH] Prefer the previous cpu for wakeup v6
 
----
- kernel/sched/fair.c | 64 +++++++++++++++++++++++++++++----------------
- 1 file changed, 42 insertions(+), 22 deletions(-)
-
+Prefer the previous cpu for wakeup v7
 sched/fair: Wish list, please not forget limited CPU saturation
 
 EEVDF limited CPU saturation can be lack-luster with CPUs having
@@ -252,9 +245,11 @@ Results
 [8] https://openbenchmarking.org/innhold/969a89ed33ff0f43dd5dbfdaa956a028c9d9e5d0
 
 Signed-off-by: Mario Roy <>
+---
+ kernel/sched/fair.c | 64 +++++++++++++++++++++++++++++----------------
+ 1 file changed, 42 insertions(+), 22 deletions(-)
 
-diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 8ce56a8d50..81cf8902cc 100644
+diff -uarp a/kernel/sched/fair.c b/kernel/sched/fair.c
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -1064,7 +1064,7 @@ static bool update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -266,7 +261,7 @@ index 8ce56a8d50..81cf8902cc 100644
  static unsigned long task_h_load(struct task_struct *p);
  static unsigned long capacity_of(int cpu);
  
-@@ -7457,6 +7457,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+@@ -7510,6 +7510,24 @@ static inline int __select_idle_cpu(int cpu, struct task_struct *p)
  DEFINE_STATIC_KEY_FALSE(sched_smt_present);
  EXPORT_SYMBOL_GPL(sched_smt_present);
  
@@ -291,7 +286,7 @@ index 8ce56a8d50..81cf8902cc 100644
  static inline void set_idle_cores(int cpu, int val)
  {
  	struct sched_domain_shared *sds;
-@@ -7725,13 +7743,26 @@ static inline bool asym_fits_cpu(unsigned long util,
+@@ -7778,13 +7796,26 @@ static inline bool asym_fits_cpu(unsigned long util,
  /*
   * Try and locate an idle core/thread in the LLC cache domain.
   */
@@ -319,7 +314,7 @@ index 8ce56a8d50..81cf8902cc 100644
  	/*
  	 * On asymmetric system, update task utilization because we will check
  	 * that the task fits with CPU's capacity.
-@@ -7748,7 +7779,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7801,7 +7832,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  	 */
  	lockdep_assert_irqs_disabled();
  
@@ -328,7 +323,7 @@ index 8ce56a8d50..81cf8902cc 100644
  	    asym_fits_cpu(task_util, util_min, util_max, target))
  		return target;
  
-@@ -7782,24 +7813,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
+@@ -7835,24 +7866,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
  		return prev;
  	}
  
@@ -353,7 +348,7 @@ index 8ce56a8d50..81cf8902cc 100644
  	/*
  	 * For asymmetric CPU capacity systems, our domain of interest is
  	 * sd_asym_cpucapacity rather than sd_llc.
-@@ -8533,7 +8546,14 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
+@@ -8586,7 +8599,14 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
  		new_cpu = sched_balance_find_dst_cpu(sd, p, cpu, prev_cpu, sd_flag);
  	} else if (wake_flags & WF_TTWU) { /* XXX always ? */
  		/* Fast path */
@@ -369,6 +364,195 @@ index 8ce56a8d50..81cf8902cc 100644
  	}
  	rcu_read_unlock();
  
+@@ -10196,7 +10216,7 @@ static bool sched_use_asym_prio(struct s
+ 	if (!sched_smt_active())
+ 		return true;
+ 
+-	return sd->flags & SD_SHARE_CPUCAPACITY || is_core_idle(cpu);
++	return sd->flags & SD_SHARE_CPUCAPACITY || is_idle_core(cpu);
+ }
+ 
+ static inline bool sched_asym(struct sched_domain *sd, int dst_cpu, int src_cpu)
 -- 
-2.34.1
+2.50.1
+
+
+[PATCH v6 0/2] sched: update the rq->avg_idle when a task is moved to an idle CPU
+https://lore.kernel.org/all/20251209094508.570049-1-shijie@os.amperecomputing.com/
+
+From: Huang Shijie <shijie@xxxxxxxxxx>
+
+In the newidle balance, the rq->idle_stamp may set to a non-zero value
+if it cannot pull any task.
+
+In the wakeup, it will detect the rq->idle_stamp, and updates
+the rq->avg_idle, then ends the CPU idle status by setting rq->idle_stamp
+to zero.
+
+Besides the wakeup, current code does not end the CPU idle status
+when a task is moved to the idle CPU, such as fork/clone, execve,
+or other cases.
+
+This patch set tries to resolve it.
+
+
+Subject: [PATCH v6 1/2] sched/fair: set rq->idle_stamp at the end of the
+ sched_balance_newidle
+
+In current newidle balance, the rq->idle_stamp may set to a non-zero value
+if it cannot pull any task.
+
+In the wakeup, it will detect the rq->idle_stamp, and updates
+the rq->avg_idle, then ends the CPU idle status by setting rq->idle_stamp
+to zero.
+
+Besides the wakeup, current code does not end the CPU idle status
+when a task is moved to the idle CPU, such as fork/clone, execve,
+or other cases.
+
+In order to fix this issue, we want to add a hook(update_rq_avg_idle())
+in the enqueue_task(). With this hook, if a task is moved to the idle CPU,
+it will update the rq->avg_idle. Unfortunately, this hook is also called
+in the newidle balance:
+   sched_balance_newidle() --> sched_balance_rq() --> ... --> enqueue_task()
+
+If we still set rq->idle_stamp at the beginning of sched_balance_newidle(),
+the rq->avg_idle will not be updated correctly.
+
+In order to make it work correctly, save the idle_stamp at the beginning
+of sched_balance_newidle(). If newidle balance cannot pull any task,
+set the saved value for rq->idle_stamp. With this method,
+the newidle balance still work correctly, and the hook in enqueue_task()
+also works correctly.
+
+Signed-off-by: Huang Shijie <shijie@xxxxxxxxxx>
+---
+ kernel/sched/fair.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 1855975b8248..c3b4895f8e50 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -12782,6 +12782,7 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 	u64 t0, t1, curr_cost = 0;
+ 	struct sched_domain *sd;
+ 	int pulled_task = 0;
++	u64 idle_stamp;
+ 
+ 	update_misfit_status(NULL, this_rq);
+ 
+@@ -12797,7 +12798,7 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 	 * for CPU_NEWLY_IDLE, such that we measure the this duration
+ 	 * as idle time.
+ 	 */
+-	this_rq->idle_stamp = rq_clock(this_rq);
++	idle_stamp = rq_clock(this_rq);
+ 
+ 	/*
+ 	 * Do not pull tasks towards !active CPUs...
+@@ -12891,10 +12892,13 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 	if (time_after(this_rq->next_balance, next_balance))
+ 		this_rq->next_balance = next_balance;
+ 
+-	if (pulled_task)
++	if (pulled_task) {
+ 		this_rq->idle_stamp = 0;
+-	else
++	} else {
++		/* Set it here on purpose. */
++		this_rq->idle_stamp = idle_stamp;
+ 		nohz_newidle_balance(this_rq);
++	}
+ 
+ 	rq_repin_lock(this_rq, rf);
+ 
+-- 
+2.40.1
+
+Subject: [PATCH v6 2/2] sched: update the rq->avg_idle when a task is moved
+ to an idle CPU
+
+In the newidle balance, the rq->idle_stamp may set to a non-zero value
+if it cannot pull any task.
+
+In the wakeup, it will detect the rq->idle_stamp, and updates
+the rq->avg_idle, then ends the CPU idle status by setting rq->idle_stamp
+to zero.
+
+Besides the wakeup, current code does not end the CPU idle status
+when a task is moved to the idle CPU, such as fork/clone, execve,
+or other cases. In order to get more accurate rq->avg_idle,
+we need to update it at more places(not only the wakeup).
+
+This patch introduces a helper: update_rq_avg_idle().
+And uses it in enqueue_task(), so it will update the rq->avg_idle
+when a task is moved to an idle CPU at:
+   -- wakeup
+   -- fork/clone
+   -- execve
+   -- idle balance
+   -- other cases
+
+Signed-off-by: Huang Shijie <shijie@xxxxxxxxxx>
+---
+ kernel/sched/core.c | 29 +++++++++++++++++------------
+ 1 file changed, 17 insertions(+), 12 deletions(-)
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 9f10cfbdc228..2e3c4043de51 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -2072,6 +2072,21 @@ unsigned long get_wchan(struct task_struct *p)
+ 	return ip;
+ }
+ 
++static void update_rq_avg_idle(struct rq *rq)
++{
++	if (rq->idle_stamp) {
++		u64 delta = rq_clock(rq) - rq->idle_stamp;
++		u64 max = 2*rq->max_idle_balance_cost;
++
++		update_avg(&rq->avg_idle, delta);
++
++		if (rq->avg_idle > max)
++			rq->avg_idle = max;
++
++		rq->idle_stamp = 0;
++	}
++}
++
+ void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+ {
+ 	if (!(flags & ENQUEUE_NOCLOCK))
+@@ -2093,6 +2108,8 @@ void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+ 
+ 	if (sched_core_enabled(rq))
+ 		sched_core_enqueue(rq, p);
++
++	update_rq_avg_idle(rq);
+ }
+ 
+ /*
+@@ -3712,18 +3729,6 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
+ 		p->sched_class->task_woken(rq, p);
+ 		rq_repin_lock(rq, rf);
+ 	}
+-
+-	if (rq->idle_stamp) {
+-		u64 delta = rq_clock(rq) - rq->idle_stamp;
+-		u64 max = 2*rq->max_idle_balance_cost;
+-
+-		update_avg(&rq->avg_idle, delta);
+-
+-		if (rq->avg_idle > max)
+-			rq->avg_idle = max;
+-
+-		rq->idle_stamp = 0;
+-	}
+ }
+ 
+ /*
+-- 
+2.40.1
 
