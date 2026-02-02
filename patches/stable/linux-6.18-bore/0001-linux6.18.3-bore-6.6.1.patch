@@ -1,7 +1,7 @@
-From 681153d2a014d402f60fbf9e9b0ed25d9e9c7d80 Mon Sep 17 00:00:00 2001
+From b1a4f257e451d6e5df1e0a0bad11ac1d68ca5c31 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Wed, 28 Jan 2026 07:24:59 +0900
-Subject: [PATCH] linux6.18.3-bore-6.6.0
+Date: Mon, 2 Feb 2026 10:10:52 +0900
+Subject: [PATCH] linux6.18.3-bore-6.6.1
 
 ---
  include/linux/sched.h      |  34 +++
@@ -76,7 +76,7 @@ index b469878de2..ca23845c4b 100644
  #ifdef CONFIG_SCHED_CORE
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..976dd80a52
+index 0000000000..85d14089c5
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,39 @@
@@ -92,7 +92,7 @@ index 0000000000..976dd80a52
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.6.0"
++#define SCHED_BORE_VERSION  "6.6.1"
 +
 +extern u8   __read_mostly sched_bore;
 +extern u8   __read_mostly sched_burst_inherit_type;
@@ -826,7 +826,7 @@ index 02e16b70a7..751df396d9 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 967ca52fb2..ba104577c5 100644
+index 967ca52fb2..764e4e8329 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -58,6 +58,10 @@
@@ -1093,11 +1093,11 @@ index 967ca52fb2..ba104577c5 100644
  
  	util_est_update(&rq->cfs, p, flags & DEQUEUE_SLEEP);
 +#ifdef CONFIG_SCHED_BORE
-+	struct cfs_rq *cfs_rq = &rq->cfs;
++	struct cfs_rq *cfs_rq = cfs_rq_of(&p->se);
 +	struct sched_entity *se = &p->se;
 +	if ((flags & DEQUEUE_SLEEP) && entity_is_task(se)) {
 +		if (cfs_rq->curr == se)
-+			update_curr(cfs_rq_of(&p->se));
++			update_curr(cfs_rq);
 +		restart_burst_bore(p);
 +	}
 +#endif /* CONFIG_SCHED_BORE */
