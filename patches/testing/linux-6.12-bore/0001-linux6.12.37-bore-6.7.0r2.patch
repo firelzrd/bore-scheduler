@@ -1,4 +1,4 @@
-From fad159b6432fcad41ce40a9334f56b6917f4a9bb Mon Sep 17 00:00:00 2001
+From d639e72412f4cb63a9e84be55cb79df963e994b3 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Sat, 21 Feb 2026 12:24:11 +0900
 Subject: [PATCH] linux6.12.37-bore-6.7.0
@@ -15,10 +15,10 @@ Subject: [PATCH] linux6.12.37-bore-6.7.0
  kernel/sched/bore.c        | 465 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |  12 +
  kernel/sched/debug.c       |  65 +++++-
- kernel/sched/fair.c        | 118 +++++++++-
+ kernel/sched/fair.c        | 117 +++++++++-
  kernel/sched/features.h    |   7 +
  kernel/sched/sched.h       |   9 +
- 14 files changed, 795 insertions(+), 14 deletions(-)
+ 14 files changed, 794 insertions(+), 14 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -890,7 +890,7 @@ index 9815f9a0cd..bd030a21a6 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 7280ed04c9..0e7c893007 100644
+index 7280ed04c9..71f47a5bf2 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -55,6 +55,10 @@
@@ -1148,7 +1148,7 @@ index 7280ed04c9..0e7c893007 100644
  	if (dequeue_entities(rq, &p->se, flags) < 0)
  		return false;
  
-@@ -8952,6 +9026,16 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int
+@@ -8952,6 +9026,15 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int
  	if (do_preempt_short(cfs_rq, pse, se))
  		cancel_protect_slice(se);
  
@@ -1157,7 +1157,6 @@ index 7280ed04c9..0e7c893007 100644
 +			sched_feat(PREEMPT_SHORT_BORE) &&
 +			entity_is_task(pse) && entity_is_task(se) &&
 +			task_of(pse)->bore.penalty < task_of(se)->bore.penalty) {
-+		do_preempt_short = true;
 +		goto preempt;
 +	}
 +#endif /* CONFIG_SCHED_BORE */
@@ -1165,7 +1164,7 @@ index 7280ed04c9..0e7c893007 100644
  	/*
  	 * If @p has become the most eligible task, force preemption.
  	 */
-@@ -9131,16 +9215,25 @@ static void yield_task_fair(struct rq *rq)
+@@ -9131,16 +9214,25 @@ static void yield_task_fair(struct rq *rq)
  	/*
  	 * Are we the only task in the tree?
  	 */
@@ -1191,7 +1190,7 @@ index 7280ed04c9..0e7c893007 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -13319,6 +13412,9 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
+@@ -13319,6 +13411,9 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
  	SCHED_WARN_ON(p->se.sched_delayed);
  
  	attach_task_cfs_rq(p);
