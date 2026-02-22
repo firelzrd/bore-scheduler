@@ -1,7 +1,7 @@
-From d639e72412f4cb63a9e84be55cb79df963e994b3 Mon Sep 17 00:00:00 2001
+From eaca99dcbf160396fe8572adfce9aae831cf8db0 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
-Date: Sat, 21 Feb 2026 12:24:11 +0900
-Subject: [PATCH] linux6.12.37-bore-6.7.0
+Date: Sun, 22 Feb 2026 14:16:05 +0900
+Subject: [PATCH] linux6.12.37-bore-6.7.1
 
 ---
  include/linux/sched.h      |  28 +++
@@ -12,13 +12,13 @@ Subject: [PATCH] linux6.12.37-bore-6.7.0
  kernel/fork.c              |  11 +-
  kernel/futex/waitwake.c    |  11 +
  kernel/sched/Makefile      |   1 +
- kernel/sched/bore.c        | 465 +++++++++++++++++++++++++++++++++++++
+ kernel/sched/bore.c        | 470 +++++++++++++++++++++++++++++++++++++
  kernel/sched/core.c        |  12 +
- kernel/sched/debug.c       |  65 +++++-
- kernel/sched/fair.c        | 117 +++++++++-
+ kernel/sched/debug.c       |  65 ++++-
+ kernel/sched/fair.c        | 117 ++++++++-
  kernel/sched/features.h    |   7 +
  kernel/sched/sched.h       |   9 +
- 14 files changed, 794 insertions(+), 14 deletions(-)
+ 14 files changed, 799 insertions(+), 14 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
 
@@ -70,7 +70,7 @@ index 0d1d70aded..f36a465ca7 100644
  #ifdef CONFIG_SCHED_CORE
 diff --git a/include/linux/sched/bore.h b/include/linux/sched/bore.h
 new file mode 100644
-index 0000000000..a0df0e2440
+index 0000000000..f603f7c4b3
 --- /dev/null
 +++ b/include/linux/sched/bore.h
 @@ -0,0 +1,46 @@
@@ -87,7 +87,7 @@ index 0000000000..a0df0e2440
 +#define SCHED_BORE_AUTHOR   "Masahito Suzuki"
 +#define SCHED_BORE_PROGNAME "BORE CPU Scheduler modification"
 +
-+#define SCHED_BORE_VERSION  "6.7.0"
++#define SCHED_BORE_VERSION  "6.7.1"
 +
 +extern u8   __read_mostly sched_bore;
 +DECLARE_STATIC_KEY_TRUE(sched_bore_key);
@@ -263,10 +263,10 @@ index 976092b7bd..83cbd093b8 100644
 +obj-$(CONFIG_SCHED_BORE) += bore.o
 diff --git a/kernel/sched/bore.c b/kernel/sched/bore.c
 new file mode 100644
-index 0000000000..426a4bf288
+index 0000000000..4d4afe7248
 --- /dev/null
 +++ b/kernel/sched/bore.c
-@@ -0,0 +1,465 @@
+@@ -0,0 +1,470 @@
 +/*
 + *  Burst-Oriented Response Enhancer (BORE) CPU Scheduler
 + *  Copyright (C) 2021-2025 Masahito Suzuki <firelzrd@gmail.com>
@@ -342,9 +342,13 @@ index 0000000000..426a4bf288
 +	se->load.inv_weight = sched_prio_to_wmult[prio];
 +}
 +
++static inline u32 adj_score(u16 penalty) {
++	s32 diff = (s32)(u32)penalty - (s32)scaled_tolerance;
++	return (u32)(diff & ~(diff >> 31));
++}
++
 +static inline u32 scaled_penalty_score(u16 greed) {
-+	s32 raw_diff = (s32)(u32)greed - (s32)scaled_tolerance;
-+	u32 penalty = raw_diff & ~(raw_diff >> 31);
++	u32 penalty = adj_score(greed);
 +	s32 overflow = (s32)penalty - (s32)MAX_BURST_PENALTY;
 +	penalty -= (overflow & ~(overflow >> 31));
 +	return penalty >> 8;
@@ -440,7 +444,8 @@ index 0000000000..426a4bf288
 +		(u32)(((u64)total * bore_reciprocal_lut[count]) >> 32);
 +
 +	struct bore_bc new_bc = {
-+		.penalty = max(average, p->bore.penalty),
++		.penalty = min(max(average, adj_score(p->bore.penalty))
++			+ scaled_tolerance, (u32)MAX_BURST_PENALTY + scaled_tolerance),
 +		.timestamp = now >> BORE_BC_TIMESTAMP_SHIFT
 +	};
 +	WRITE_ONCE(bc->value, new_bc.value);
@@ -464,7 +469,7 @@ index 0000000000..426a4bf288
 +
 +			if (!task_is_bore_eligible(child)) continue;
 +			count++;
-+			total += child->bore.penalty;
++			total += adj_score(child->bore.penalty);
 +		}
 +
 +		update_burst_cache(bc, parent, count, total, now);
@@ -506,7 +511,7 @@ index 0000000000..426a4bf288
 +
 +			if (!task_is_bore_eligible(descendant)) continue;
 +			count++;
-+			total += descendant->bore.penalty;
++			total += adj_score(descendant->bore.penalty);
 +		}
 +
 +		update_burst_cache(bc, ancestor, count, total, now);
@@ -530,7 +535,7 @@ index 0000000000..426a4bf288
 +
 +			if (!task_is_bore_eligible(sibling)) continue;
 +			count++;
-+			total += sibling->bore.penalty;
++			total += adj_score(sibling->bore.penalty);
 +		}
 +
 +		update_burst_cache(bc, leader, count, total, now);
