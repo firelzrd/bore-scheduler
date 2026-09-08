@@ -1,69 +1,8 @@
-From 35d33e9c8ab73853c5f48fb1909347cda5f672e0 Mon Sep 17 00:00:00 2001
+From 7017196724d6c1326c5ac2187944b81a9c1c13fa Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Mon, 7 Sep 2026 05:59:44 +0900
 Subject: [PATCH] linux7.3-rc1-bore-6.8.0
 
-Port BORE v6.8.0 to linux-7.3-rc1.
-
-Applied as the net feature diff of 7.2-bore over linux-7.2-rc1 with
-`git apply -3`.  Everything landed cleanly except include/linux/sched.h
-and kernel/sched/fair.c.  Note this tree carries a squashed, one-commit-
-per-release upstream history, so individual upstream commit hashes are
-not recoverable here; the 7.2->7.3 changes below were identified by
-diffing 72c918dddc (linux-7.2-rc1) against 45447f51b2 (linux-7.3-rc1).
-
-include/linux/sched.h
-  Pure adjacency collision: 7.3 inserts `struct task_ipi_mask` at the
-  exact spot after `struct kmap_ctrl` where BORE inserts `struct bore_bc`
-  / `struct bore_ctx`.  Both kept.
-
-kernel/sched/fair.c -- 7.3 flattens the EEVDF hierarchy.  `sched_entity`
-gains `h_load` (the hierarchical weight the EEVDF math runs on), `cfs_rq`
-gains `h_curr`, `cfs_rq->curr` now tracks the running *task* entity on
-the root cfs_rq only, and `find_matching_se()` is gone.  Consequences:
-
-  * update_curr(): 7.3 hoisted account_cfs_rq_runtime() up, turned the
-    `if (entity_is_task(curr))` block into an early return and re-points
-    cfs_rq at &rq->cfs.  update_curr_bore() is kept in the same relative
-    position (after update_deadline(), before dl_server_update()); the
-    entity_is_task() test it used to depend on is now the early return,
-    so task_of(curr) stays valid.
-
-  * reweight_entity() -> split into reweight_entity() (raw se->load plus
-    PELT) and reweight_eevdf() (se->h_load on the root cfs_rq).  BORE
-    used to export reweight_entity() and poke it directly from bore.c.
-    Exporting either half alone is now wrong -- it would leave se->load
-    and se->h_load inconsistent -- so instead reweight_task_fair(), the
-    one entry point that performs both halves (and the up-front
-    update_curr_fair()), is made non-static under CONFIG_SCHED_BORE.
-    bore.c's reweight_task_by_prio() now builds a struct load_weight and
-    calls it; the existing bore.stop_update latch still breaks the
-    update_curr -> update_curr_bore -> reweight recursion.
-
-  * place_entity(): 7.3 added `nr_queued`/ENQUEUE_QUEUED; BORE defers the
-    calc_delta_fair() of vslice.  Both kept (vslice initialised to 0).
-
-  * requeue_delayed_entity(): 7.3 added a leading `struct cfs_rq *`
-    parameter and dropped the forward declaration (definition now
-    precedes all callers); BORE adds a trailing `int flags`.  Signature
-    merged to (cfs_rq, se, flags) and the forward declaration stays
-    deleted.  Both call sites updated.
-
-  * enqueue_task_fair(): 7.3 moved the for_each_sched_entity() walk into
-    enqueue_hierarchy() and hoisted the delayed-requeue to a single
-    `if (se->on_rq && se->sched_delayed)` before it.  The upstream shape
-    is taken wholesale; the only BORE-side change surviving is passing
-    `flags` to requeue_delayed_entity() at that call.
-
-  * dequeue_task_fair(): 7.3 factored the body out into __dequeue_task().
-    BORE's pre-dequeue hook is kept ahead of it, but retargeted from
-    `cfs_rq_of(&p->se)->curr` to `rq->cfs.curr` + update_curr_eevdf(),
-    since under the flattened tree only the root cfs_rq's `curr` names
-    the running task entity (a group cfs_rq's `curr` no longer does, and
-    update_curr() on it would bail at !entity_is_task()).
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01G4ShiABPJeNpkr9rq5DaqR
 ---
  include/linux/sched.h        |  28 +++
  include/linux/sched/bore.h   |  55 ++++
@@ -79,12 +18,9 @@ Claude-Session: https://claude.ai/code/session_01G4ShiABPJeNpkr9rq5DaqR
  kernel/sched/debug.c         |  61 +++++
  kernel/sched/fair.c          | 171 ++++++++++++-
  kernel/sched/sched.h         |   9 +
- localversion                 |   1 +
- scripts/setlocalversion      |   2 +-
- 16 files changed, 869 insertions(+), 12 deletions(-)
+ 14 files changed, 867 insertions(+), 11 deletions(-)
  create mode 100644 include/linux/sched/bore.h
  create mode 100644 kernel/sched/bore.c
- create mode 100644 localversion
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
 index 8b3d47a325..30c8dc9a4b 100644
@@ -1369,27 +1305,6 @@ index e656c7059b..e8a8f2d2f5 100644
  
  extern int sysctl_resched_latency_warn_ms;
  extern int sysctl_resched_latency_warn_once;
-diff --git a/localversion b/localversion
-new file mode 100644
-index 0000000000..b6752aa36a
---- /dev/null
-+++ b/localversion
-@@ -0,0 +1 @@
-+-bore
-\ No newline at end of file
-diff --git a/scripts/setlocalversion b/scripts/setlocalversion
-index 28169d7e14..5cb02894ac 100755
---- a/scripts/setlocalversion
-+++ b/scripts/setlocalversion
-@@ -117,7 +117,7 @@ scm_version()
- 		# If only the short version is requested, don't bother
- 		# running further git commands
- 		if $short; then
--			echo "+"
-+			#echo "+"
- 			return
- 		fi
- 
 -- 
 2.34.1
 
