@@ -1,7 +1,7 @@
-From 7017196724d6c1326c5ac2187944b81a9c1c13fa Mon Sep 17 00:00:00 2001
+From fc679f6765c92da82ea5698c89bd73803c92b5b7 Mon Sep 17 00:00:00 2001
 From: Masahito S <firelzrd@gmail.com>
 Date: Mon, 7 Sep 2026 05:59:44 +0900
-Subject: [PATCH] linux7.3-rc1-bore-6.8.0
+Subject: [PATCH] linux7.3-rc2-bore-6.8.0
 
 ---
  include/linux/sched.h        |  28 +++
@@ -773,7 +773,7 @@ index e2cf3b08d4..aad2259302 100644
  
  #ifdef CONFIG_CGROUP_CPUACCT
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index f782751920..a38c9a8ba2 100644
+index b998ef6b87..a85267034c 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -99,6 +99,10 @@
@@ -799,7 +799,7 @@ index f782751920..a38c9a8ba2 100644
  	struct load_weight lw;
  
  	if (task_has_idle_policy(p)) {
-@@ -8963,6 +8971,10 @@ void __init sched_init(void)
+@@ -8985,6 +8993,10 @@ void __init sched_init(void)
  	BUG_ON(!sched_class_above(&ext_sched_class, &idle_sched_class));
  #endif
  
@@ -917,7 +917,7 @@ index 72236db679..d11bef5b3d 100644
  	P(se.avg.runnable_sum);
  	P(se.avg.util_sum);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 8dff37059f..fbe2f1fd57 100644
+index ade1eceb39..d65ef57030 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -61,6 +61,10 @@
@@ -1255,7 +1255,7 @@ index 8dff37059f..fbe2f1fd57 100644
  	/*
  	 * Update run-time statistics of the 'current'.
  	 */
- 	update_curr(cfs_rq);
+ 	update_curr_eevdf(cfs_rq);
 +#ifdef CONFIG_SCHED_BORE
 +	restart_burst_rescale_deadline_bore(curr);
 +	if (unlikely(rq->nr_running == 1))
@@ -1266,7 +1266,7 @@ index 8dff37059f..fbe2f1fd57 100644
  	/*
  	 * Tell update_rq_clock() that we've just updated,
  	 * so we don't do microscopic update in schedule()
-@@ -15189,6 +15335,9 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
+@@ -15229,6 +15375,9 @@ static void switched_to_fair(struct rq *rq, struct task_struct *p)
  	WARN_ON_ONCE(p->se.sched_delayed);
  
  	attach_task_cfs_rq(p);
