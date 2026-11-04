@@ -80,6 +80,7 @@ Every time burst score is updated (when the task is dequeued/yielded), its histo
 * Array, for helping me investigate a serious lockup bug and providing me useful test reports.
 * Mario Roy, for providing me good insights by various detailed test reports, hosting a BORE-powered, clearlinux-based optimized kernel, and also helping me integrating some early upstream patches for improvement, by curating them for me. He also helped me fix a bug that was causing massive slow-downs in combination with CGROUP v1.
 * Andrea Righi (the developer of sched-ext and the several amazing schedulers using the framework), for inspiring me about the futex boost feature, and for working together with Mario Roy in their significant contributions to the patch for cache-efficient scheduling decisions improvement, reflected in the changes from v6.5.9 to v6.5.10.
+* XiaoZuo1120, for a careful code audit of v7.0.0 and the report with patches (issue #84, PR #83), which led to the fixes in v7.0.1: converting the wake-up sleep credit to virtual time before deducting it from the deadline, clearing the inherited sleep credit on fork, and walking the children list with the RCU list iterator.
 * And many whom I haven't added here yet.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y5NHO2I)
